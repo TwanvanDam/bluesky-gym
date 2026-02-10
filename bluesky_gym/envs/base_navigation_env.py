@@ -82,7 +82,8 @@ class BaseNavigationEnv(gym.Env):
         heading_to_airport = fn.get_hdg((self.aircraft_initial_position.lat, self.aircraft_initial_position.lon),
                                         (self.airport_details.position.lat, self.airport_details.position.lon))
 
-        bs.traf.cre(ac_name, actype=ac_type, aclat=self.aircraft_initial_position.lat, aclon=self.aircraft_initial_position.lon,
+        bs.traf.cre(ac_name, actype=ac_type, aclat=self.aircraft_initial_position.lat,
+                    aclon=self.aircraft_initial_position.lon,
                     achdg=heading_to_airport, acspd=ac_initial_spd)
 
         self.xy_to_px = self._get_xy_to_px()
@@ -123,7 +124,8 @@ class BaseNavigationEnv(gym.Env):
 
         max_degrees_from_start = 5.0
 
-        return np.sqrt((ac_lon - self.aircraft_initial_position.lon) ** 2 + (ac_lat - self.aircraft_initial_position.lat) ** 2) >= max_degrees_from_start
+        return np.sqrt((ac_lon - self.aircraft_initial_position.lon) ** 2 + (
+                    ac_lat - self.aircraft_initial_position.lat) ** 2) >= max_degrees_from_start
 
     def _check_termination_at_airport(self) -> bool:
         ac_idx = bs.traf.id2idx(ac_name)
@@ -132,7 +134,8 @@ class BaseNavigationEnv(gym.Env):
 
         ac_hdg = bs.traf.hdg[ac_idx]
 
-        reached_airport = abs(self.airport_details.position.lat - ac_lat) < 0.001 and abs(self.airport_details.position.lon - ac_lon) < 0.001
+        reached_airport = abs(self.airport_details.position.lat - ac_lat) < 0.001 and abs(
+            self.airport_details.position.lon - ac_lon) < 0.001
         correct_heading = abs(self.airport_details.hdg - ac_hdg) < 5
         return reached_airport and correct_heading
 
@@ -163,7 +166,6 @@ class BaseNavigationEnv(gym.Env):
         ac_lat = bs.traf.lat[ac_idx]
         ac_lon = bs.traf.lon[ac_idx]
         return Position(lat=ac_lat, lon=ac_lon), ac_hdg
-
 
     def _get_obs(self):
         ac_position, ac_hdg = self._get_aircraft_details()
@@ -202,8 +204,10 @@ class BaseNavigationEnv(gym.Env):
         faf_radius = 30
         faf_degrees = 60
 
-        airport_x_position = (self.airport_details.position.lon - self.aircraft_initial_position.lon) * self.xy_to_px[0] + self.window_size[0] / 2
-        airport_y_position = self.window_size[1] / 2 - (self.airport_details.position.lat - self.aircraft_initial_position.lat) * self.xy_to_px[1]
+        airport_x_position = (self.airport_details.position.lon - self.aircraft_initial_position.lon) * self.xy_to_px[
+            0] + self.window_size[0] / 2
+        airport_y_position = self.window_size[1] / 2 - (
+                    self.airport_details.position.lat - self.aircraft_initial_position.lat) * self.xy_to_px[1]
         airport_heading = self.airport_details.hdg
 
         faf_x_position = airport_x_position - np.sin(np.deg2rad(airport_heading)) * airport_length / 2
@@ -234,8 +238,10 @@ class BaseNavigationEnv(gym.Env):
 
         ac_position, ac_heading = self._get_aircraft_details()
 
-        ac_x_position = (ac_position.lon - self.aircraft_initial_position.lon) * self.xy_to_px[0] + self.window_size[0] / 2
-        ac_y_position = self.window_size[1] / 2 - (ac_position.lat - self.aircraft_initial_position.lat) * self.xy_to_px[1]
+        ac_x_position = (ac_position.lon - self.aircraft_initial_position.lon) * self.xy_to_px[0] + self.window_size[
+            0] / 2
+        ac_y_position = self.window_size[1] / 2 - (ac_position.lat - self.aircraft_initial_position.lat) * \
+                        self.xy_to_px[1]
 
         heading_end_x = ac_x_position + np.sin(np.deg2rad(ac_heading)) * ac_heading_length
         heading_end_y = ac_y_position - np.cos(np.deg2rad(ac_heading)) * ac_heading_length
