@@ -375,13 +375,13 @@ class BaseNavigationEnv(gym.Env):
         if self.render_mode is None:
             return None
 
-        canvas = self._initialize_pygame()
+        canvas = self.initialize_pygame(self.window_size)
         self._handle_pygame_events()
 
         for draw_function in self.get_render_layers():
             draw_function(canvas)
 
-        return self._present_canvas(canvas)
+        return self._present_canvas(canvas, self.render_mode)
 
     def get_render_layers(self) -> list[Callable]:
         """Return a list of functions that can be run to render the environment."""
@@ -390,26 +390,26 @@ class BaseNavigationEnv(gym.Env):
                 self._draw_aircraft,
                 self._draw_observation_text]
 
-    def _initialize_pygame(self):
-        if self.window is None and self.render_mode == "human":
+    def initialize_pygame(self, canvas_size: tuple[int, int]):
+        if self.window is None:
             pygame.init()
             pygame.display.init()
-            self.window = pygame.display.set_mode(self.window_size)
+            self.window = pygame.display.set_mode(canvas_size)
             self.clock = pygame.time.Clock()
-        canvas = pygame.Surface(self.window_size)
+        canvas = pygame.Surface(canvas_size)
         return canvas
 
-    def _present_canvas(self, canvas: pygame.Surface) -> None | np.ndarray:
-        if self.render_mode == "human":
+    def _present_canvas(self, canvas: pygame.Surface, render_mode: str | None) -> None | np.ndarray:
+        if render_mode == "human":
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
-        elif self.render_mode == "rgb_array":
+        elif render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
 
     def _handle_pygame_events(self) -> None:
-        if self.render_mode != "human" or self.window is None:
+        if self.window is None:
             return
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

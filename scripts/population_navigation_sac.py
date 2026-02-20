@@ -72,7 +72,7 @@ if __name__ == "__main__":
     map_gen = partial(generate_random_shapes_map, array_size=(512, 512), obstacle_size=200)
     map_source = RandomMapSource(map_crs="EPSG:3035", map_transform=train_transform, random_map_generator=map_gen)
 
-    wrapped = Population(env, observation_shape=(32, 32), observation_range=(50_000, 50_000), map_source=map_source)
+    wrapped = Population(env, observation_shape=(32, 32), observation_range=(50_000, 50_000), map_source=map_source, render_mode="human")
 
     policy_kwargs = dict(
         features_extractor_class=CombinedExtractor,
@@ -82,12 +82,45 @@ if __name__ == "__main__":
     model = SAC("MultiInputPolicy", wrapped, policy_kwargs=policy_kwargs, verbose=1, device="cuda")
 
     # Quick test: run a few steps to verify the extractor works
-    model.learn(total_timesteps=1000)
+    # model.learn(total_timesteps=1000)
 
-    # # Or run manually:
-    # obs, info = wrapped.reset()
-    # done = False
-    # while not done:
-    #     action, _state = model.predict(obs, deterministic=True)
-    #     obs, reward, terminated, truncated, info = wrapped.step(action)
-    #     done = terminated or truncated
+    # Set to True to enable debugging with random actions
+    DEBUG_MODE = True
+    DEBUG_EPISODES = 5
+    print("=" * 60)
+    print("DEBUG MODE: Sampling random actions from action space")
+    print(f"Action space: {wrapped.action_space}")
+    print(f"Observation space: {wrapped.observation_space}")
+    print(f"Running {DEBUG_EPISODES} episodes...")
+    print("=" * 60)
+
+    for episode in range(DEBUG_EPISODES):
+        obs, info = wrapped.reset()
+        done = False
+        step_count = 0
+        episode_reward = 0
+
+        print(f"\nEpisode {episode + 1}/{DEBUG_EPISODES}")
+        print(f"Initial observation keys: {obs.keys()}")
+        print(f"Population map shape: {obs['population_map'].shape}")
+
+        while not done:
+            # Sample random action
+            action = wrapped.action_space.sample()
+
+            obs, reward, terminated, truncated, info = wrapped.step(action)
+
+            done = terminated or truncated
+
+            step_count += 1
+            episode_reward += reward
+
+            if step_count % 10 == 0:
+                print(f"  Step {step_count}: reward={reward:.3f}, cumulative={episode_reward:.3f}")
+
+        print(f"Episode {episode + 1} finished: {step_count} steps, total reward: {episode_reward:.3f}")
+        if "termination_stats" in info:
+            print(f"Termination stats: {info['termination_stats']}")
+
+    wrapped.close()
+    print("\nDebug session complete!")
