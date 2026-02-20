@@ -1,5 +1,8 @@
 import itertools
+from collections import deque
 from dataclasses import dataclass
+from enum import Enum
+from typing import Callable
 
 import bluesky as bs
 import gymnasium as gym
@@ -12,6 +15,34 @@ from matplotlib.path import Path
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 
+
+class TerminationReason(Enum):
+    SUCCESS = "success"
+    OUT_OF_BOUNDS = "out_of_bounds"
+    FAILED_APPROACH = "failed_approach"
+    MAX_STEPS = "max_steps"
+    NONE = "none"
+
+
+class EpisodeTerminationTracker:
+    def __init__(self, window_size: int = 50):
+        self.window_size = window_size
+        self.episode_reasons = deque(maxlen=window_size)
+
+    def log_episode(self, reason: TerminationReason):
+        if len(self.episode_reasons) == self.window_size:
+            self.episode_reasons.popleft()
+        self.episode_reasons.append(reason)
+
+    def get_statistics(self) -> dict:
+        if not self.episode_reasons:
+            return {}
+
+        stats = {reason.value: 100 * sum(1 / 50 for episode_reason in self.episode_reasons if episode_reason == reason)
+                 for reason in TerminationReason}
+        return stats
+
+
 @dataclass
 class Position:
     lat: float
@@ -23,50 +54,69 @@ class Airport:
     position: Position
     hdg: float
 
-def deg_to_360(angle: float) -> float:
-    """Normalizes angle to the [0, 360] interval"""
-    return (angle + 360) % 360
 
-def deg_to_180(angle: float) -> float:
-    """Normalizes angle to the [-180, -180] interval"""
-    return ((angle + 180) % 360) - 180
+@dataclass
+class NavigationConfig:
+    ac_name: str = "KL001"
+    ac_type: str = "a320"
+    ac_initial_spd: int = 200  # [ m/s ]
+    ac_initial_alt: int = 3_000  # [ m ]
+
+    # WGS84 [ degrees ]
+    lon_min: float = 3.0
+    lon_max: float = 7.5
+    lat_min: float = 50.5
+    lat_max: float = 54.0
+    airport_lat: float = 52.31
+    airport_lon: float = 4.7
+
+    pygame_crs: str = "EPSG:3035"
+
+    # Simulation Parameters
+    max_steps: int = 250
+    sim_dt: int = 3  # s
+    action_time: int = 60  # s
+
+    # Termination conditions
+    faf_distance: float = 25  # km
+    iaf_angle: float = 60  # degrees
+    iaf_distance: float = 30  # km
 
 
 class BaseNavigationEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 120}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode: str | None = None, ac_name:str="KL001", ac_type:str="a320", window_size:int=512, ac_initial_spd:int=200):
-        self.ac_name = ac_name
-        self.ac_type = ac_type
-        self.ac_initial_spd = ac_initial_spd # [m/s]
-        self.ac_initial_alt = 3_000 # [m]
+    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
+                 config: NavigationConfig = NavigationConfig()):
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
 
-        self.bluesky_crs = "EPSG:4326"
-        self.map_crs = "EPSG:3035"
+        self.ac_name = config.ac_name
+        self.ac_type = config.ac_type
+        self.ac_initial_spd = config.ac_initial_spd  # [m/s]
+        self.ac_initial_alt = config.ac_initial_alt  # [m]
 
+        self.bluesky_crs = "WGS84"
+        self.pygame_crs = config.pygame_crs
         self.coordinate_transformer = pyproj.Transformer.from_crs(
             self.bluesky_crs,
-            self.map_crs ,
+            self.pygame_crs,
             always_xy=True
         )
 
-        self.lon_min, self.lon_max = 3.0, 7.5
-        self.lat_min, self.lat_max = 50.5, 54.0
+        self.lon_min, self.lon_max = config.lon_min, config.lon_max
+        self.lat_min, self.lat_max = config.lat_min, config.lat_max
+        self.airport_lon, self.airport_lat = config.airport_lon, config.airport_lat
+
         self.lon_center = (self.lon_max + self.lon_min) / 2
         self.lat_center = (self.lat_max + self.lat_min) / 2
 
         self.x_min, self.y_min = self.coordinate_transformer.transform(self.lon_min, self.lat_min)
         self.x_max, self.y_max = self.coordinate_transformer.transform(self.lon_max, self.lat_max)
 
-        # pygame variables
-        self.window_size = window_size
-        self.window: pygame.Surface | None = None
-        self.clock = None
-        self.xy_to_px: float | None = None
-
         self.observation_space = spaces.Dict(
             {
-                "FAF_slant_range": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64),
+                "IAF_slant_range": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64),
                 "Heading_to_Airport": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
                 "Airport_Azimuth": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
             }
@@ -74,13 +124,18 @@ class BaseNavigationEnv(gym.Env):
 
         self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
-        assert render_mode is None or render_mode in self.metadata["render_modes"]
-        self.render_mode = render_mode
+        self._reward_components: list[Callable] = [
+            self._fuel_reward,
+            self._termination_reward,
+            self._boundary_reward,
+            self._truncation_reward,
+        ]
 
+        self.episode_tracker = EpisodeTerminationTracker()
 
-        self.max_steps = 500
-        self.sim_dt = 5  # s
-        self.action_time = 120
+        self.max_steps = config.max_steps
+        self.sim_dt = config.sim_dt  # s
+        self.action_time = config.action_time
         self.action_frequency = int(self.action_time / self.sim_dt)
         self.current_step: int | None = None
 
@@ -94,90 +149,76 @@ class BaseNavigationEnv(gym.Env):
 
         self.fuel_used: float | None = None
         self.airport_details: Airport | None = None
-        self.aircraft_initial_position: Position | None = None
-        self.aircraft_positions = []
+        self.aircraft_positions: list[Position] = []
 
-        self.aircraft_length = 20 # pixels
-        self.aircraft_width = 10 # pixels
-        self.aircraft_heading_length = 50 # pixels
+        self.faf_distance = config.faf_distance  # [ km ]
+        self.iaf_angle = config.iaf_angle  # [ degrees ]
+        self.iaf_distance = config.iaf_distance  # [ km ]
 
-        self.faf_distance = 25 #km
-        self.iaf_angle = 60 #degrees
-        self.iaf_distance = 30 #km
+        self.aircraft_length = 20  # [ pixels ]
+        self.aircraft_width = 10  # [ pixels ]
+        self.aircraft_heading_length = 50  # [ pixels ]
 
-        self.airport_length = 30
-        self.airport_width = 10
-        self.faf_radius = 30
+        self.airport_length = 30  # [ pixels ]
+        self.airport_width = 10  # [ pixels ]
+        self.faf_radius = 30  # [ pixels ]
 
+        # pygame variables
+        self.window_size = window_size
+        self.window: pygame.Surface | None = None
+        self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
-
 
     def reset(self, seed=None, options=None):
         bs.traf.reset()
         super().reset(seed=seed)
 
+        self.current_step = 0
         self.fuel_used = 0.0
-        self.airport_details = Airport(
-            Position(lat=52.31,lon=4.76),
-            hdg=float(np.random.randint(low=1, high=36) * 10)
-        )
 
+        self.airport_details = self._generate_airport(self.np_random)
         self._set_terminal_condition()
-        self.aircraft_initial_position = Position(lat=self.airport_details.position.lat + np.random.normal(loc=0, scale=1),
-                                                    lon=self.airport_details.position.lon + np.random.normal(loc=0, scale=1))
 
-        self.aircraft_positions = []
-
-        heading_to_airport = fn.get_hdg((self.aircraft_initial_position.lat, self.aircraft_initial_position.lon),
-                                       (self.airport_details.position.lat, self.airport_details.position.lon))
-
-        bs.traf.cre(self.ac_name, actype=self.ac_type, aclat=self.aircraft_initial_position.lat,
-                    aclon=self.aircraft_initial_position.lon,
+        aircraft_initial_position = self._generate_initial_position(self.np_random)
+        self.aircraft_positions = [aircraft_initial_position]
+        heading_to_airport = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
+                                        (self.airport_details.position.lat, self.airport_details.position.lon))
+        bs.traf.cre(self.ac_name, actype=self.ac_type, aclat=aircraft_initial_position.lat,
+                    aclon=aircraft_initial_position.lon,
                     achdg=heading_to_airport, acspd=self.ac_initial_spd)
 
         if self.render_mode is not None:
             self.render()
-        self.current_step = 0
         return self._get_obs(), {}
 
     def step(self, action):
         _, ac_hdg = self.get_aircraft_details()
-        new_heading = deg_to_360(ac_hdg + action[0] * 90)
+        new_heading = fn.bound_angle_0_360(ac_hdg + action[0] * 180)
         bs.stack.stack(f"HDG {self.ac_name} {new_heading}")
 
         for i in range(self.action_frequency):
             bs.sim.step()
             ac_pos, _ = self.get_aircraft_details()
             self.aircraft_positions.append(ac_pos)
+
+            if self._get_terminal_condition()[1]:
+                break
+
+        reward, terminated, truncated = self._get_reward()
         self.current_step += 1
 
         observation = self._get_obs()
-        reward, terminated, truncated = self._get_reward()
-        info = {"step_reward" : reward}
+        info = {}
 
-        # bluesky reset?? bs.sim.reset()
         if terminated or truncated:
+            info["termination_stats"] = self.episode_tracker.get_statistics()
             for acid in bs.traf.id:
                 idx = bs.traf.id2idx(acid)
                 bs.traf.delete(idx)
+
         elif self.render_mode is not None:
             self.render()
         return observation, reward, terminated, truncated, info
-
-    def _check_out_of_bounds(self) -> bool:
-        aircraft_position, aircraft_heading = self.get_aircraft_details()
-        aircraft_inside_bounds = (self.lat_min <= aircraft_position.lat <= self.lat_max) and (self.lon_min <= aircraft_position.lon <= self.lon_max)
-        return not aircraft_inside_bounds
-
-    def _bluesky_to_pygame(self, position: Position) -> tuple[int, int]:
-        x_meters, y_meters = self.coordinate_transformer.transform(position.lon, position.lat)
-
-        norm_x = (x_meters - self.x_min) / (self.x_max - self.x_min)
-        norm_y = (y_meters - self.y_min) / (self.y_max - self.y_min)
-
-        screen_x = int(norm_x * self.window_size)
-        screen_y = int(self.window_size - (norm_y * self.window_size))
-        return screen_x, screen_y
 
     def close(self) -> None:
         if self.window is not None:
@@ -185,27 +226,23 @@ class BaseNavigationEnv(gym.Env):
             pygame.quit()
             self.window = None
 
-    def _get_reward(self, fuel_coeff: float = 0.025):
-        terminated, reward = self._get_terminal_condition()
-        truncated = self.current_step >= self.max_steps
+    def _get_obs(self):
+        ac_position, ac_hdg = self.get_aircraft_details()
 
-        ac_idx = bs.traf.id2idx(self.ac_name)
-        fuel_flow = bs.traf.perf.fuelflow[ac_idx]
+        correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
+                                      (self.faf_lat, self.faf_lon)))
 
-        if self._check_out_of_bounds():
-            print("Out of Bounds")
-            terminated = True
-            reward += -1
+        heading_to_airport = fn.bound_angle_positive_negative_180(correct_heading - ac_hdg) / 180
+        airport_azimuth = fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg) / 180
 
-        if truncated:
-            reward += -1
-            print("Truncated")
-
-        #ac_position, ac_hdg = self.get_aircraft_details()
-        #distance = np.sqrt((self.iaf_center_lat - ac_position.lat)**2 + (self.iaf_center_lon - ac_position.lon)**2)
-
-        reward += - fuel_coeff * fuel_flow # - distance / 500
-        return reward, terminated, truncated
+        observation = {
+            "IAF_slant_range": np.array(
+                [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
+                dtype=np.float64),
+            "Heading_to_Airport": np.array([np.clip(heading_to_airport, -1, 1)], dtype=np.float64),
+            "Airport_Azimuth": np.array([np.clip(airport_azimuth, -1, 1)], dtype=np.float64),
+        }
+        return observation
 
     def get_aircraft_details(self) -> tuple[Position, float]:
         ac_idx = bs.traf.id2idx(self.ac_name)
@@ -215,22 +252,124 @@ class BaseNavigationEnv(gym.Env):
         ac_lon = bs.traf.lon[ac_idx]
         return Position(lat=ac_lat, lon=ac_lon), ac_hdg
 
-    def _get_obs(self):
-        ac_position, ac_hdg = self.get_aircraft_details()
+    def _get_reward(self):
+        total_reward = 0.0
+        terminated = False
+        termination_reason = TerminationReason.NONE
+        truncated = self.current_step >= self.max_steps
 
-        correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
-                               (self.faf_lat, self.faf_lon)))
+        for component in self._reward_components:
+            component_reward, component_terminated, reason = component()
+            total_reward += component_reward
+            if component_terminated and termination_reason == TerminationReason.NONE:
+                self.episode_tracker.log_episode(reason=reason)
+            terminated = terminated or component_terminated
 
-        heading_to_airport = deg_to_180(correct_heading - ac_hdg) / 180
-        airport_azimuth = deg_to_180(self.airport_details.hdg - ac_hdg) / 180
+        return total_reward, terminated, truncated
 
-        observation = {
-            "FAF_slant_range": np.array([np.sqrt((self.faf_lat - ac_position.lat)**2 + (self.faf_lon - ac_position.lon)**2)], dtype=np.float64),
-            "Heading_to_Airport": np.array([np.clip(heading_to_airport, -1, 1)], dtype=np.float64),
-            "Airport_Azimuth": np.array([np.clip(airport_azimuth, -1, 1)], dtype=np.float64),
-        }
+    def add_reward_component(self, function: Callable) -> None:
+        self._reward_components.append(function)
 
-        return observation
+    def _fuel_reward(self, coeff: float = 0.025) -> tuple[float, bool, TerminationReason]:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        fuel_flow = bs.traf.perf.fuelflow[ac_idx]
+        terminated = False
+        return - coeff * fuel_flow, terminated, TerminationReason.NONE
+
+    def _boundary_reward(self) -> tuple[float, bool, TerminationReason]:
+        if self._check_out_of_bounds():
+            return -1.0, True, TerminationReason.OUT_OF_BOUNDS
+        else:
+            return 0.0, False, TerminationReason.NONE
+
+    def _truncation_reward(self) -> tuple[float, bool, TerminationReason]:
+        if self.current_step >= self.max_steps:
+            return -1.0, False, TerminationReason.MAX_STEPS
+        return 0.0, False, TerminationReason.NONE
+
+    def _termination_reward(self) -> tuple[float, bool, TerminationReason]:
+        return self._get_terminal_condition()
+
+    def _set_terminal_condition(self):
+        """Adapted from PathPlanningEnv by Groot et al."""
+        num_points = 36
+
+        airport_lat = self.airport_details.position.lat
+        airport_lon = self.airport_details.position.lon
+        airport_hdg = self.airport_details.hdg
+
+        self.faf_lat, self.faf_lon = fn.get_point_at_distance(airport_lat, airport_lon, self.faf_distance,
+                                                              fn.bound_angle_0_360(airport_hdg + 180))
+        cw_bound = fn.bound_angle_0_360(airport_hdg + 180) + (self.iaf_angle / 2)
+        ccw_bound = fn.bound_angle_0_360(airport_hdg + 180) - (self.iaf_angle / 2)
+
+        angles = np.linspace(cw_bound, ccw_bound, num_points)
+        iaf_lat, iaf_lon = fn.get_point_at_distance(self.faf_lat, self.faf_lon, self.iaf_distance, angles)
+        self.iaf_center_lat, self.iaf_center_lon = iaf_lat[num_points // 2], iaf_lon[num_points // 2]
+
+        command = f"POLYLINE SINK"
+        for lat, lon in zip(iaf_lat, iaf_lon):
+            command += f" {lat} {lon}"
+        bs.stack.stack(command)
+
+        bs.stack.stack(
+            f"POLYLINE RESTRICT {iaf_lat[0]} {iaf_lon[0]} {self.faf_lat} {self.faf_lon} {iaf_lat[-1]} {iaf_lon[-1]}")
+        bs.sim.step()
+
+    def _get_terminal_condition(self) -> tuple[float, bool, TerminationReason]:
+        terminated = False
+        reason = TerminationReason.NONE
+        reward = 0
+
+        shapes = bs.tools.areafilter.basic_shapes
+        current_pos, _ = self.get_aircraft_details()
+        if self.aircraft_positions:
+            last_pos = self.aircraft_positions[-1]
+            line_ac = Path(np.array([[last_pos.lat, last_pos.lon], [current_pos.lat, current_pos.lon]]))
+            line_sink = Path(np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) // 2, 2)))
+            line_restrict = Path(
+                np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2)))
+
+            if line_sink.intersects_path(line_ac):
+                reward = 50
+                reason = TerminationReason.SUCCESS
+                terminated = True
+
+            elif line_restrict.intersects_path(line_ac):
+                reward = -1
+                reason = TerminationReason.FAILED_APPROACH
+                terminated = True
+
+        return reward, terminated, reason
+
+    def _check_out_of_bounds(self) -> bool:
+        aircraft_position, aircraft_heading = self.get_aircraft_details()
+        aircraft_inside_bounds = (self.lat_min <= aircraft_position.lat <= self.lat_max) and (
+                    self.lon_min <= aircraft_position.lon <= self.lon_max)
+        return not aircraft_inside_bounds
+
+    def _generate_airport(self, np_random: np.random.Generator) -> Airport:
+        return Airport(
+            Position(lat=self.airport_lat,
+                     lon=self.airport_lon),
+            hdg=float(np_random.integers(low=1, high=36) * 10)
+        )
+
+    def _generate_initial_position(self, np_random: np.random.Generator) -> Position:
+        return Position(
+            lat=self.airport_details.position.lat + np_random.normal(loc=0, scale=1),
+            lon=self.airport_details.position.lon + np_random.normal(loc=0, scale=1)
+        )
+
+    def _bluesky_to_pygame(self, position: Position) -> tuple[int, int]:
+        x_meters, y_meters = self.coordinate_transformer.transform(position.lon, position.lat)
+
+        norm_x = (x_meters - self.x_min) / (self.x_max - self.x_min)
+        norm_y = (y_meters - self.y_min) / (self.y_max - self.y_min)
+
+        screen_x = int(norm_x * self.window_size[0])
+        screen_y = int((1 - norm_y) * self.window_size[1])
+        return screen_x, screen_y
 
     def render(self):
         if self.render_mode is None:
@@ -239,29 +378,45 @@ class BaseNavigationEnv(gym.Env):
         canvas = self._initialize_pygame()
         self._handle_pygame_events()
 
-        self._draw_aircraft(canvas)
+        for draw_function in self.get_render_layers():
+            draw_function(canvas)
 
-        self._draw_airport(canvas)
+        return self._present_canvas(canvas)
 
-        self._draw_observation_text(canvas)
+    def get_render_layers(self) -> list[Callable]:
+        """Return a list of functions that can be run to render the environment."""
+        return [self._draw_background,
+                self._draw_airport,
+                self._draw_aircraft,
+                self._draw_observation_text]
 
+    def _initialize_pygame(self):
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode(self.window_size)
+            self.clock = pygame.time.Clock()
+        canvas = pygame.Surface(self.window_size)
+        return canvas
+
+    def _present_canvas(self, canvas: pygame.Surface) -> None | np.ndarray:
         if self.render_mode == "human":
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
         elif self.render_mode == "rgb_array":
-            return np.transpose(pygame.surfarray.array3d(canvas), (1,0,2))
+            return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
 
-    def lat_lon_to_screen_pos(self, position: Position) -> tuple[float, float]:
-        """Converts lat, lon coordinates in the form of a Position object to pygame coordinates."""
-        screen_center = self.airport_details.position
+    def _handle_pygame_events(self) -> None:
+        if self.render_mode != "human" or self.window is None:
+            return
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.close()
 
-        screen_x = self.window_size /2 + self.xy_to_px * (position.lon - screen_center.lon)
-        screen_y = self.window_size /2 - self.xy_to_px * (position.lat - screen_center.lat)
-
-        return screen_x, screen_y
-
+    def _draw_background(self, canvas: pygame.Surface) -> None:
+        canvas.fill(self.blue_background)
 
     def _draw_airport(self, canvas):
         airport_color = pygame.Color("black")
@@ -317,16 +472,6 @@ class BaseNavigationEnv(gym.Env):
             x2, y2 = self._bluesky_to_pygame(Position(lat=point_2[0], lon=point_2[1]))
             pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
 
-    def _initialize_pygame(self):
-        if self.window is None and self.render_mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.window = pygame.display.set_mode((self.window_size, self.window_size))
-            self.clock = pygame.time.Clock()
-        canvas = pygame.Surface((self.window_size, self.window_size))
-        canvas.fill(self.blue_background)
-        return canvas
-
     def _draw_observation_text(self, canvas):
         """Draw observation values as text in the upper-left corner."""
         font = pygame.font.Font(None, 24)
@@ -338,67 +483,9 @@ class BaseNavigationEnv(gym.Env):
 
         for key, value in obs.items():
             if "Heading" in key or "Azimuth" in key:
-                text = f"{key}: {value[0]*180:.4f}"
+                text = f"{key}: {value[0] * 180:.4f}"
             else:
                 text = f"{key}: {value[0]:.4f}"
             text_surface = font.render(text, True, text_color)
             canvas.blit(text_surface, (10, y_offset))
             y_offset += 30
-
-    def _handle_pygame_events(self) -> None:
-        if self.render_mode != "human" or self.window is None:
-            return
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.close()
-
-    def _set_terminal_condition(self):
-        """Adapted from PathPlanningEnv by Groot et al."""
-        num_points = 36
-
-        airport_lat = self.airport_details.position.lat
-        airport_lon = self.airport_details.position.lon
-        airport_hdg = self.airport_details.hdg
-
-        self.faf_lat, self.faf_lon = fn.get_point_at_distance(airport_lat, airport_lon, self.faf_distance,
-                                                    deg_to_360(airport_hdg + 180))
-        cw_bound = deg_to_360(airport_hdg + 180) + (self.iaf_angle / 2)
-        ccw_bound = deg_to_360(airport_hdg + 180) - (self.iaf_angle / 2)
-
-        angles = np.linspace(cw_bound, ccw_bound, num_points)
-        iaf_lat, iaf_lon = fn.get_point_at_distance(self.faf_lat, self.faf_lon, self.iaf_distance, angles)
-        self.iaf_center_lat, self.iaf_center_lon = iaf_lat[num_points // 2], iaf_lon[num_points // 2]
-
-        command = f"POLYLINE SINK"
-        for lat, lon in zip(iaf_lat, iaf_lon):
-            command += f" {lat} {lon}"
-        bs.stack.stack(command)
-
-        bs.stack.stack(f"POLYLINE RESTRICT {iaf_lat[0]} {iaf_lon[0]} {self.faf_lat} {self.faf_lon} {iaf_lat[-1]} {iaf_lon[-1]}")
-        bs.sim.step()
-
-    def _get_terminal_condition(self) -> tuple[bool, float]:
-        terminated = False
-        reward = 0
-
-        shapes = bs.tools.areafilter.basic_shapes
-        current_pos, _ = self.get_aircraft_details()
-        if self.aircraft_positions:
-            last_pos = self.aircraft_positions[-1]
-            line_ac = Path(np.array([[last_pos.lat, last_pos.lon], [current_pos.lat, current_pos.lon]]))
-            line_sink = Path(np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) //2, 2)))
-            line_restrict = Path(np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) //2, 2)))
-
-            if line_sink.intersects_path(line_ac):
-                print("Reached airport Successfully")
-                reward = 50
-                terminated = True
-
-            elif line_restrict.intersects_path(line_ac):
-                print("Failed to reach airport")
-                reward = -1
-                terminated = True
-
-        return terminated, reward
-
-

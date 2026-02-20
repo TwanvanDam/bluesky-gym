@@ -21,6 +21,20 @@ def bound_angle_positive_negative_180(angle_deg: float) -> float:
     else:
         return angle_deg
 
+def bound_angle_0_360(angle: float) -> float:
+    """ maps any angle in degrees to the [0,360] interval
+    Parameters
+    __________
+    angle_deg: float
+        angle that needs to be mapped (in degrees)
+
+    Returns
+    __________
+    angle_deg: float
+        input angle mapped to the interval [0,360] (in degrees)
+    """
+    return (angle + 360) % 360
+
 def get_point_at_distance(lat1, lon1, d, bearing, R=6371):
     """
     lat: latitude of the reference point, in degrees
