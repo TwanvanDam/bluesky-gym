@@ -38,9 +38,9 @@ class Population(gym.Wrapper):
 
         assert isinstance(self.env.observation_space, spaces.Dict)
         self.observation_space = spaces.Dict({
-            **self.env.observation_space.spaces,
-            "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
-        })
+            **self.env.observation_space.spaces }) #,
+           # "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
+        #})
         self.env.add_reward_component(self._get_noise_reward)
 
 
@@ -54,7 +54,7 @@ class Population(gym.Wrapper):
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+        observation = {**observation} #, "population_map": self.population_observation}
 
         self.render()
         return observation, info
@@ -63,7 +63,7 @@ class Population(gym.Wrapper):
         observation, reward, terminated, truncated, info = self.env.step(action)
         if not (terminated or truncated):
             self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+        observation = {**observation} #, "population_map": self.population_observation}
         if not (terminated or truncated):
             self.render()
         return observation, reward, terminated, truncated, info
@@ -77,14 +77,15 @@ class Population(gym.Wrapper):
         center_xy = self.transformer.transform(center_position.lon, center_position.lat)
 
         # Calculate the resolution (meters per pixel) for the output slice
-        res_x = out_meters[0] / out_shape[0]
-        res_y = out_meters[1] / out_shape[1]
+        rows, cols = out_shape
+        res_x = out_meters[0] / cols
+        res_y = out_meters[1] / rows
 
         dst_transform = (
                 Affine.translation(*center_xy) *
                 Affine.rotation(- orientation) *
                 Affine.scale(res_x, -res_y) *
-                Affine.translation(-out_shape[0] / 2, -out_shape[1] / 2)
+                Affine.translation(- cols / 2, -rows / 2)
         )
 
         destination = np.zeros(out_shape)
@@ -138,7 +139,6 @@ class Population(gym.Wrapper):
             self.env._draw_airport,
             self.env._draw_aircraft,
             self._draw_box_around_aircraft,
-            # self.env._draw_observation_text,
         ]
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
@@ -157,7 +157,6 @@ class Population(gym.Wrapper):
         color_data = matplotlib.colormaps[self.color_map](normalized_map)
         rgba_array = (color_data * 255).astype(np.uint8)
         rgba_array[sea_mask, 3] = 0
-        # return np.transpose(rgba_array, (1, 0, 2))
         return rgba_array
 
     def _render_array(self, canvas: pygame.Surface, position: tuple[int,int], array: np.ndarray, transparent:bool=True) -> None:
@@ -171,31 +170,38 @@ class Population(gym.Wrapper):
 
         canvas.blit(heatmap_surf, position)
 
+    def _get_view_corners_screen(self, center_position: Position, orientation: float,
+                                 out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[
+        tuple[float, float]]:
+        center_xy = self.transformer.transform(center_position.lon, center_position.lat)
+
+        rows, cols = out_shape
+        res_x = out_meters[0] / cols
+        res_y = out_meters[1] / rows
+
+        dst_transform = (
+                Affine.translation(*center_xy) *
+                Affine.rotation(-orientation) *
+                Affine.scale(res_x, -res_y) *
+                Affine.translation(-cols / 2, -rows / 2)
+        )
+
+        # Pixel corners: (col, row)
+        pixel_corners = [(0, 0), (cols, 0), (cols, rows), (0, rows)]
+
+        screen_corners = []
+        for col, row in pixel_corners:
+            x, y = dst_transform * (col, row)
+            screen_x, screen_y = self.env.meters_to_pix((x, y))
+            screen_corners.append((screen_x, screen_y))
+
+        return screen_corners
+
     def _draw_box_around_aircraft(self, canvas):
         ac_position, ac_heading = self.env.get_aircraft_details()
-
-        x_meters, y_meters = self.env.coordinate_transformer.transform(ac_position.lon, ac_position.lat)
-        half_w = self.observation_range[0] / 2
-        half_h = self.observation_range[1] / 2
-
-        corners = [(-half_w, -half_h), (-half_w, half_h), (half_w, half_h), (half_w, -half_h)]
-        angle = np.deg2rad(-ac_heading)
-        cos_a, sin_a = np.cos(angle), np.sin(angle)
-
-        rotated = []
-        for dx, dy in corners:
-            rx = dx * cos_a - dy * sin_a
-            ry = dx * sin_a + dy * cos_a
-            x = x_meters + rx
-            y = y_meters + ry
-
-            norm_x = (x - self.env.x_min) / (self.env.x_max - self.env.x_min)
-            norm_y = (y - self.env.y_min) / (self.env.y_max - self.env.y_min)
-            screen_x = norm_x * self.env.window_size[0]
-            screen_y = (1 - norm_y) * self.env.window_size[1]
-            rotated.append((screen_x, screen_y))
-
-        pygame.draw.polygon(canvas, pygame.color.Color("red"), rotated, width=2)
+        corners = self._get_view_corners_screen(ac_position, ac_heading,
+                                                self.observation_shape, self.observation_range)
+        pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
 
 
 

@@ -361,15 +361,17 @@ class BaseNavigationEnv(gym.Env):
             lon=self.airport_details.position.lon + np_random.normal(loc=0, scale=1)
         )
 
-    def _bluesky_to_pygame(self, position: Position) -> tuple[int, int]:
+    def lat_lon_to_pix(self, position: Position) -> tuple[int, int]:
         x_meters, y_meters = self.coordinate_transformer.transform(position.lon, position.lat)
 
-        norm_x = (x_meters - self.x_min) / (self.x_max - self.x_min)
-        norm_y = (y_meters - self.y_min) / (self.y_max - self.y_min)
+        return self.meters_to_pix((x_meters, y_meters))
 
+    def meters_to_pix(self, position_meters: tuple[float, float]) -> tuple[int, int]:
+        norm_x = (position_meters[0] - self.x_min) / (self.x_max - self.x_min)
+        norm_y = (position_meters[1] - self.y_min) / (self.y_max - self.y_min)
         screen_x = int(norm_x * self.window_size[0])
         screen_y = int((1 - norm_y) * self.window_size[1])
-        return screen_x, screen_y
+        return screen_x , screen_y
 
     def render(self):
         if self.render_mode is None:
@@ -422,7 +424,7 @@ class BaseNavigationEnv(gym.Env):
         airport_color = pygame.Color("black")
         red_dot_color = pygame.Color("red")
 
-        airport_x_position, airport_y_position = self._bluesky_to_pygame(self.airport_details.position)
+        airport_x_position, airport_y_position = self.lat_lon_to_pix(self.airport_details.position)
         shapes = bs.tools.areafilter.basic_shapes
         line_sink = np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) // 2, 2))
         line_restrict = np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2))
@@ -444,11 +446,11 @@ class BaseNavigationEnv(gym.Env):
 
         red_line_color = pygame.Color("red")
         for point_1, point_2 in itertools.pairwise(self.aircraft_positions):
-            x1, y1 = self._bluesky_to_pygame(point_1)
-            x2, y2 = self._bluesky_to_pygame(point_2)
+            x1, y1 = self.lat_lon_to_pix(point_1)
+            x2, y2 = self.lat_lon_to_pix(point_2)
             pygame.draw.line(canvas, red_line_color, (x1, y1), (x2, y2), 2)
 
-        ac_x_position, ac_y_position = self._bluesky_to_pygame(ac_position)
+        ac_x_position, ac_y_position = self.lat_lon_to_pix(ac_position)
 
         heading_end_x = ac_x_position + np.sin(np.deg2rad(ac_heading)) * self.aircraft_heading_length
         heading_end_y = ac_y_position - np.cos(np.deg2rad(ac_heading)) * self.aircraft_heading_length
@@ -468,8 +470,8 @@ class BaseNavigationEnv(gym.Env):
 
     def _draw_line_from_points(self, canvas: pygame.Surface, color: pygame.Color, points: list[Position]) -> None:
         for point_1, point_2 in itertools.pairwise(points):
-            x1, y1 = self._bluesky_to_pygame(Position(lat=point_1[0], lon=point_1[1]))
-            x2, y2 = self._bluesky_to_pygame(Position(lat=point_2[0], lon=point_2[1]))
+            x1, y1 = self.lat_lon_to_pix(Position(lat=point_1[0], lon=point_1[1]))
+            x2, y2 = self.lat_lon_to_pix(Position(lat=point_2[0], lon=point_2[1]))
             pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
 
     def _draw_observation_text(self, canvas):
