@@ -88,7 +88,7 @@ class Population(gym.Wrapper):
                 Affine.translation(- cols / 2, -rows / 2)
         )
 
-        destination = np.zeros(out_shape)
+        destination = np.zeros(out_shape[::-1])
 
         # Perform the Warp (Reprojection)
         reproject(
@@ -161,10 +161,11 @@ class Population(gym.Wrapper):
 
     def _render_array(self, canvas: pygame.Surface, position: tuple[int,int], array: np.ndarray, transparent:bool=True) -> None:
         rgba_array = self._convert_heatmap_to_rgba_array(array)
+        shape = array.shape[::-1]
         if transparent:
-            heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), rgba_array.shape[:2], "RGBA")
+            heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape , "RGBA")
         else:
-            heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), rgba_array.shape[:2], "RGB")
+            heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), shape, "RGB")
         heatmap_size = self.env.window_size
         heatmap_surf = pygame.transform.scale(heatmap_surf, heatmap_size)
 
