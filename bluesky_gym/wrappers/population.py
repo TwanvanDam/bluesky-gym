@@ -98,7 +98,7 @@ class Population(gym.Wrapper):
             src_crs=self.map_source.crs,
             dst_transform=dst_transform,
             dst_crs=self.env.pygame_crs,
-            resampling=Resampling.bilinear  # Use 'nearest' for categorical data (masks)
+            resampling=Resampling.cubic_spline  # Use 'nearest' for categorical data (masks)
         )
         return destination
 

@@ -1,11 +1,11 @@
 from stable_baselines3.common.callbacks import BaseCallback
-
+import torch
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 
-DEVICE = "cuda"
-MODEL_PATH = "/home/twanvandam/Thesis/scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained"
+DEVICE = "cpu" 
+MODEL_PATH = "./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained"
 
 class TensorboardCallback(BaseCallback):
     def _on_step(self) -> bool:
@@ -22,12 +22,12 @@ if __name__ == "__main__":
 
     if train:
         env = Monitor(BaseNavigationEnv())
-        model = SAC("MultiInputPolicy", env, verbose=1, tensorboard_log="./logs/", device=DEVICE)
+        model = SAC("MultiInputPolicy", env, verbose=1, tensorboard_log="./scripts/common/results/logs_backup/BaseNavigationEnv-v0", device=DEVICE)
         model.learn(total_timesteps=200_000, callback=TensorboardCallback())
         model.save(MODEL_PATH)
     else:
         env = BaseNavigationEnv(render_mode="human")
-        model = SAC.load(MODEL_PATH, env=env, device="cuda")
+        model = SAC.load(MODEL_PATH, env=env, device=DEVICE)
 
         while True:
             obs, info = env.reset()

@@ -40,6 +40,15 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [project.urls]
 Homepage = "https://github.com/TUDelft-CNS-ATM/bluesky-gym"
 Issues = "https://github.com/TUDelft-CNS-ATM/bluesky-gym/issues"
