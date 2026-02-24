@@ -2,6 +2,8 @@ from functools import partial
 from typing import Callable
 
 import gymnasium as gym
+import matplotlib.pyplot as plt
+
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
 import pygame
 from gymnasium import spaces
@@ -26,6 +28,8 @@ class Population(gym.Wrapper):
         self.observation_shape = observation_shape
         self.observation_range = observation_range
         self.population_observation = None
+        self.noise_radius = (10_000, 10_000) # [ m ]
+        self.noise_resolution = 1_000 # [ m ]
 
         # class to handle all reading and creating of population maps
         self.map_source = map_source
@@ -103,8 +107,10 @@ class Population(gym.Wrapper):
         return destination
 
     def _get_population_observation(self):
-        position, heading = self.env.get_aircraft_details()
+        position, heading = self.env.get_aircraft_position(), self.env.get_aircraft_heading()
         destination = self._extract_view_from_map(position, heading, self.observation_shape, self.observation_range)
+        # plt.imshow(destination)
+        # plt.show()
         destination = np.clip(destination, 0, np.inf)
         return destination
 
@@ -114,6 +120,52 @@ class Population(gym.Wrapper):
         return self._extract_view_from_map(center_position, 0, self.env.window_size, out_meters)
 
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
+        altitude = self.env.get_aircraft_altitude()
+        ac_position, ac_heading = self.env.get_aircraft_position(), self.env.get_aircraft_heading()
+
+        noise_array_shape = tuple(int(radius / self.noise_resolution) for radius in self.noise_radius)
+
+        # Center in pixel coordinates
+        center_row = (noise_array_shape[0] - 1) / 2
+        center_col = (noise_array_shape[1] - 1) / 2
+
+        # Create coordinate grids in meters, centered on the aircraft
+        row_indices, col_indices = np.indices(noise_array_shape)
+        y = (row_indices - center_row) * self.noise_resolution
+        x = (col_indices - center_col) * self.noise_resolution
+        distance_squared = np.sqrt(x ** 2 + y ** 2 + altitude ** 2)
+
+        population_array = np.clip(self._extract_view_from_map(ac_position, ac_heading, noise_array_shape, self.noise_radius), 0, np.inf)
+
+        # Create side-by-side plot
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Plot population map with aircraft position
+        im0 = axes[0].imshow(population_array, cmap='viridis')
+        # Mark aircraft position at center
+        axes[0].scatter(center_col, center_row, c='red', s=100, marker='x', linewidths=2, label='Aircraft')
+        axes[0].set_title(f'Population Map (Aircraft at center)\nAltitude: {altitude:.0f}m')
+        axes[0].set_xlabel('Columns')
+        axes[0].set_ylabel('Rows')
+        axes[0].legend()
+        plt.colorbar(im0, ax=axes[0], label='Population')
+
+        # Plot distance squared
+        im1 = axes[1].imshow(distance_squared, cmap='plasma')
+        axes[1].scatter(center_col, center_row, c='red', s=100, marker='x', linewidths=2, label='Aircraft')
+        axes[1].set_title('Distance (including altitude)')
+        axes[1].set_xlabel('Columns')
+        axes[1].set_ylabel('Rows')
+        axes[1].legend()
+        plt.colorbar(im1, ax=axes[1], label='Distance [m]')
+
+        plt.tight_layout()
+        plt.show()
+
+        print(f"{altitude=}")
+        print(f"{distance_squared=}")
+        print(f"{population_array=}")
+
         return 0.0, False, TerminationReason.NONE
 
     def render(self):
@@ -147,7 +199,7 @@ class Population(gym.Wrapper):
 
         sea_mask = normalized_map < 0
         normalized_map = np.clip(normalized_map, epsilon, np.inf)
-        normalized_map = np.log1p(normalized_map + epsilon)
+        # normalized_map = np.log1p(normalized_map + epsilon)
 
         if normalized_map.max() > normalized_map.min():
             normalized_map = (normalized_map - normalized_map.min()) / (normalized_map.max() - normalized_map.min())
@@ -199,7 +251,7 @@ class Population(gym.Wrapper):
         return screen_corners
 
     def _draw_box_around_aircraft(self, canvas):
-        ac_position, ac_heading = self.env.get_aircraft_details()
+        ac_position, ac_heading = self.env.get_aircraft_position(), self.env.get_aircraft_heading()
         corners = self._get_view_corners_screen(ac_position, ac_heading,
                                                 self.observation_shape, self.observation_range)
         pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)

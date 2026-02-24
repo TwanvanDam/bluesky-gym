@@ -185,20 +185,20 @@ class BaseNavigationEnv(gym.Env):
                                         (self.airport_details.position.lat, self.airport_details.position.lon))
         bs.traf.cre(self.ac_name, actype=self.ac_type, aclat=aircraft_initial_position.lat,
                     aclon=aircraft_initial_position.lon,
-                    achdg=heading_to_airport, acspd=self.ac_initial_spd)
+                    achdg=heading_to_airport, acspd=self.ac_initial_spd, acalt=self.ac_initial_alt)
 
         if self.render_mode is not None:
             self.render()
         return self._get_obs(), {}
 
     def step(self, action):
-        _, ac_hdg = self.get_aircraft_details()
+        ac_hdg = self.get_aircraft_heading()
         new_heading = fn.bound_angle_0_360(ac_hdg + action[0] * 180)
         bs.stack.stack(f"HDG {self.ac_name} {new_heading}")
 
         for i in range(self.action_frequency):
             bs.sim.step()
-            ac_pos, _ = self.get_aircraft_details()
+            ac_pos = self.get_aircraft_position()
             self.aircraft_positions.append(ac_pos)
 
             if self._get_terminal_condition()[1]:
@@ -227,7 +227,7 @@ class BaseNavigationEnv(gym.Env):
             self.window = None
 
     def _get_obs(self):
-        ac_position, ac_hdg = self.get_aircraft_details()
+        ac_position, ac_hdg = self.get_aircraft_position(), self.get_aircraft_heading()
 
         correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
                                       (self.faf_lat, self.faf_lon)))
@@ -244,13 +244,19 @@ class BaseNavigationEnv(gym.Env):
         }
         return observation
 
-    def get_aircraft_details(self) -> tuple[Position, float]:
+    def get_aircraft_position(self) -> Position:
         ac_idx = bs.traf.id2idx(self.ac_name)
-
-        ac_hdg = bs.traf.hdg[ac_idx]
         ac_lat = bs.traf.lat[ac_idx]
         ac_lon = bs.traf.lon[ac_idx]
-        return Position(lat=ac_lat, lon=ac_lon), ac_hdg
+        return Position(lat=ac_lat, lon=ac_lon)
+
+    def get_aircraft_heading(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        return bs.traf.hdg[ac_idx]
+
+    def get_aircraft_altitude(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        return bs.traf.alt[ac_idx]
 
     def _get_reward(self):
         total_reward = 0.0
@@ -322,7 +328,7 @@ class BaseNavigationEnv(gym.Env):
         reward = 0
 
         shapes = bs.tools.areafilter.basic_shapes
-        current_pos, _ = self.get_aircraft_details()
+        current_pos = self.get_aircraft_position()
         if self.aircraft_positions:
             last_pos = self.aircraft_positions[-1]
             line_ac = Path(np.array([[last_pos.lat, last_pos.lon], [current_pos.lat, current_pos.lon]]))
@@ -343,7 +349,7 @@ class BaseNavigationEnv(gym.Env):
         return reward, terminated, reason
 
     def _check_out_of_bounds(self) -> bool:
-        aircraft_position, aircraft_heading = self.get_aircraft_details()
+        aircraft_position, aircraft_heading = self.get_aircraft_position(), self.get_aircraft_heading()
         aircraft_inside_bounds = (self.lat_min <= aircraft_position.lat <= self.lat_max) and (
                     self.lon_min <= aircraft_position.lon <= self.lon_max)
         return not aircraft_inside_bounds
@@ -442,7 +448,7 @@ class BaseNavigationEnv(gym.Env):
 
     def _draw_aircraft(self, canvas):
         aircraft_color = pygame.Color("black")
-        ac_position, ac_heading = self.get_aircraft_details()
+        ac_position, ac_heading = self.get_aircraft_position(), self.get_aircraft_heading()
 
         red_line_color = pygame.Color("red")
         for point_1, point_2 in itertools.pairwise(self.aircraft_positions):
