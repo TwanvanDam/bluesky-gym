@@ -46,7 +46,7 @@ class Population(gym.Wrapper):
 
     @property
     def window_size(self) -> tuple[int,int]:
-        return 2 * self.env.window_size[0], self.env.window_size[1]
+        return self.env.window_size[0] + self._get_render_size()[0], self.env.window_size[1]
 
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
@@ -74,19 +74,7 @@ class Population(gym.Wrapper):
         self.env.close()
 
     def _extract_view_from_map(self, center_position: Position, orientation: float, out_shape: tuple[int, int], out_meters: tuple[float, float]):
-        center_xy = self.transformer.transform(center_position.lon, center_position.lat)
-
-        # Calculate the resolution (meters per pixel) for the output slice
-        rows, cols = out_shape
-        res_x = out_meters[0] / cols
-        res_y = out_meters[1] / rows
-
-        dst_transform = (
-                Affine.translation(*center_xy) *
-                Affine.rotation(- orientation) *
-                Affine.scale(res_x, -res_y) *
-                Affine.translation(- cols / 2, -rows / 2)
-        )
+        dst_transform = self._get_dst_transform(center_position, orientation, out_meters, out_shape)
 
         destination = np.zeros(out_shape[::-1])
 
@@ -101,6 +89,23 @@ class Population(gym.Wrapper):
             resampling=Resampling.cubic_spline  # Use 'nearest' for categorical data (masks)
         )
         return destination
+
+    def _get_dst_transform(self, center_position: Position, orientation: float, out_meters: tuple[float, float],
+                           out_shape: tuple[int, int]) -> tuple[Affine, ...]:
+        center_xy = self.transformer.transform(center_position.lon, center_position.lat)
+
+        # Calculate the resolution (meters per pixel) for the output slice
+        cols, rows = out_shape
+        res_x = out_meters[0] / cols
+        res_y = out_meters[1] / rows
+
+        dst_transform = (
+                Affine.translation(*center_xy) *
+                Affine.rotation(- orientation) *
+                Affine.scale(res_x, -res_y) *
+                Affine.translation(- cols / 2, -rows / 2)
+        )
+        return dst_transform
 
     def _get_population_observation(self):
         position, heading = self.env.get_aircraft_details()
@@ -131,11 +136,17 @@ class Population(gym.Wrapper):
 
         return self.env._present_canvas(canvas, render_mode=self._render_mode)
 
+    def _get_render_size(self) -> tuple[int, int]:
+        return (int((self.observation_range[0] / self.observation_range[1]) * self.env.window_size[0]),
+                self.env.window_size[1])
+
     def get_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
         return [
-            partial(self._render_array, position=(0,0), array=self.background_map, transparent=True),
-            partial(self._render_array, position=(512,0), array=self.population_observation, transparent=False),
+            partial(self._render_array, position=(0, 0), render_size=self.env.window_size, array=self.background_map,
+                    transparent=True),
+            partial(self._render_array, position=(self.env.window_size[0], 0), render_size=self._get_render_size(),
+                    array=self.population_observation, transparent=False),
             self.env._draw_airport,
             self.env._draw_aircraft,
             self._draw_box_around_aircraft,
@@ -159,35 +170,24 @@ class Population(gym.Wrapper):
         rgba_array[sea_mask, 3] = 0
         return rgba_array
 
-    def _render_array(self, canvas: pygame.Surface, position: tuple[int,int], array: np.ndarray, transparent:bool=True) -> None:
+    def _render_array(self, canvas: pygame.Surface, position: tuple[int, int], render_size: tuple[int, int],
+                      array: np.ndarray, transparent: bool = True) -> None:
         rgba_array = self._convert_heatmap_to_rgba_array(array)
         shape = array.shape[::-1]
         if transparent:
             heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape , "RGBA")
         else:
             heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), shape, "RGB")
-        heatmap_size = self.env.window_size
-        heatmap_surf = pygame.transform.scale(heatmap_surf, heatmap_size)
+        heatmap_surf = pygame.transform.scale(heatmap_surf, render_size)
 
         canvas.blit(heatmap_surf, position)
 
     def _get_view_corners_screen(self, center_position: Position, orientation: float,
                                  out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[
         tuple[float, float]]:
-        center_xy = self.transformer.transform(center_position.lon, center_position.lat)
+        dst_transform = self._get_dst_transform(center_position, orientation, out_meters, out_shape)
 
-        rows, cols = out_shape
-        res_x = out_meters[0] / cols
-        res_y = out_meters[1] / rows
-
-        dst_transform = (
-                Affine.translation(*center_xy) *
-                Affine.rotation(-orientation) *
-                Affine.scale(res_x, -res_y) *
-                Affine.translation(-cols / 2, -rows / 2)
-        )
-
-        # Pixel corners: (col, row)
+        cols, rows = out_shape
         pixel_corners = [(0, 0), (cols, 0), (cols, rows), (0, rows)]
 
         screen_corners = []
