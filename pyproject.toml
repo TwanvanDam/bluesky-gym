@@ -8,10 +8,10 @@ dependencies = [
     "stable-baselines3",
     "numpy",
     "bluesky-simulator>=1.0.7",
-    "rasterio>=1.5.0",
-    "pyproj>=3.7.2",
-    "tensorboard>=2.20.0",
-    "shapely>=2.1.2",
+    "rasterio",
+    "pyproj",
+    "tensorboard",
+    "shapely",
 ]
 
 authors = [
@@ -22,7 +22,7 @@ authors = [
 ]
 description = "A gymnasium style environment for standardized Reinforcement Learning research in Air Traffic Management."
 readme = "README.md"
-requires-python = "==3.12.*"
+requires-python = "==3.11.*"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

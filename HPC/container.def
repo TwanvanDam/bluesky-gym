@@ -1,0 +1,27 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+
+%post
+    apt-get update && apt-get install -y \
+        libgdal-dev \
+        gdal-bin \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Install everything from pyproject.toml except torch
+    cd /workspace
+    pip install --no-cache-dir \
+        pygame \
+        gymnasium \
+        stable-baselines3 \
+        "bluesky-simulator>=1.0.7" \
+        "rasterio" \
+        "pyproj" \
+        "tensorboard" \
+        "shapely"
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PYTHONPATH=/workspace:$PYTHONPATH
+
+%runscript
+    exec python "$@"
