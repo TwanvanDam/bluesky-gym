@@ -13,23 +13,23 @@ from affine import Affine
 import numpy as np
 from pyproj import Transformer
 from bluesky_gym.wrappers.map_datsets import MapSource
+from scripts.config import PopulationConfig
 
 
 class Population(gym.Wrapper):
-    def __init__(self, env: BaseNavigationEnv, map_source: MapSource, observation_shape: tuple[int, int],
-                 observation_range: tuple[int, int], color_map: str = "Blues"):
+    def __init__(self, env: BaseNavigationEnv, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
         assert isinstance(env, BaseNavigationEnv)
         super().__init__(env)
         self.env: BaseNavigationEnv = env
         self.env._render_owned_by_wrapper = True
 
         self.window = None
-        self.observation_shape = observation_shape
-        self.observation_range = observation_range
+        self.observation_shape = config.observation_shape
+        self.observation_range = config.observation_range
         self.population_observation = None
 
         # class to handle all reading and creating of population maps
-        self.map_source = map_source
+        self.map_source = config.map_source_config.build(self.env)
         self.transformer = Transformer.from_crs(self.env.bluesky_crs, self.env.pygame_crs, always_xy=True)
 
         # cache the map used as background since it does not change often.

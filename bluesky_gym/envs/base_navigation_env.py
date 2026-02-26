@@ -15,6 +15,7 @@ from matplotlib.path import Path
 
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+from scripts.config import NavigationConfig
 
 
 class TerminationReason(Enum):
@@ -55,48 +56,17 @@ class Airport:
     position: Position
     hdg: float
 
-
-@dataclass
-class NavigationConfig:
-    ac_name: str = "KL001"
-    ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ m/s ]
-    ac_initial_alt: int = 3_000  # [ m ]
-
-    # WGS84 [ degrees ]
-    lon_min: float = 3.0
-    lon_max: float = 7.5
-    lat_min: float = 50.5
-    lat_max: float = 54.0
-    airport_lat: float = 52.31
-    airport_lon: float = 4.7
-
-    pygame_crs: str = "EPSG:3035"
-
-    # Simulation Parameters
-    max_steps: int = 250
-    sim_dt: int = 3  # s
-    action_time: int = 60  # s
-
-    # Termination conditions
-    faf_distance: float = 25  # km
-    iaf_angle: float = 60  # degrees
-    iaf_distance: float = 30  # km
-
-
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
     def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
-                 config: NavigationConfig = NavigationConfig()):
+                 config: NavigationConfig = NavigationConfig()) -> None:
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
         self._render_owned_by_wrapper = False
 
+        self.config = config
         self.ac_name = config.ac_name
-        self.ac_type = config.ac_type
-        self.ac_initial_spd = config.ac_initial_spd  # [m/s]
-        self.ac_initial_alt = config.ac_initial_alt  # [m]
 
         self.bluesky_crs = "WGS84"
         self.pygame_crs = config.pygame_crs
@@ -108,7 +78,6 @@ class BaseNavigationEnv(gym.Env):
 
         self.lon_min, self.lon_max = config.lon_min, config.lon_max
         self.lat_min, self.lat_max = config.lat_min, config.lat_max
-        self.airport_lon, self.airport_lat = config.airport_lon, config.airport_lat
 
         self.lon_center = (self.lon_max + self.lon_min) / 2
         self.lat_center = (self.lat_max + self.lat_min) / 2
@@ -185,9 +154,9 @@ class BaseNavigationEnv(gym.Env):
         self.aircraft_positions = [aircraft_initial_position]
         heading_to_airport = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
                                         (self.airport_details.position.lat, self.airport_details.position.lon))
-        bs.traf.cre(self.ac_name, actype=self.ac_type, aclat=aircraft_initial_position.lat,
+        bs.traf.cre(self.ac_name, actype=self.config.ac_type, aclat=aircraft_initial_position.lat,
                     aclon=aircraft_initial_position.lon,
-                    achdg=heading_to_airport, acspd=self.ac_initial_spd)
+                    achdg=heading_to_airport, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
 
         if self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
@@ -349,15 +318,15 @@ class BaseNavigationEnv(gym.Env):
 
     def _generate_airport(self, np_random: np.random.Generator) -> Airport:
         return Airport(
-            Position(lat=self.airport_lat,
-                     lon=self.airport_lon),
-            hdg=float(np_random.integers(low=1, high=36) * 10)
+            Position(lat=self.config.airport_lat_sampling.sample(np_random),
+                     lon=self.config.airport_lon_sampling.sample(np_random)),
+            hdg=self.config.airport_hdg_sampling.sample(np_random)
         )
 
     def _generate_initial_position(self, np_random: np.random.Generator) -> Position:
         return Position(
-            lat=self.airport_details.position.lat + np_random.normal(loc=0, scale=1),
-            lon=self.airport_details.position.lon + np_random.normal(loc=0, scale=1)
+            lat=self.config.aircraft_lat_sampling.sample(np_random),
+            lon=self.config.airport_lon_sampling.sample(np_random)
         )
 
     def lat_lon_to_pix(self, position: Position) -> tuple[int, int]:
