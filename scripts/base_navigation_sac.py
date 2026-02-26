@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
 import torch
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv

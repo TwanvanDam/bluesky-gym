@@ -17,11 +17,12 @@ from bluesky_gym.wrappers.map_datsets import MapSource
 
 class Population(gym.Wrapper):
     def __init__(self, env: BaseNavigationEnv, map_source: MapSource, observation_shape: tuple[int, int],
-                 observation_range: tuple[int, int], render_mode: str | None = None, color_map: str = "Blues"):
+                 observation_range: tuple[int, int], color_map: str = "Blues"):
         assert isinstance(env, BaseNavigationEnv)
         super().__init__(env)
         self.env: BaseNavigationEnv = env
-        self._render_mode = render_mode
+        self.env._render_owned_by_wrapper = True
+
         self.window = None
         self.observation_shape = observation_shape
         self.observation_range = observation_range
@@ -45,8 +46,8 @@ class Population(gym.Wrapper):
 
 
     @property
-    def window_size(self) -> tuple[int,int]:
-        return self.env.window_size[0] + self._get_render_size()[0], self.env.window_size[1]
+    def composite_window_size(self) -> tuple[int,int]:
+        return self.env.window_size[0] + self._get_panel_size()[0], self.env.window_size[1]
 
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
@@ -56,15 +57,20 @@ class Population(gym.Wrapper):
         self.population_observation = self._get_population_observation()
         observation = {**observation} #, "population_map": self.population_observation}
 
-        self.render()
+        if self.env.render_mode == "human":
+            self.render()
         return observation, info
 
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
-        if not (terminated or truncated):
+        done = terminated or truncated
+
+        # TODO: Verify that population observation updates should be skipped when episode ends
+        if not done:
             self.population_observation = self._get_population_observation()
         observation = {**observation} #, "population_map": self.population_observation}
-        if not (terminated or truncated):
+
+        if not done and self.env.render_mode == "human":
             self.render()
         return observation, reward, terminated, truncated, info
 
@@ -122,35 +128,42 @@ class Population(gym.Wrapper):
         return 0.0, False, TerminationReason.NONE
 
     def render(self):
-        if self._render_mode is None:
-            return None
+        # Use a canvas with composit_window_size
 
-        # Use extended window size
-        canvas = self.env.initialize_pygame(self.window_size)
-        self.env._handle_pygame_events()
+        self.env.initialize_pygame(self.composite_window_size)
+        self.env.handle_pygame_events()
+        base_surface = pygame.Surface(self.env.window_size)
+        for draw_function in self.get_base_render_layers():
+            draw_function(base_surface)
 
-        canvas.fill(pygame.Color("grey"))
+        panel_surface = pygame.Surface(self._get_panel_size())
+        for draw_function in self.get_panel_render_layers():
+            draw_function(panel_surface)
 
-        for draw_function in self.get_render_layers():
-            draw_function(canvas)
+        canvas = pygame.Surface(self.composite_window_size)
+        canvas.blit(base_surface, (0,0))
+        canvas.blit(panel_surface, (self.env.window_size[0], 0))
 
-        return self.env._present_canvas(canvas, render_mode=self._render_mode)
+        return self.env.present_canvas(canvas)
 
-    def _get_render_size(self) -> tuple[int, int]:
+    def _get_panel_size(self) -> tuple[int, int]:
         return (int((self.observation_range[0] / self.observation_range[1]) * self.env.window_size[0]),
                 self.env.window_size[1])
 
-    def get_render_layers(self) -> list[Callable]:
+    def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
         return [
-            partial(self._render_array, position=(0, 0), render_size=self.env.window_size, array=self.background_map,
+            lambda canvas: canvas.fill(pygame.Color("grey")),
+            partial(self._render_array, render_size=self.env.window_size, array=self.background_map,
                     transparent=True),
-            partial(self._render_array, position=(self.env.window_size[0], 0), render_size=self._get_render_size(),
-                    array=self.population_observation, transparent=False),
-            self.env._draw_airport,
-            self.env._draw_aircraft,
+            self.env.draw_airport,
+            self.env.draw_aircraft,
             self._draw_box_around_aircraft,
         ]
+
+    def get_panel_render_layers(self) -> list[Callable]:
+        return [partial(self._render_array, render_size=self._get_panel_size(),
+                array=self.population_observation, transparent=False)]
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
         epsilon = 1e-10
@@ -170,7 +183,7 @@ class Population(gym.Wrapper):
         rgba_array[sea_mask, 3] = 0
         return rgba_array
 
-    def _render_array(self, canvas: pygame.Surface, position: tuple[int, int], render_size: tuple[int, int],
+    def _render_array(self, canvas: pygame.Surface, render_size: tuple[int, int],
                       array: np.ndarray, transparent: bool = True) -> None:
         rgba_array = self._convert_heatmap_to_rgba_array(array)
         shape = array.shape[::-1]
@@ -180,7 +193,7 @@ class Population(gym.Wrapper):
             heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), shape, "RGB")
         heatmap_surf = pygame.transform.scale(heatmap_surf, render_size)
 
-        canvas.blit(heatmap_surf, position)
+        canvas.blit(heatmap_surf, (0,0))
 
     def _get_view_corners_screen(self, center_position: Position, orientation: float,
                                  out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[

@@ -2,6 +2,7 @@ import itertools
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 from typing import Callable
 
 import bluesky as bs
@@ -90,6 +91,7 @@ class BaseNavigationEnv(gym.Env):
                  config: NavigationConfig = NavigationConfig()):
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
+        self._render_owned_by_wrapper = False
 
         self.ac_name = config.ac_name
         self.ac_type = config.ac_type
@@ -187,7 +189,7 @@ class BaseNavigationEnv(gym.Env):
                     aclon=aircraft_initial_position.lon,
                     achdg=heading_to_airport, acspd=self.ac_initial_spd)
 
-        if self.render_mode is not None:
+        if self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
         return self._get_obs(), {}
 
@@ -216,7 +218,7 @@ class BaseNavigationEnv(gym.Env):
                 idx = bs.traf.id2idx(acid)
                 bs.traf.delete(idx)
 
-        elif self.render_mode is not None:
+        elif self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
         return observation, reward, terminated, truncated, info
 
@@ -377,50 +379,49 @@ class BaseNavigationEnv(gym.Env):
         if self.render_mode is None:
             return None
 
-        canvas = self.initialize_pygame(self.window_size)
-        self._handle_pygame_events()
+        self.initialize_pygame(self.window_size)
+        self.handle_pygame_events()
+        canvas = pygame.Surface(self.window_size)
 
         for draw_function in self.get_render_layers():
             draw_function(canvas)
 
-        return self._present_canvas(canvas, self.render_mode)
+        return self.present_canvas(canvas)
 
     def get_render_layers(self) -> list[Callable]:
         """Return a list of functions that can be run to render the environment."""
-        return [self._draw_background,
-                self._draw_airport,
-                self._draw_aircraft,
-                self._draw_observation_text]
+        return [lambda canvas: canvas.fill(self.blue_background),
+                self.draw_airport,
+                self.draw_aircraft,
+                self.draw_observation_text]
 
-    def initialize_pygame(self, canvas_size: tuple[int, int]):
-        if self.window is None:
+    def initialize_pygame(self, window_size: tuple[int, int]):
+        """Checks if pygame is initialized properly. If not it will initialize."""
+        if not pygame.get_init():
             pygame.init()
+        if self.window is None and self.render_mode == "human":
             pygame.display.init()
-            self.window = pygame.display.set_mode(canvas_size)
+            self.window = pygame.display.set_mode(window_size)
             self.clock = pygame.time.Clock()
-        canvas = pygame.Surface(canvas_size)
-        return canvas
+        return
 
-    def _present_canvas(self, canvas: pygame.Surface, render_mode: str | None) -> None | np.ndarray:
-        if render_mode == "human":
+    def present_canvas(self, canvas: pygame.Surface) -> None | np.ndarray:
+        if self.render_mode == "human":
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
-        elif render_mode == "rgb_array":
+        elif self.render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
 
-    def _handle_pygame_events(self) -> None:
+    def handle_pygame_events(self) -> None:
         if self.window is None:
             return
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
 
-    def _draw_background(self, canvas: pygame.Surface) -> None:
-        canvas.fill(self.blue_background)
-
-    def _draw_airport(self, canvas):
+    def draw_airport(self, canvas):
         airport_color = pygame.Color("black")
         red_dot_color = pygame.Color("red")
 
@@ -440,7 +441,7 @@ class BaseNavigationEnv(gym.Env):
 
         self._draw_line_from_points(canvas, airport_color, list(line_restrict))
 
-    def _draw_aircraft(self, canvas):
+    def draw_aircraft(self, canvas):
         aircraft_color = pygame.Color("black")
         ac_position, ac_heading = self.get_aircraft_details()
 
@@ -474,7 +475,7 @@ class BaseNavigationEnv(gym.Env):
             x2, y2 = self.lat_lon_to_pix(Position(lat=point_2[0], lon=point_2[1]))
             pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
 
-    def _draw_observation_text(self, canvas):
+    def draw_observation_text(self, canvas):
         """Draw observation values as text in the upper-left corner."""
         font = pygame.font.Font(None, 24)
         text_color = pygame.Color("black")

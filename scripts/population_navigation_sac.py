@@ -1,4 +1,6 @@
 from functools import partial
+
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from affine import Affine
@@ -72,7 +74,7 @@ if __name__ == "__main__":
     # map_gen = partial(generate_random_shapes_map, array_size=(512, 512), obstacle_size=200)
     # map_source = RandomMapSource(map_crs="EPSG:3035", map_transform=train_transform, random_map_generator=map_gen)
 
-    wrapped = Population(env, observation_shape=(64, 64), observation_range=(100_000, 100_000), map_source=map_source, render_mode="human")
+    wrapped = Population(env, observation_shape=(64, 64), observation_range=(100_000, 100_000), map_source=map_source)
     #
     # policy_kwargs = dict(
     #     features_extractor_class=CombinedExtractor,
