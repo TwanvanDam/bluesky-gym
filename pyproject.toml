@@ -4,7 +4,7 @@ dynamic = ["version"]
 dependencies = [
     "torch",
     "pygame",
-    "gymnasium",
+    "gymnasium[other]",
     "stable-baselines3",
     "numpy",
     "bluesky-simulator>=1.0.7",
