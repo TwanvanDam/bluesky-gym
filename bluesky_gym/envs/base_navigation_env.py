@@ -214,9 +214,6 @@ class BaseNavigationEnv(gym.Env):
 
         if terminated or truncated:
             info["termination_stats"] = self.episode_tracker.get_statistics()
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
 
         elif self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
