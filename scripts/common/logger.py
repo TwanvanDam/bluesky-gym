@@ -91,7 +91,8 @@ class TensorboardCallback(BaseCallback):
         )
 
     def _on_training_end(self) -> None:
-        angles = np.arange(0, 360, 180)
+        """Extract to separate function"""
+        angles = np.arange(0, 360, 10)
         destination = Airport(Position(lat=52.31, lon=4.7), hdg=180)
         figure = plt.figure()
         for angle in list(angles):
@@ -113,6 +114,9 @@ class TensorboardCallback(BaseCallback):
                       self.validation_env.aircraft_positions]
             xs, ys = zip(*points)
             plt.plot(xs, ys)
+        plt.xlim(self.validation_env.lon_min, self.validation_env.lon_max)
+        plt.ylim(self.validation_env.lat_min, self.validation_env.lat_max)
+        plt.scatter(destination.position.lon, destination.position.lat, marker=".", linewidths=5)
         print("saving figure")
         plt.savefig("figure.png")
         self.logger.record("validation/circle_trajectories", Figure(figure, close=True), exclude=("stdout", "log", "json", "csv"))
