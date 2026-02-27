@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Optional
 
 import numpy as np
 import numpy.random
@@ -7,21 +7,24 @@ import pyrallis
 from dataclasses import dataclass, field
 
 from bluesky_gym.wrappers.map_datsets import MapSource
+from bluesky_gym.wrappers.random_map_generators import generate_population_density, generate_random_shapes_map
+
 
 @dataclass
 class SamplingConfig:
     distribution: str = "fixed"
 
     # Uniform distribution
-    low: float = np.nan
-    high: float = np.nan
+    low: Optional[float] = None
+    high: Optional[float] = None
 
     # Normal Distribution
-    mean: float = np.nan
-    std: float = np.nan
+    mean: Optional[float] = None
+    std: Optional[float] = None
 
     # Fixed
-    value: float = np.nan
+    value: Optional[float] = None
+
     def sample(self, rng: numpy.random.Generator) -> float:
         if self.distribution == "fixed":
             return self.value
@@ -62,7 +65,7 @@ class NavigationConfig:
     aircraft_lat_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("normal", mean=52.31, std=1))
     aircraft_lon_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("normal", mean=4.7, std=1))
 
-    pygame_crs: str = "EPSG:3035"
+    pygame_crs: str = "EPSG:28992"
 
 
 @dataclass
@@ -85,6 +88,8 @@ class MapSourceConfig:
 
         if self.type == "tiff":
             return TiffMapSource(self.file_path)
+        elif self.type == "random":
+            return RandomMapSource.from_env_bounds(env=env, random_map_generator=generate_random_shapes_map, array_size=None)
         else:
             raise NotImplementedError
 
@@ -95,7 +100,7 @@ class PopulationConfig:
     noise_penalty_coefficient: float = 0.0
     noise_radius_shape: str = "box"
     resampling: str = "cubic_spline"
-    normalization: str = "log" # [None, fixed, min/max, log]
+    normalization: str = "log" # [none, min_max, log]
     map_source_config: MapSourceConfig = field(default_factory=lambda: MapSourceConfig())
 
 
@@ -113,13 +118,3 @@ class ExperimentConfig:
     @classmethod
     def load(cls, path: str | Path) -> "ExperimentConfig":
         return pyrallis.parse(config_class=cls, config_path=path)
-
-
-
-
-
-if __name__ == "__main__":
-    test = ExperimentConfig()
-    test.save(Path("./test.yaml"))
-    # test = ExperimentConfig.load(Path("./test.yaml"))
-    print(test)
