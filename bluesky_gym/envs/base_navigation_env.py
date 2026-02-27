@@ -160,23 +160,44 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None | dict[str, float]):
+        """Reset the environment to an initial state.
+
+        Args:
+            seed: Random seed for reproducibility.
+            options: Optional dict to force specific positions and headings:
+                - airport_lat, airport_lon, airport_hdg: Force airport position and heading.
+                - aircraft_lat, aircraft_lon: Force aircraft position.
+                - aircraft_hdg: Force aircraft heading (defaults to pointing towards airport).
+        """
         bs.traf.reset()
         super().reset(seed=seed)
+
+        options = options or {}
 
         self.current_step = 0
         self.fuel_used = 0.0
 
-        self.airport_details = self._generate_airport(self.np_random)
+        if "airport_lat" in options and "airport_lon" in options and "airport_hdg" in options:
+            self.airport_details = Airport(Position(lat=options["airport_lat"], lon=options["airport_lon"]), hdg=options["airport_hdg"])
+        else:
+            self.airport_details = self._generate_airport(self.np_random)
         self._set_terminal_condition()
 
-        aircraft_initial_position = self._generate_initial_position(self.np_random)
+        if "aircraft_lat" in options and "aircraft_lon" in options:
+            aircraft_initial_position = Position(lat=options["aircraft_lat"], lon=options["aicraft_lon"])
+        else:
+            aircraft_initial_position = self._generate_initial_position(self.np_random)
+
         self.aircraft_positions = [aircraft_initial_position]
-        heading_to_airport = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
-                                        (self.airport_details.position.lat, self.airport_details.position.lon))
+        if "aircraft_hdg" in options:
+            aircraft_initial_hdg = options["aircraft_hdg"]
+        else:
+            aircraft_initial_hdg = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
+                                            (self.airport_details.position.lat, self.airport_details.position.lon))
         bs.traf.cre(self.ac_name, actype=self.config.ac_type, aclat=aircraft_initial_position.lat,
                     aclon=aircraft_initial_position.lon,
-                    achdg=heading_to_airport, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
+                    achdg=aircraft_initial_hdg, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
 
         if self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
