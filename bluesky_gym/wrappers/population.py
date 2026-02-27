@@ -22,6 +22,7 @@ class Population(gym.Wrapper):
         super().__init__(env)
         self.env: BaseNavigationEnv = env
         self.env._render_owned_by_wrapper = True
+        self.config = config
 
         self.window = None
         self.observation_shape = config.observation_shape
@@ -92,7 +93,7 @@ class Population(gym.Wrapper):
             src_crs=self.map_source.crs,
             dst_transform=dst_transform,
             dst_crs=self.env.pygame_crs,
-            resampling=Resampling.cubic_spline  # Use 'nearest' for categorical data (masks)
+            resampling=getattr(Resampling, self.config.resampling)
         )
         return destination
 
@@ -165,22 +166,38 @@ class Population(gym.Wrapper):
         return [partial(self._render_array, render_size=self._get_panel_size(),
                 array=self.population_observation, transparent=False)]
 
+    def normalize_heatmap(self, heatmap: np.ndarray) -> np.ndarray:
+        heatmap = np.clip(heatmap, 0, np.inf)
+
+        if self.config.normalization == "log":
+            epsilon = 1e-10
+            heatmap = np.log1p(heatmap + epsilon)
+        elif self.config.normalization == "min_max":
+            heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
+        elif self.config.normalization == "none":
+            pass
+
+        return heatmap
+
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
-        epsilon = 1e-10
-        normalized_map = population_map.copy()
+        # Mask the area that has no data available ( negative population density )
+        no_data_mask = population_map < 0
 
-        sea_mask = normalized_map < 0
-        normalized_map = np.clip(normalized_map, epsilon, np.inf)
-        normalized_map = np.log1p(normalized_map + epsilon)
+        # If the map has all the same values, return zeros
+        if population_map.min() == population_map.max():
+            normalized_map = np.zeros_like(population_map)
 
-        if normalized_map.max() > normalized_map.min():
-            normalized_map = (normalized_map - normalized_map.min()) / (normalized_map.max() - normalized_map.min())
         else:
-            normalized_map = np.zeros_like(normalized_map)
+            normalized_map = self.normalize_heatmap(population_map)
+            # Ensure values are on the interval [0, 1] for rendering
+            if not (population_map.min() >= 0 and population_map.max() <= 1):
+                normalized_map = (normalized_map - normalized_map.min()) / (normalized_map.max() - normalized_map.min())
 
         color_data = matplotlib.colormaps[self.color_map](normalized_map)
         rgba_array = (color_data * 255).astype(np.uint8)
-        rgba_array[sea_mask, 3] = 0
+
+        # Make areas without data transparent
+        rgba_array[no_data_mask, 3] = 0
         return rgba_array
 
     def _render_array(self, canvas: pygame.Surface, render_size: tuple[int, int],

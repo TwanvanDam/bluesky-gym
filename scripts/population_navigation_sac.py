@@ -69,17 +69,14 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
 
 if __name__ == "__main__":
-    # map_source_config = MapSourceConfig(type="tiff", file_path=Path("./bluesky_gym/wrappers/ESTAT_OBS-VALUE-T_2021_V2.tiff"))
-    # experiment_config = ExperimentConfig(population_config=PopulationConfig(map_source_config=map_source_config, observation_range=(200_000,200_000)))
-    experiment_config = ExperimentConfig.load("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml")
+    experiment_config = ExperimentConfig.load(Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml"))
 
     env = BaseNavigationEnv(config = experiment_config.navigation_config, render_mode="human")
-
     wrapped = Population(env, experiment_config.population_config)
 
-    MODEL_PATH = "./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained"
-    model = SAC.load(MODEL_PATH, env=wrapped, device="cuda")
-    experiment_config.save(Path(MODEL_PATH).with_suffix(".yaml"))
+    MODEL_PATH = Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained")
+    model = SAC.load(MODEL_PATH, env=wrapped)
+    experiment_config.save(Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml"))
 
     while True:
         obs, info = wrapped.reset()
@@ -90,12 +87,6 @@ if __name__ == "__main__":
             done = terminated or truncated
 
     # model = SAC("MultiInputPolicy", wrapped, policy_kwargs=policy_kwargs, verbose=1, device="cuda")
-    #
-    # train_transform = Affine(
-    #     648.1856079305098, 0.0, 3830927.929748197,
-    #     0.0, -719.8287591363369, 3432669.3114552977)
-    # map_gen = partial(generate_random_shapes_map, array_size=(512, 512), obstacle_size=200)
-    # map_source = RandomMapSource(map_crs="EPSG:3035", map_transform=train_transform, random_map_generator=map_gen)
     # policy_kwargs = dict(
     #     features_extractor_class=CombinedExtractor,
     #     features_extractor_kwargs=dict(cnn_config={"in_channels" : [1, 16], "out_channels": [16, 32], "kernel_size": [3,3], "stride": [2,2], "padding" : [1,1], "output_dim" : 64}),
