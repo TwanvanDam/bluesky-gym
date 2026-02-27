@@ -160,7 +160,7 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
-    def reset(self, seed=None, options=None | dict[str, float]):
+    def reset(self, seed=None, options:None | dict[str, float] = None):
         """Reset the environment to an initial state.
 
         Args:
