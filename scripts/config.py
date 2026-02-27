@@ -82,7 +82,7 @@ class TrainingConfig:
     batch_size: int = 256
     buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
-    device: str = "auto"
+    validation_episodes: Optional[int] = None
 
 @dataclass
 class MapSourceConfig:
@@ -117,6 +117,7 @@ class ExperimentConfig:
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
     seed: int = 42
+    run_name: Optional[str] = None
 
     def save(self, path: str | Path) -> None:
         pyrallis.dump(self, open(path, "w"))
