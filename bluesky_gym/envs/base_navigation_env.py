@@ -40,7 +40,7 @@ class EpisodeTerminationTracker:
         if not self.episode_reasons:
             return {}
 
-        stats = {reason.value: 100 * sum(1 / 50 for episode_reason in self.episode_reasons if episode_reason == reason)
+        stats = {reason.value: 100 / len(self.episode_reasons) * sum(1 for episode_reason in self.episode_reasons if episode_reason == reason)
                  for reason in TerminationReason}
         return stats
 
@@ -103,7 +103,7 @@ class BaseNavigationEnv(gym.Env):
         else:
             self.observation_space = spaces.Dict(
                 {
-                    "destination_slant_range": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
 
                     # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
                     "destination_relative_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
@@ -185,7 +185,7 @@ class BaseNavigationEnv(gym.Env):
         self._set_terminal_condition()
 
         if "aircraft_lat" in options and "aircraft_lon" in options:
-            aircraft_initial_position = Position(lat=options["aircraft_lat"], lon=options["aicraft_lon"])
+            aircraft_initial_position = Position(lat=options["aircraft_lat"], lon=options["aircraft_lon"])
         else:
             aircraft_initial_position = self._generate_initial_position(self.np_random)
 
@@ -250,7 +250,7 @@ class BaseNavigationEnv(gym.Env):
 
         if self.use_sin_cos_obs:
             observation = {
-                    "destination_distance": ground_distance,
+                    "destination_ground_distance": ground_distance,
 
                     # The sin and cos of the required heading change to reach the destination
                     "destination_relative_heading_sin": np.sin(np.deg2rad(relative_heading)),
@@ -262,7 +262,7 @@ class BaseNavigationEnv(gym.Env):
                 }
         else:
            observation = {
-                    "destination_slant_range": ground_distance,
+                    "destination_ground_distance": ground_distance,
 
                     # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
                     "destination_relative_heading": relative_heading / 180,
