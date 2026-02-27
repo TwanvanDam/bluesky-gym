@@ -66,6 +66,12 @@ class NavigationConfig:
     aircraft_lon_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("normal", mean=4.7, std=1))
 
     pygame_crs: str = "EPSG:28992"
+    use_sin_cos_obs: Optional[bool] = False
+
+    # Rewards
+    constraint_violation_reward: Optional[float] = -1
+    successful_approach_reward: Optional[float] = 50
+    fuel_coeff: Optional[float] = 0.025
 
 
 @dataclass
@@ -108,8 +114,8 @@ class PopulationConfig:
 @dataclass
 class ExperimentConfig:
     navigation_config: NavigationConfig = field(default_factory=NavigationConfig)
-    training_config: TrainingConfig = None
-    population_config: PopulationConfig = None
+    training_config: Optional[TrainingConfig] = None
+    population_config: Optional[PopulationConfig] = None
     seed: int = 42
 
     def save(self, path: str | Path) -> None:

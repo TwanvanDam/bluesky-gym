@@ -23,11 +23,8 @@ class TensorboardCallback(BaseCallback):
 
 if __name__ == "__main__":
     train = False
-    DEVICE = "cuda"
-    MODEL_PATH = Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained")
-
-    experiment_config = ExperimentConfig(population_config=None, training_config=None, navigation_config=NavigationConfig(pygame_crs="WGS84"))
-    experiment_config.save(MODEL_PATH.with_suffix(".yaml"))
+    # DEVICE = "cuda"
+    # MODEL_PATH = Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained")
 
     # if train:
     #     env = Monitor(BaseNavigationEnv(config = experiment_config.navigation_config))
@@ -36,13 +33,14 @@ if __name__ == "__main__":
     #     model.save(MODEL_PATH)
     #     experiment_config.save(MODEL_PATH.with_suffix("_config.yaml"))
     # else:
-    env = BaseNavigationEnv(render_mode="human")
-    model = SAC.load(MODEL_PATH, env=env, device=DEVICE)
+    experiment_config = ExperimentConfig.load(Path("scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml"))
+    env = BaseNavigationEnv(render_mode="human", config= experiment_config.navigation_config)
+    # model = SAC.load(MODEL_PATH, env=env, device=DEVICE)
 
     while True:
         obs, info = env.reset()
         done = False
         while not done:
-            action, _state = model.predict(obs, deterministic=True)
+            action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated

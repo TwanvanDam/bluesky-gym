@@ -85,13 +85,33 @@ class BaseNavigationEnv(gym.Env):
         self.x_min, self.y_min = self.coordinate_transformer.transform(self.lon_min, self.lat_min)
         self.x_max, self.y_max = self.coordinate_transformer.transform(self.lon_max, self.lat_max)
 
-        self.observation_space = spaces.Dict(
-            {
-                "IAF_slant_range": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64),
-                "Heading_to_Airport": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                "Airport_Azimuth": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-            }
-        )
+        self.use_sin_cos_obs = self.config.use_sin_cos_obs
+        if self.use_sin_cos_obs:
+            self.observation_space = spaces.Dict(
+                {
+                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+
+                    # The sin and cos of the required heading change to reach the destination
+                    "destination_relative_heading_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                    "destination_relative_heading_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+
+                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
+                    "destination_relative_orientation_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                    "destination_relative_orientation_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                }
+            )
+        else:
+            self.observation_space = spaces.Dict(
+                {
+                    "destination_slant_range": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+
+                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+
+                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_orientation": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                }
+            )
 
         self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
@@ -200,16 +220,35 @@ class BaseNavigationEnv(gym.Env):
         correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
                                       (self.faf_lat, self.faf_lon)))
 
-        heading_to_airport = fn.bound_angle_positive_negative_180(correct_heading - ac_hdg) / 180
-        airport_azimuth = fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg) / 180
+        relative_heading = np.array([fn.bound_angle_positive_negative_180(correct_heading - ac_hdg)])
+        relative_orientation = np.array([fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg)])
 
-        observation = {
-            "IAF_slant_range": np.array(
-                [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
-                dtype=np.float64),
-            "Heading_to_Airport": np.array([np.clip(heading_to_airport, -1, 1)], dtype=np.float64),
-            "Airport_Azimuth": np.array([np.clip(airport_azimuth, -1, 1)], dtype=np.float64),
-        }
+        ground_distance = np.array(
+            [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
+            dtype=np.float64)
+
+        if self.use_sin_cos_obs:
+            observation = {
+                    "destination_distance": ground_distance,
+
+                    # The sin and cos of the required heading change to reach the destination
+                    "destination_relative_heading_sin": np.sin(np.deg2rad(relative_heading)),
+                    "destination_relative_heading_cos": np.cos(np.deg2rad(relative_heading)),
+
+                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
+                    "destination_relative_orientation_sin": np.sin(np.deg2rad(relative_orientation)),
+                    "destination_relative_orientation_cos": np.cos(np.deg2rad(relative_orientation)),
+                }
+        else:
+           observation = {
+                    "destination_slant_range": ground_distance,
+
+                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_heading": relative_heading / 180,
+
+                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_orientation": relative_orientation / 180,
+                }
         return observation
 
     def get_aircraft_details(self) -> tuple[Position, float]:
@@ -238,21 +277,21 @@ class BaseNavigationEnv(gym.Env):
     def add_reward_component(self, function: Callable) -> None:
         self._reward_components.append(function)
 
-    def _fuel_reward(self, coeff: float = 0.025) -> tuple[float, bool, TerminationReason]:
+    def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
         ac_idx = bs.traf.id2idx(self.ac_name)
         fuel_flow = bs.traf.perf.fuelflow[ac_idx]
         terminated = False
-        return - coeff * fuel_flow, terminated, TerminationReason.NONE
+        return - self.config.fuel_coeff * fuel_flow, terminated, TerminationReason.NONE
 
     def _boundary_reward(self) -> tuple[float, bool, TerminationReason]:
         if self._check_out_of_bounds():
-            return -1.0, True, TerminationReason.OUT_OF_BOUNDS
+            return self.config.constraint_violation_reward, True, TerminationReason.OUT_OF_BOUNDS
         else:
             return 0.0, False, TerminationReason.NONE
 
     def _truncation_reward(self) -> tuple[float, bool, TerminationReason]:
         if self.current_step >= self.max_steps:
-            return -1.0, False, TerminationReason.MAX_STEPS
+            return self.config.constraint_violation_reward, False, TerminationReason.MAX_STEPS
         return 0.0, False, TerminationReason.NONE
 
     def _termination_reward(self) -> tuple[float, bool, TerminationReason]:
@@ -299,12 +338,12 @@ class BaseNavigationEnv(gym.Env):
                 np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2)))
 
             if line_sink.intersects_path(line_ac):
-                reward = 50
+                reward = self.config.successful_approach_reward
                 reason = TerminationReason.SUCCESS
                 terminated = True
 
             elif line_restrict.intersects_path(line_ac):
-                reward = -1
+                reward = self.config.constraint_violation_reward
                 reason = TerminationReason.FAILED_APPROACH
                 terminated = True
 
