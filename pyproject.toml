@@ -4,7 +4,7 @@ dynamic = ["version"]
 dependencies = [
     "torch",
     "pygame",
-    "gymnasium",
+    "gymnasium[other]",
     "stable-baselines3",
     "numpy",
     "bluesky-simulator>=1.0.7",
@@ -12,6 +12,7 @@ dependencies = [
     "pyproj",
     "tensorboard",
     "shapely",
+    "pyrallis",
 ]
 
 authors = [
@@ -22,7 +23,7 @@ authors = [
 ]
 description = "A gymnasium style environment for standardized Reinforcement Learning research in Air Traffic Management."
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = "==3.12.*"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

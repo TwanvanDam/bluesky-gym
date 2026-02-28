@@ -2,6 +2,7 @@ import itertools
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 from typing import Callable
 
 import bluesky as bs
@@ -14,6 +15,7 @@ from matplotlib.path import Path
 
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+from scripts.config import NavigationConfig
 
 
 class TerminationReason(Enum):
@@ -38,7 +40,7 @@ class EpisodeTerminationTracker:
         if not self.episode_reasons:
             return {}
 
-        stats = {reason.value: 100 * sum(1 / 50 for episode_reason in self.episode_reasons if episode_reason == reason)
+        stats = {reason.value: 100 / len(self.episode_reasons) * sum(1 for episode_reason in self.episode_reasons if episode_reason == reason)
                  for reason in TerminationReason}
         return stats
 
@@ -54,47 +56,17 @@ class Airport:
     position: Position
     hdg: float
 
-
-@dataclass
-class NavigationConfig:
-    ac_name: str = "KL001"
-    ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ m/s ]
-    ac_initial_alt: int = 3_000  # [ m ]
-
-    # WGS84 [ degrees ]
-    lon_min: float = 3.0
-    lon_max: float = 7.5
-    lat_min: float = 50.5
-    lat_max: float = 54.0
-    airport_lat: float = 52.31
-    airport_lon: float = 4.7
-
-    pygame_crs: str = "EPSG:3035"
-
-    # Simulation Parameters
-    max_steps: int = 250
-    sim_dt: int = 3  # s
-    action_time: int = 60  # s
-
-    # Termination conditions
-    faf_distance: float = 25  # km
-    iaf_angle: float = 60  # degrees
-    iaf_distance: float = 30  # km
-
-
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
     def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
-                 config: NavigationConfig = NavigationConfig()):
+                 config: NavigationConfig = NavigationConfig()) -> None:
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
+        self._render_owned_by_wrapper = False
 
+        self.config = config
         self.ac_name = config.ac_name
-        self.ac_type = config.ac_type
-        self.ac_initial_spd = config.ac_initial_spd  # [m/s]
-        self.ac_initial_alt = config.ac_initial_alt  # [m]
 
         self.bluesky_crs = "WGS84"
         self.pygame_crs = config.pygame_crs
@@ -106,7 +78,6 @@ class BaseNavigationEnv(gym.Env):
 
         self.lon_min, self.lon_max = config.lon_min, config.lon_max
         self.lat_min, self.lat_max = config.lat_min, config.lat_max
-        self.airport_lon, self.airport_lat = config.airport_lon, config.airport_lat
 
         self.lon_center = (self.lon_max + self.lon_min) / 2
         self.lat_center = (self.lat_max + self.lat_min) / 2
@@ -114,13 +85,33 @@ class BaseNavigationEnv(gym.Env):
         self.x_min, self.y_min = self.coordinate_transformer.transform(self.lon_min, self.lat_min)
         self.x_max, self.y_max = self.coordinate_transformer.transform(self.lon_max, self.lat_max)
 
-        self.observation_space = spaces.Dict(
-            {
-                "IAF_slant_range": spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64),
-                "Heading_to_Airport": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                "Airport_Azimuth": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-            }
-        )
+        self.use_sin_cos_obs = self.config.use_sin_cos_obs
+        if self.use_sin_cos_obs:
+            self.observation_space = spaces.Dict(
+                {
+                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+
+                    # The sin and cos of the required heading change to reach the destination
+                    "destination_relative_heading_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                    "destination_relative_heading_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+
+                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
+                    "destination_relative_orientation_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                    "destination_relative_orientation_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                }
+            )
+        else:
+            self.observation_space = spaces.Dict(
+                {
+                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+
+                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+
+                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_orientation": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                }
+            )
 
         self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
@@ -169,25 +160,46 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options:None | dict[str, float] = None):
+        """Reset the environment to an initial state.
+
+        Args:
+            seed: Random seed for reproducibility.
+            options: Optional dict to force specific positions and headings:
+                - airport_lat, airport_lon, airport_hdg: Force airport position and heading.
+                - aircraft_lat, aircraft_lon: Force aircraft position.
+                - aircraft_hdg: Force aircraft heading (defaults to pointing towards airport).
+        """
         bs.traf.reset()
         super().reset(seed=seed)
+
+        options = options or {}
 
         self.current_step = 0
         self.fuel_used = 0.0
 
-        self.airport_details = self._generate_airport(self.np_random)
+        if "airport_lat" in options and "airport_lon" in options and "airport_hdg" in options:
+            self.airport_details = Airport(Position(lat=options["airport_lat"], lon=options["airport_lon"]), hdg=options["airport_hdg"])
+        else:
+            self.airport_details = self._generate_airport(self.np_random)
         self._set_terminal_condition()
 
-        aircraft_initial_position = self._generate_initial_position(self.np_random)
-        self.aircraft_positions = [aircraft_initial_position]
-        heading_to_airport = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
-                                        (self.airport_details.position.lat, self.airport_details.position.lon))
-        bs.traf.cre(self.ac_name, actype=self.ac_type, aclat=aircraft_initial_position.lat,
-                    aclon=aircraft_initial_position.lon,
-                    achdg=heading_to_airport, acspd=self.ac_initial_spd)
+        if "aircraft_lat" in options and "aircraft_lon" in options:
+            aircraft_initial_position = Position(lat=options["aircraft_lat"], lon=options["aircraft_lon"])
+        else:
+            aircraft_initial_position = self._generate_initial_position(self.np_random)
 
-        if self.render_mode is not None:
+        self.aircraft_positions = [aircraft_initial_position]
+        if "aircraft_hdg" in options:
+            aircraft_initial_hdg = options["aircraft_hdg"]
+        else:
+            aircraft_initial_hdg = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
+                                            (self.airport_details.position.lat, self.airport_details.position.lon))
+        bs.traf.cre(self.ac_name, actype=self.config.ac_type, aclat=aircraft_initial_position.lat,
+                    aclon=aircraft_initial_position.lon,
+                    achdg=aircraft_initial_hdg, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
+
+        if self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
         return self._get_obs(), {}
 
@@ -212,11 +224,8 @@ class BaseNavigationEnv(gym.Env):
 
         if terminated or truncated:
             info["termination_stats"] = self.episode_tracker.get_statistics()
-            for acid in bs.traf.id:
-                idx = bs.traf.id2idx(acid)
-                bs.traf.delete(idx)
 
-        elif self.render_mode is not None:
+        elif self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
         return observation, reward, terminated, truncated, info
 
@@ -232,16 +241,35 @@ class BaseNavigationEnv(gym.Env):
         correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
                                       (self.faf_lat, self.faf_lon)))
 
-        heading_to_airport = fn.bound_angle_positive_negative_180(correct_heading - ac_hdg) / 180
-        airport_azimuth = fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg) / 180
+        relative_heading = np.array([fn.bound_angle_positive_negative_180(correct_heading - ac_hdg)])
+        relative_orientation = np.array([fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg)])
 
-        observation = {
-            "IAF_slant_range": np.array(
-                [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
-                dtype=np.float64),
-            "Heading_to_Airport": np.array([np.clip(heading_to_airport, -1, 1)], dtype=np.float64),
-            "Airport_Azimuth": np.array([np.clip(airport_azimuth, -1, 1)], dtype=np.float64),
-        }
+        ground_distance = np.array(
+            [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
+            dtype=np.float64)
+
+        if self.use_sin_cos_obs:
+            observation = {
+                    "destination_ground_distance": ground_distance,
+
+                    # The sin and cos of the required heading change to reach the destination
+                    "destination_relative_heading_sin": np.sin(np.deg2rad(relative_heading)),
+                    "destination_relative_heading_cos": np.cos(np.deg2rad(relative_heading)),
+
+                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
+                    "destination_relative_orientation_sin": np.sin(np.deg2rad(relative_orientation)),
+                    "destination_relative_orientation_cos": np.cos(np.deg2rad(relative_orientation)),
+                }
+        else:
+           observation = {
+                    "destination_ground_distance": ground_distance,
+
+                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_heading": relative_heading / 180,
+
+                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
+                    "destination_relative_orientation": relative_orientation / 180,
+                }
         return observation
 
     def get_aircraft_details(self) -> tuple[Position, float]:
@@ -270,21 +298,21 @@ class BaseNavigationEnv(gym.Env):
     def add_reward_component(self, function: Callable) -> None:
         self._reward_components.append(function)
 
-    def _fuel_reward(self, coeff: float = 0.025) -> tuple[float, bool, TerminationReason]:
+    def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
         ac_idx = bs.traf.id2idx(self.ac_name)
         fuel_flow = bs.traf.perf.fuelflow[ac_idx]
         terminated = False
-        return - coeff * fuel_flow, terminated, TerminationReason.NONE
+        return - self.config.fuel_coeff * fuel_flow, terminated, TerminationReason.NONE
 
     def _boundary_reward(self) -> tuple[float, bool, TerminationReason]:
         if self._check_out_of_bounds():
-            return -1.0, True, TerminationReason.OUT_OF_BOUNDS
+            return self.config.constraint_violation_reward, True, TerminationReason.OUT_OF_BOUNDS
         else:
             return 0.0, False, TerminationReason.NONE
 
     def _truncation_reward(self) -> tuple[float, bool, TerminationReason]:
         if self.current_step >= self.max_steps:
-            return -1.0, False, TerminationReason.MAX_STEPS
+            return self.config.constraint_violation_reward, False, TerminationReason.MAX_STEPS
         return 0.0, False, TerminationReason.NONE
 
     def _termination_reward(self) -> tuple[float, bool, TerminationReason]:
@@ -331,12 +359,12 @@ class BaseNavigationEnv(gym.Env):
                 np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2)))
 
             if line_sink.intersects_path(line_ac):
-                reward = 50
+                reward = self.config.successful_approach_reward
                 reason = TerminationReason.SUCCESS
                 terminated = True
 
             elif line_restrict.intersects_path(line_ac):
-                reward = -1
+                reward = self.config.constraint_violation_reward
                 reason = TerminationReason.FAILED_APPROACH
                 terminated = True
 
@@ -350,15 +378,15 @@ class BaseNavigationEnv(gym.Env):
 
     def _generate_airport(self, np_random: np.random.Generator) -> Airport:
         return Airport(
-            Position(lat=self.airport_lat,
-                     lon=self.airport_lon),
-            hdg=float(np_random.integers(low=1, high=36) * 10)
+            Position(lat=self.config.airport_lat_sampling.sample(np_random),
+                     lon=self.config.airport_lon_sampling.sample(np_random)),
+            hdg=self.config.airport_hdg_sampling.sample(np_random)
         )
 
     def _generate_initial_position(self, np_random: np.random.Generator) -> Position:
         return Position(
-            lat=self.airport_details.position.lat + np_random.normal(loc=0, scale=1),
-            lon=self.airport_details.position.lon + np_random.normal(loc=0, scale=1)
+            lat=self.config.aircraft_lat_sampling.sample(np_random),
+            lon=self.config.airport_lon_sampling.sample(np_random)
         )
 
     def lat_lon_to_pix(self, position: Position) -> tuple[int, int]:
@@ -377,50 +405,49 @@ class BaseNavigationEnv(gym.Env):
         if self.render_mode is None:
             return None
 
-        canvas = self.initialize_pygame(self.window_size)
-        self._handle_pygame_events()
+        self.initialize_pygame(self.window_size)
+        self.handle_pygame_events()
+        canvas = pygame.Surface(self.window_size)
 
         for draw_function in self.get_render_layers():
             draw_function(canvas)
 
-        return self._present_canvas(canvas, self.render_mode)
+        return self.present_canvas(canvas)
 
     def get_render_layers(self) -> list[Callable]:
         """Return a list of functions that can be run to render the environment."""
-        return [self._draw_background,
-                self._draw_airport,
-                self._draw_aircraft,
-                self._draw_observation_text]
+        return [lambda canvas: canvas.fill(self.blue_background),
+                self.draw_airport,
+                self.draw_aircraft,
+                self.draw_observation_text]
 
-    def initialize_pygame(self, canvas_size: tuple[int, int]):
-        if self.window is None:
+    def initialize_pygame(self, window_size: tuple[int, int]):
+        """Checks if pygame is initialized properly. If not it will initialize."""
+        if not pygame.get_init():
             pygame.init()
+        if self.window is None and self.render_mode == "human":
             pygame.display.init()
-            self.window = pygame.display.set_mode(canvas_size)
+            self.window = pygame.display.set_mode(window_size)
             self.clock = pygame.time.Clock()
-        canvas = pygame.Surface(canvas_size)
-        return canvas
+        return
 
-    def _present_canvas(self, canvas: pygame.Surface, render_mode: str | None) -> None | np.ndarray:
-        if render_mode == "human":
+    def present_canvas(self, canvas: pygame.Surface) -> None | np.ndarray:
+        if self.render_mode == "human":
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
-        elif render_mode == "rgb_array":
+        elif self.render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
 
-    def _handle_pygame_events(self) -> None:
+    def handle_pygame_events(self) -> None:
         if self.window is None:
             return
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
 
-    def _draw_background(self, canvas: pygame.Surface) -> None:
-        canvas.fill(self.blue_background)
-
-    def _draw_airport(self, canvas):
+    def draw_airport(self, canvas):
         airport_color = pygame.Color("black")
         red_dot_color = pygame.Color("red")
 
@@ -440,7 +467,7 @@ class BaseNavigationEnv(gym.Env):
 
         self._draw_line_from_points(canvas, airport_color, list(line_restrict))
 
-    def _draw_aircraft(self, canvas):
+    def draw_aircraft(self, canvas):
         aircraft_color = pygame.Color("black")
         ac_position, ac_heading = self.get_aircraft_details()
 
@@ -474,7 +501,7 @@ class BaseNavigationEnv(gym.Env):
             x2, y2 = self.lat_lon_to_pix(Position(lat=point_2[0], lon=point_2[1]))
             pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
 
-    def _draw_observation_text(self, canvas):
+    def draw_observation_text(self, canvas):
         """Draw observation values as text in the upper-left corner."""
         font = pygame.font.Font(None, 24)
         text_color = pygame.Color("black")

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Callable
 
 import rasterio
@@ -30,7 +31,7 @@ class MapSource(ABC):
 class TiffMapSource(MapSource):
     """Loads a real GeoTIFF population map (static — no regeneration)."""
 
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str | Path):
         self._dataset = rasterio.open(filepath)
 
     @property
@@ -61,6 +62,35 @@ class RandomMapSource(MapSource):
         self._random_map_generator = random_map_generator
         self._dataset: rasterio.DatasetReader | None = None
         self.regenerate()
+
+    @classmethod
+    def from_env_bounds(cls, env, random_map_generator: Callable, array_size: tuple[int, int] | None):
+        """Derive Affine transform + CRS from the env's geographic bounds.
+
+        Uses env.pygame_crs as the target CRS (same space that rendering
+        and observations live in), and computes the transform so the
+        random raster covers exactly env.(lon_min,lat_min)→(lon_max,lat_max).
+        If no array size is provided, the env.window_size is used.
+        """
+        transformer = env.coordinate_transformer
+        x_min, y_min = transformer.transform(env.lon_min, env.lat_min)
+        x_max, y_max = transformer.transform(env.lon_max, env.lat_max)
+
+        if not array_size:
+            array_size = env.window_size
+        res_x = (x_max - x_min) / array_size[0]
+        res_y = (y_max - y_min) / array_size[1]
+
+        # Raster convention: origin at top-left, y points downward
+        map_transform = Affine(res_x, 0.0, x_min,
+                               0.0, -res_y, y_max)
+
+        return cls(
+            map_crs=env.pygame_crs,  # synthetic data lives in pygame_crs
+            map_transform=map_transform,
+            random_map_generator=random_map_generator,
+        )
+
 
     @property
     def crs(self):
