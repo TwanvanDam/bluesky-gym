@@ -116,7 +116,6 @@ class ExperimentConfig:
     navigation_config: NavigationConfig = field(default_factory=NavigationConfig)
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
-    seed: int = 42
     run_name: Optional[str] = None
 
     def save(self, path: str | Path) -> None:

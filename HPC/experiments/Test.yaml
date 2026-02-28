@@ -1,0 +1,42 @@
+navigation_config:
+  use_sin_cos_obs: true
+  fuel_coeff: 0.025
+  ac_initial_alt: 3000
+  ac_initial_spd: 300
+  ac_name: KL001
+  ac_type: a320
+  action_time: 120
+  aircraft_lat_sampling:
+    distribution: normal
+    mean: 52.31
+    std: 2
+  aircraft_lon_sampling:
+    distribution: normal
+    mean: 4.7
+    std: 2
+  airport_hdg_sampling:
+    distribution: uniform
+    high: 360
+    low: 0
+  airport_lat_sampling:
+    distribution: fixed
+    value: 52.31
+  airport_lon_sampling:
+    distribution: fixed
+    value: 4.7
+  faf_distance: 25
+  iaf_angle: 60
+  iaf_distance: 30
+  lat_max: 56.0
+  lat_min: 48.0
+  lon_max: 9
+  lon_min: 0
+  max_steps: 100
+  pygame_crs: EPSG:3035
+  sim_dt: 3
+population_config: null
+training_config:
+  algorithm: SAC
+  policy: MultiInputPolicy
+  total_timesteps: 2000
+

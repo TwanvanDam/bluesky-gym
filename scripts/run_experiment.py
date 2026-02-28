@@ -55,8 +55,6 @@ if __name__ == '__main__':
     logs_dir = base_results_dir / "logs_backup"
     models_dir = base_results_dir / "models_backup"
 
-
-    experiment_config_path = Path("Test.yaml")
-    train_model(experiment_config_path)
-    # run_name = "2026-02-27_16:21:05"
-    # show_model(run_name)
+    experiments_dir = Path("HPC/experiments")
+    for experiment_config_path in experiments_dir.iterdir():
+        train_model(experiment_config_path)
