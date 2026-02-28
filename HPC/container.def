@@ -11,13 +11,14 @@ From: pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
     cd /workspace
     pip install --no-cache-dir \
         pygame \
-        gymnasium \
+        gymnasium[other] \
         stable-baselines3 \
         "bluesky-simulator>=1.0.7" \
         "rasterio" \
         "pyproj" \
         "tensorboard" \
-        "shapely"
+        "shapely" \
+        "pyrallis"
 
 %environment
     export PYTHONUNBUFFERED=1
