@@ -1,3 +1,4 @@
+import argparse
 import datetime
 from pathlib import Path
 
@@ -51,10 +52,22 @@ def show_model(run_name: str):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Train RL model(s) from experiment config(s).")
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default=None,
+        help="Path to a single experiment YAML config. If omitted, all configs in HPC/experiments/ are run.",
+    )
+    args = parser.parse_args()
+
     base_results_dir = Path("scripts/common/results")
     logs_dir = base_results_dir / "logs_backup"
     models_dir = base_results_dir / "models_backup"
 
-    experiments_dir = Path("HPC/experiments")
-    for experiment_config_path in experiments_dir.iterdir():
-        train_model(experiment_config_path)
+    if args.config:
+        train_model(Path(args.config))
+    else:
+        experiments_dir = Path("HPC/experiments")
+        for experiment_config_path in experiments_dir.iterdir():
+            train_model(experiment_config_path)
