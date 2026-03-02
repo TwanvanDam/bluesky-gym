@@ -7,3 +7,7 @@ logs/
 models/
 dist/
 /scripts/common/results/
+/.idea/
+/HPC/rl_env.sif
+/uv.lock
+/scripts/population_maps/
