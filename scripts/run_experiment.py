@@ -44,13 +44,6 @@ def train_model(experiment_config_path: Path):
     )
     model.save(run_dir)
 
-def show_model(run_name: str):
-
-
-    model = SAC.load()
-
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train RL model(s) from experiment config(s).")
     parser.add_argument(
