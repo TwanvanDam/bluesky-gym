@@ -69,25 +69,17 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
 
 if __name__ == "__main__":
-    experiment_config = ExperimentConfig.load(Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml"))
+    experiment_config = ExperimentConfig.load(Path("./scripts/common/results/configs_backup/PopulationWrapper-v0/TestMapConfig.yaml"))
 
     env = BaseNavigationEnv(config = experiment_config.navigation_config, render_mode="human")
     wrapped = Population(env, experiment_config.population_config)
-
-    MODEL_PATH = Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained")
-    model = SAC.load(MODEL_PATH, env=wrapped)
-    experiment_config.save(Path("./scripts/common/results/models_backup/BaseNavigationEnv-v0/New_model_longer_trained.yaml"))
 
     while True:
         obs, info = wrapped.reset()
         done = False
         while not done:
-            action, _state = model.predict(obs, deterministic=True)
+            action = env.action_space.sample()
             obs, reward, terminated, truncated, info = wrapped.step(action)
             done = terminated or truncated
-
-    # model = SAC("MultiInputPolicy", wrapped, policy_kwargs=policy_kwargs, verbose=1, device="cuda")
-    # policy_kwargs = dict(
-    #     features_extractor_class=CombinedExtractor,
-    #     features_extractor_kwargs=dict(cnn_config={"in_channels" : [1, 16], "out_channels": [16, 32], "kernel_size": [3,3], "stride": [2,2], "padding" : [1,1], "output_dim" : 64}),
-    # )
+            print(wrapped.population_observation.min(), wrapped.population_observation.max())
+            print(f"background", wrapped.background_map.min(), wrapped.background_map.max())

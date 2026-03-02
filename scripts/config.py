@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +8,7 @@ import pyrallis
 from dataclasses import dataclass, field
 
 from bluesky_gym.wrappers.map_datsets import MapSource
-from bluesky_gym.wrappers.random_map_generators import generate_population_density, generate_random_shapes_map
+from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map
 
 
 @dataclass
@@ -86,25 +87,30 @@ class TrainingConfig:
 
 @dataclass
 class MapSourceConfig:
-    type: str = "tiff" # "tiff" or to be implemented types
-    file_path: Path = Path()
+    type: str = "tiff" # "tiff", "polygon", "cities"
+    file_path: Optional[Path] = None
+    kwargs: Optional[dict] = None
 
     def build(self, env) -> "MapSource":
         from bluesky_gym.wrappers.map_datsets import TiffMapSource, RandomMapSource
 
         if self.type == "tiff":
             return TiffMapSource(self.file_path)
-        elif self.type == "random":
-            return RandomMapSource.from_env_bounds(env=env, random_map_generator=generate_random_shapes_map, array_size=None)
+        elif self.type == "cities":
+            generator = generate_cities
+        elif self.type == "polygon":
+            print(self.kwargs)
+            generator = partial(generate_random_shapes_map, **self.kwargs)
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"type {self.type} is not implemented")
+        return RandomMapSource.from_env_bounds(env=env, random_map_generator=generator)
 
 @dataclass
 class PopulationConfig:
     observation_shape: tuple[int, int] = (64, 64)
     observation_range: tuple[int, int] = (100_000, 100_000)
     noise_penalty_coefficient: float = 0.0
-    noise_radius_shape: str = "box"
+    noise_contour_shape: str = "box"
     resampling: str = "cubic_spline"
     normalization: str = "log" # [none, min_max, log]
     map_source_config: MapSourceConfig = field(default_factory=lambda: MapSourceConfig())

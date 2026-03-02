@@ -64,7 +64,7 @@ class RandomMapSource(MapSource):
         self.regenerate()
 
     @classmethod
-    def from_env_bounds(cls, env, random_map_generator: Callable, array_size: tuple[int, int] | None):
+    def from_env_bounds(cls, env, random_map_generator: Callable):
         """Derive Affine transform + CRS from the env's geographic bounds.
 
         Uses env.pygame_crs as the target CRS (same space that rendering
@@ -73,21 +73,24 @@ class RandomMapSource(MapSource):
         If no array size is provided, the env.window_size is used.
         """
         transformer = env.coordinate_transformer
-        x_min, y_min = transformer.transform(env.lon_min, env.lat_min)
-        x_max, y_max = transformer.transform(env.lon_max, env.lat_max)
+        x_min, y_min = env.x_min, env.y_min
+        x_max, y_max = env.x_max, env.y_max
+        center_xy = transformer.transform(env.lon_center, env.lat_center)
 
-        if not array_size:
-            array_size = env.window_size
+        array_size = random_map_generator().shape
+
         res_x = (x_max - x_min) / array_size[0]
         res_y = (y_max - y_min) / array_size[1]
 
-        # Raster convention: origin at top-left, y points downward
-        map_transform = Affine(res_x, 0.0, x_min,
-                               0.0, -res_y, y_max)
+        transform = (
+                Affine.translation(*center_xy) *
+                Affine.scale(res_x, -res_y) *
+                Affine.translation(- array_size[0] / 2, -array_size[1] / 2)
+        )
 
         return cls(
             map_crs=env.pygame_crs,  # synthetic data lives in pygame_crs
-            map_transform=map_transform,
+            map_transform=transform,
             random_map_generator=random_map_generator,
         )
 

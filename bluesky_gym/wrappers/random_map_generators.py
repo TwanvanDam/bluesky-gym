@@ -1,28 +1,31 @@
 import numpy as np
 import rasterio
 import shapely
+"""
+TODO map generators should also return a resolution.
+Refactor random generators and MapSource class to handle this.
+"""
 
-
-def generate_random_polygon(array_size: tuple[int,int], obstacle_size:int):
+def generate_random_polygon(shape: tuple[int,int], obstacle_size:int):
     num_vertices = np.random.randint(3,6)
     vertices = []
-    centroid_x, centroid_y = np.random.uniform() * array_size[0], np.random.uniform() * array_size[1]
+    centroid_x, centroid_y = np.random.uniform() * shape[0], np.random.uniform() * shape[1]
     for vertex in range(num_vertices):
         vertices.append((centroid_x + np.random.uniform(-1,1) * obstacle_size / 2, centroid_y + np.random.uniform(-1,1) * obstacle_size / 2))
        # Sort vertices by angle relative to centroid
     vertices.sort(key=lambda v: np.arctan2(v[1] - centroid_y, v[0] - centroid_x))
     return shapely.Polygon(vertices)
 
-def generate_random_shapes_map(array_size:tuple[int,int], obstacle_size:int) -> np.ndarray:
+def generate_random_shapes_map(shape:tuple[int,int]=(512, 512), obstacle_size:int=100) -> np.ndarray:
     num_obstacles = np.random.randint(2,12)
 
-    polygons = [generate_random_polygon(array_size, obstacle_size) for _ in range(num_obstacles)]
-
-    map = rasterio.features.rasterize(polygons, out_shape=array_size)
+    polygons = [generate_random_polygon(shape, obstacle_size) for _ in range(num_obstacles)]
+    print(shape, obstacle_size)
+    map = rasterio.features.rasterize(polygons, out_shape=shape)
 
     return map
 
-def generate_population_density(shape=(512, 512), num_cities=100, base_occupancy=0.5):
+def generate_cities(shape=(512, 512), num_cities=100, base_occupancy=0.5):
     # 1. Create the base grid and add "City Seeds"
     grid = np.zeros(shape)
     rows = np.random.randint(0, shape[0], num_cities)
