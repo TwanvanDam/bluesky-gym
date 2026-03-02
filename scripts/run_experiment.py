@@ -39,7 +39,7 @@ def train_model(experiment_config_path: Path):
         raise NotImplementedError
     model.learn(
         total_timesteps=training_config.total_timesteps,
-        callback=TensorboardCallback(experiment_config=experiment_config, validation_env=env),
+        callback=TensorboardCallback(experiment_config=experiment_config, validation_env=env, plot_frequency=experiment_config.training_config.total_timesteps),
         tb_log_name=experiment_config.run_name,
     )
     model.save(run_dir)

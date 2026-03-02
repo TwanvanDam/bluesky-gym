@@ -29,7 +29,7 @@ def render_experiment(run_name: str):
         obs, info = env.reset()
         done = False
         while not done:
-            action, _ = model.predict(obs)
+            action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 

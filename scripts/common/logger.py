@@ -68,10 +68,12 @@ def _flatten_config(obj, prefix="") -> dict:
 
 
 class TensorboardCallback(BaseCallback):
-    def __init__(self, experiment_config=None, verbose=0, validation_env = None):
+    def __init__(self, experiment_config=None, verbose=0, validation_env = None, plot_frequency=10000):
         super().__init__(verbose)
         self.experiment_config = experiment_config
         self.validation_env = validation_env
+        self.plot_frequency = plot_frequency
+        self.last_plot_step = 0
 
     def _on_training_start(self) -> None:
         if self.experiment_config is None:
@@ -90,8 +92,7 @@ class TensorboardCallback(BaseCallback):
             exclude=("stdout", "log", "json", "csv"),
         )
 
-    def _on_training_end(self) -> None:
-        """Extract to separate function"""
+    def make_validation_plot(self):
         angles = np.arange(0, 360, 10)
         destination = Airport(Position(lat=52.31, lon=4.7), hdg=180)
         figure = plt.figure()
@@ -123,11 +124,20 @@ class TensorboardCallback(BaseCallback):
         self.logger.dump()
         plt.close(figure)
 
+    def _on_training_end(self) -> None:
+        if self.validation_env is not None:
+            self.make_validation_plot()
+
     def _on_step(self) -> bool:
+        # Check if it's time to make a validation plot
+        if (self.validation_env is not None and
+            self.num_timesteps - self.last_plot_step >= self.plot_frequency):
+            self.make_validation_plot()
+            self.last_plot_step = self.num_timesteps
+
         for info in self.locals.get('infos', []):
             # Only log your custom termination statistics
             if 'termination_stats' in info:
                 for stat_name, count in info['termination_stats'].items():
                     self.logger.record(f"termination/{stat_name}", count)
-
         return True
