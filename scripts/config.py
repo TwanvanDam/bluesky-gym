@@ -109,9 +109,11 @@ class MapSourceConfig:
 class PopulationConfig:
     observation_shape: tuple[int, int] = (64, 64)
     observation_range: tuple[int, int] = (100_000, 100_000)
-    noise_penalty_coefficient: float = 1.0
+    noise_penalty_coefficient: float = 0.035
     fuel_to_noise_ratio: float = 0.5  # Equal weighting of fuel and noise
-    noise_contour_shape: str = "box"
+    noise_resolution: int = 1_000
+    noise_base: float = 85 # dBA
+    noise_cutoff: float = 55 # dBA
     resampling: str = "cubic_spline"
     normalization: str = "log" # [none, min_max, log]
     map_source_config: MapSourceConfig = field(default_factory=lambda: MapSourceConfig())

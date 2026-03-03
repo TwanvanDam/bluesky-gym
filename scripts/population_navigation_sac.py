@@ -81,5 +81,5 @@ if __name__ == "__main__":
             action = env.action_space.sample()
             obs, reward, terminated, truncated, info = wrapped.step(action)
             done = terminated or truncated
-            print(wrapped.population_observation.min(), wrapped.population_observation.max())
-            print(f"background", wrapped.background_map.min(), wrapped.background_map.max())
+            # print(wrapped.population_observation.min(), wrapped.population_observation.max())
+            # print(f"background", wrapped.background_map.min(), wrapped.background_map.max())

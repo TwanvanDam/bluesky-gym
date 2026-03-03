@@ -288,6 +288,10 @@ class BaseNavigationEnv(gym.Env):
         ac_lon = bs.traf.lon[ac_idx]
         return Position(lat=ac_lat, lon=ac_lon), ac_hdg
 
+    def get_aircraft_altitude(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        return bs.traf.alt[ac_idx]
+
     def _get_reward(self):
         total_reward = 0.0
         terminated = False

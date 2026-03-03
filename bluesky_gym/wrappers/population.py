@@ -2,6 +2,9 @@ from functools import partial
 from typing import Callable
 
 import gymnasium as gym
+import matplotlib.pyplot as plt
+from bluesky.tools.aero import ft
+
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
 import pygame
 from gymnasium import spaces
@@ -40,9 +43,9 @@ class Population(gym.Wrapper):
 
         assert isinstance(self.env.observation_space, spaces.Dict)
         self.observation_space = spaces.Dict({
-            **self.env.observation_space.spaces }) #,
-           # "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
-        #})
+            **self.env.observation_space.spaces,
+            "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
+        })
 
         self.unwrapped.fuel_to_noise_ratio = config.fuel_to_noise_ratio
         self.env.add_reward_component(self._get_noise_reward)
@@ -58,7 +61,7 @@ class Population(gym.Wrapper):
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
-        observation = {**observation} #, "population_map": self.population_observation}
+        observation = {**observation, "population_map": self.population_observation}
 
         if self.env.render_mode == "human":
             self.render()
@@ -71,7 +74,7 @@ class Population(gym.Wrapper):
         # TODO: Verify that population observation updates should be skipped when episode ends
         if not done:
             self.population_observation = self._get_population_observation()
-        observation = {**observation} #, "population_map": self.population_observation}
+        observation = {**observation, "population_map": self.population_observation}
 
         if not done and self.env.render_mode == "human":
             self.render()
@@ -125,57 +128,53 @@ class Population(gym.Wrapper):
     def _load_background(self):
         center_position = Position(lon=self.env.lon_center, lat=self.env.lat_center)
         out_meters = self.env.x_max - self.env.x_min, self.env.y_max - self.env.y_min
-        return self._extract_view_from_map(center_position, 0, self.env.window_size, out_meters)
+        background = self._extract_view_from_map(center_position, 0, self.env.window_size, out_meters)
+        return background
 
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
-        return 0.0 * self.config.noise_penalty_coefficient * (1 - self.unwrapped.fuel_to_noise_ratio), False, TerminationReason.NONE
+        # TODO Possible do all the array extracting manually to make the environment faster.
+        # ac_x, ac_y = self.unwrapped.coordinate_transformer.transform(ac_position.lon, ac_position.lat)
+        # ac_col_idx = int((ac_x - center_x) * (array_size[0] / width_m))
+        # width_m, height_m = self.unwrapped.x_max - self.unwrapped.x_min, self.unwrapped.y_max - self.unwrapped.y_min
+        # center_x, center_y = self.unwrapped.coordinate_transformer.transform(self.unwrapped.lon_center, self.unwrapped.lat_center)
+        # array_size = (int(width_m / self.config.noise_resolution), int(height_m / self.config.noise_resolution))
+        # grid_map_1km = self._extract_view_from_map(Position(lat=self.unwrapped.lat_center, lon=self.unwrapped.lon_center), 0, array_size, (width_m, height_m))
+        # distance_shape = distance_squared.shape
+        #
+        # ac_col_min = ac_col_idx - int((distance_shape[0] - 1)/2)
+        # ac_col_max = ac_col_idx + int((distance_shape[0] - 1)/2)+1
+        #
+        # ac_row_idx = int((ac_y - center_y) * (array_size[1] / height_m))
+        # ac_row_min =  ac_row_idx - int((distance_shape[1] - 1)/2)
+        # ac_row_max = ac_row_idx + int((distance_shape[1] - 1)/2) +1
+        #
+        # area_around_ac = grid_map_1km[ac_col_min:ac_col_max,ac_row_min : ac_row_max]
+        # print(ac_col_idx, ac_row_idx, area_around_ac.shape)
+
+        base_noise = self.config.noise_base # [ dBA ]
+        base_distance = 1000 * ft # [ft] -> [m]
+        noise_cutoff = self.config.noise_cutoff # [ dBA ]
+        W_0 = 1e-12
+
+        base_noise_power = 10 ** (base_noise / 10) * W_0 # [ W ]
+        noise_cutoff_power = 10 ** (noise_cutoff / 10) * W_0 # [ W ]
+        base_noise_power_1m = base_noise_power / ( 1 / (base_distance ** 2)) # [ W ]
+        noise_radius = np.sqrt(base_noise_power_1m/noise_cutoff_power) # [ m ] Distance where noise power is lower than cutoff
+        noise_radius_rounded = self.config.noise_resolution * np.ceil(noise_radius / self.config.noise_resolution)
+
         altitude = self.env.get_aircraft_altitude()
-        ac_position, ac_heading = self.env.get_aircraft_position(), self.env.get_aircraft_heading()
+        x = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
+        y = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
+        xv, yv = np.meshgrid(x, y)
+        distance_squared = xv * xv + yv * yv + altitude * altitude
 
-        noise_array_shape = tuple(int(radius / self.noise_resolution) for radius in self.noise_radius)
+        ac_position, ac_heading = self.unwrapped.get_aircraft_details()
+        area_around_ac = self._extract_view_from_map(ac_position, 0, distance_squared.shape, (2 * noise_radius_rounded, 2 * noise_radius_rounded))
 
-        # Center in pixel coordinates
-        center_row = (noise_array_shape[0] - 1) / 2
-        center_col = (noise_array_shape[1] - 1) / 2
-
-        # Create coordinate grids in meters, centered on the aircraft
-        row_indices, col_indices = np.indices(noise_array_shape)
-        y = (row_indices - center_row) * self.noise_resolution
-        x = (col_indices - center_col) * self.noise_resolution
-        distance_squared = np.sqrt(x ** 2 + y ** 2 + altitude ** 2)
-
-        population_array = np.clip(self._extract_view_from_map(ac_position, ac_heading, noise_array_shape, self.noise_radius), 0, np.inf)
-
-        # Create side-by-side plot
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-        # Plot population map with aircraft position
-        im0 = axes[0].imshow(population_array, cmap='viridis')
-        # Mark aircraft position at center
-        axes[0].scatter(center_col, center_row, c='red', s=100, marker='x', linewidths=2, label='Aircraft')
-        axes[0].set_title(f'Population Map (Aircraft at center)\nAltitude: {altitude:.0f}m')
-        axes[0].set_xlabel('Columns')
-        axes[0].set_ylabel('Rows')
-        axes[0].legend()
-        plt.colorbar(im0, ax=axes[0], label='Population')
-
-        # Plot distance squared
-        im1 = axes[1].imshow(distance_squared, cmap='plasma')
-        axes[1].scatter(center_col, center_row, c='red', s=100, marker='x', linewidths=2, label='Aircraft')
-        axes[1].set_title('Distance (including altitude)')
-        axes[1].set_xlabel('Columns')
-        axes[1].set_ylabel('Rows')
-        axes[1].legend()
-        plt.colorbar(im1, ax=axes[1], label='Distance [m]')
-
-        plt.tight_layout()
-        plt.show()
-
-        print(f"{altitude=}")
-        print(f"{distance_squared=}")
-        print(f"{population_array=}")
-
-        return 0.0, False, TerminationReason.NONE
+        sound =  base_noise_power_1m / distance_squared
+        sound[sound <= noise_cutoff_power] = 0
+        total_noise = np.sum(area_around_ac*sound)
+        return (total_noise / self.config.noise_penalty_coefficient) * (1 - self.unwrapped.fuel_to_noise_ratio), False, TerminationReason.NONE
 
     def render(self):
         # Use a canvas with composit_window_size
