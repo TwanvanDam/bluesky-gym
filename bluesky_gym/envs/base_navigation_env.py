@@ -5,6 +5,8 @@ from enum import Enum
 from functools import partial
 from typing import Callable
 
+from bluesky.traffic.performance import PerfBase
+from openap import FuelFlow
 import bluesky as bs
 import gymnasium as gym
 import numpy as np
@@ -12,7 +14,7 @@ import pygame
 from gymnasium import spaces
 import pyproj
 from matplotlib.path import Path
-
+from bluesky.tools.aero import ft, kts
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from scripts.config import NavigationConfig
@@ -115,6 +117,8 @@ class BaseNavigationEnv(gym.Env):
 
         self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
 
+        self.fuel_to_noise_ratio = 1
+
         self._reward_components: list[Callable] = [
             self._fuel_reward,
             self._termination_reward,
@@ -138,7 +142,8 @@ class BaseNavigationEnv(gym.Env):
         bs.scr = ScreenDummy()
         bs.stack.stack(f'DT {self.sim_dt};FF')
 
-        self.fuel_used: float | None = None
+        self.fuel_flow_model = FuelFlow(self.config.ac_type)
+        self.fuel_used_during_step: float | None = None
         self.airport_details: Airport | None = None
         self.aircraft_positions: list[Position] = []
 
@@ -176,7 +181,7 @@ class BaseNavigationEnv(gym.Env):
         options = options or {}
 
         self.current_step = 0
-        self.fuel_used = 0.0
+        self.fuel_used_during_step = 0.0
 
         if "airport_lat" in options and "airport_lon" in options and "airport_hdg" in options:
             self.airport_details = Airport(Position(lat=options["airport_lat"], lon=options["airport_lon"]), hdg=options["airport_hdg"])
@@ -212,6 +217,9 @@ class BaseNavigationEnv(gym.Env):
             bs.sim.step()
             ac_pos, _ = self.get_aircraft_details()
             self.aircraft_positions.append(ac_pos)
+
+            fuel_flow = self._get_fuel_flow()
+            self.fuel_used_during_step += fuel_flow * self.action_time
 
             if self._get_terminal_condition()[1]:
                 break
@@ -298,11 +306,15 @@ class BaseNavigationEnv(gym.Env):
     def add_reward_component(self, function: Callable) -> None:
         self._reward_components.append(function)
 
-    def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
+    def _get_fuel_flow(self) -> float:
         ac_idx = bs.traf.id2idx(self.ac_name)
-        fuel_flow = bs.traf.perf.fuelflow[ac_idx]
-        terminated = False
-        return - self.config.fuel_coeff * fuel_flow, terminated, TerminationReason.NONE
+        ac_tas = bs.traf.tas[ac_idx] / kts # m/s -> kts
+        ac_alt = bs.traf.alt[ac_idx] / ft # m -> ft
+        ac_mass = bs.traf.perf.mass[ac_idx] # kg
+        return self.fuel_flow_model.enroute(mass=ac_mass, tas=ac_tas, alt=ac_alt)
+
+    def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
+        return - self.fuel_to_noise_ratio * self.config.fuel_coeff * self.fuel_used_during_step, False, TerminationReason.NONE
 
     def _boundary_reward(self) -> tuple[float, bool, TerminationReason]:
         if self._check_out_of_bounds():

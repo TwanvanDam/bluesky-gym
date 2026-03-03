@@ -43,6 +43,8 @@ class Population(gym.Wrapper):
             **self.env.observation_space.spaces }) #,
            # "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
         #})
+
+        self.unwrapped.fuel_to_noise_ratio = config.fuel_to_noise_ratio
         self.env.add_reward_component(self._get_noise_reward)
 
 
@@ -126,7 +128,7 @@ class Population(gym.Wrapper):
         return self._extract_view_from_map(center_position, 0, self.env.window_size, out_meters)
 
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
-        return 0.0, False, TerminationReason.NONE
+        return 0.0 * self.config.noise_penalty_coefficient * (1 - self.unwrapped.fuel_to_noise_ratio), False, TerminationReason.NONE
 
     def render(self):
         # Use a canvas with composit_window_size

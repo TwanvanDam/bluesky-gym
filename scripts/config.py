@@ -40,8 +40,8 @@ class SamplingConfig:
 class NavigationConfig:
     ac_name: str = "KL001"
     ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ m/s ]
-    ac_initial_alt: int = 3_000  # [ m ]
+    ac_initial_spd: int = 200  # [ kts ] (input to cre(), stored internally as m/s)
+    ac_initial_alt: int = 3_000  # [ ft ] (input to cre(), stored internally as m)
 
     # Simulation bounds  [ degrees (WGS84) ]
     lon_min: float = 3.0
@@ -109,7 +109,8 @@ class MapSourceConfig:
 class PopulationConfig:
     observation_shape: tuple[int, int] = (64, 64)
     observation_range: tuple[int, int] = (100_000, 100_000)
-    noise_penalty_coefficient: float = 0.0
+    noise_penalty_coefficient: float = 1.0
+    fuel_to_noise_ratio: float = 0.5  # Equal weighting of fuel and noise
     noise_contour_shape: str = "box"
     resampling: str = "cubic_spline"
     normalization: str = "log" # [none, min_max, log]
