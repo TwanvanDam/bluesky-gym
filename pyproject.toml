@@ -12,7 +12,7 @@ dependencies = [
     "pyproj",
     "tensorboard",
     "shapely",
-    "pyrallis",
+    "pydantic>=2.12.5",
 ]
 
 authors = [

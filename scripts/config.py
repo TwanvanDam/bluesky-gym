@@ -1,81 +1,58 @@
-from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple, Union, Any, Dict
+from pydantic import BaseModel, Field, ConfigDict
+import numpy as np
+import yaml
 
-import numpy.random
-import pyrallis
-from dataclasses import dataclass, field
+# --- Sub-Configs ---
 
-from bluesky_gym.wrappers.map_datsets import MapSource
-from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map
-
-
-@dataclass
-class SamplingConfig:
-    distribution: str = "fixed"
-
-    # Uniform distribution
+class SamplingConfig(BaseModel):
+    distribution: str # "fixed", "normal" or "uniform"
     low: Optional[float] = None
     high: Optional[float] = None
-
-    # Normal Distribution
     mean: Optional[float] = None
     std: Optional[float] = None
-
-    # Fixed
     value: Optional[float] = None
 
-    def sample(self, rng: numpy.random.Generator) -> float:
+    def sample(self, rng: np.random.Generator) -> float:
         if self.distribution == "fixed":
             return self.value
         elif self.distribution == "uniform":
             return float(rng.uniform(self.low, self.high))
         elif self.distribution == "normal":
             return float(rng.normal(self.mean, self.std))
-        else:
-            raise ValueError(f"Unknown distribution {self.distribution}")
+        raise ValueError(f"Unknown distribution {self.distribution}")
 
-@dataclass
-class NavigationConfig:
+class NavigationConfig(BaseModel):
     ac_name: str = "KL001"
     ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ kts ] (input to cre(), stored internally as m/s)
-    ac_initial_alt: int = 3_000  # [ ft ] (input to cre(), stored internally as m)
-
-    # Simulation bounds  [ degrees (WGS84) ]
+    ac_initial_spd: int = 200
+    ac_initial_alt: int = 3_000
     lon_min: float = 3.0
     lon_max: float = 7.5
     lat_min: float = 50.5
     lat_max: float = 54.0
-
-    # Simulation Parameters
     max_steps: int = 250
-    sim_dt: int = 3  # s
-    action_time: int = 60  # s
+    sim_dt: int = 3
+    action_time: int = 60
+    faf_distance: float = 25
+    iaf_angle: float = 60
+    iaf_distance: float = 30
 
-    # Termination conditions
-    faf_distance: float = 25  # km
-    iaf_angle: float = 60  # degrees
-    iaf_distance: float = 30  # km
+    # Nested sampling configs with default factories
+    airport_lat_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="fixed", value=52.31))
+    airport_lon_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="fixed", value=4.7))
+    airport_hdg_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="uniform", low=0, high=360))
+    aircraft_lat_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="normal", mean=52.31, std=1))
+    aircraft_lon_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="normal", mean=4.7, std=1))
 
-    # Initial Conditions [ degrees (WGS84) ]
-    airport_lat_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("fixed", value=52.31))
-    airport_lon_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("fixed", value=4.7))
-    airport_hdg_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("uniform", low=0, high=360))
-    aircraft_lat_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("normal", mean=52.31, std=1))
-    aircraft_lon_sampling: SamplingConfig = field(default_factory=lambda: SamplingConfig("normal", mean=4.7, std=1))
+    pygame_crs: str = "EPSG:3035"
+    use_sin_cos_obs: bool = False
+    constraint_violation_reward: float = -1.0
+    successful_approach_reward: float = 50.0
+    fuel_coeff: float = 0.025
 
-    pygame_crs: str = "EPSG:28992"
-    use_sin_cos_obs: Optional[bool] = False
-
-    # Rewards
-    constraint_violation_reward: Optional[float] = -1
-    successful_approach_reward: Optional[float] = 50
-    fuel_coeff: Optional[float] = 0.025
-
-
-@dataclass
-class TrainingConfig:
+class TrainingConfig(BaseModel):
     algorithm: str = "SAC"
     policy: str = "MultiInputPolicy"
     learning_rate: float = 3e-4
@@ -84,82 +61,70 @@ class TrainingConfig:
     total_timesteps: int = 1_000_000
     validation_episodes: Optional[int] = 10_000
 
+# --- The Layer Blocks (The part you were struggling with) ---
 
-@dataclass
-class ConvolutionLayerConfig:
-    kernel_size: int
-    stride: int
-    padding: int
+class ConvolutionLayerConfig(BaseModel):
     in_channels: Optional[int] = None
-    out_channels: Optional[int] = None
-
-@dataclass
-class PoolingLayerConfig:
-    type: str # "max", "avg"
+    out_channels: int
     kernel_size: int
     stride: int
     padding: int
 
-@dataclass
-class LayerBlockConfig:
+class PoolingLayerConfig(BaseModel):
+    type: str  # "max", "avg"
+    kernel_size: int
+    stride: int
+    padding: int
+
+class LayerBlockConfig(BaseModel):
+    # These are now correctly handled as optional sub-objects
     conv: Optional[ConvolutionLayerConfig] = None
     pooling: Optional[PoolingLayerConfig] = None
     activation: Optional[str] = None
 
-@dataclass
-class FeatureExtractorConfig:
-    layers: list[LayerBlockConfig]
+class FeatureExtractorConfig(BaseModel):
+    layers: List[LayerBlockConfig] = Field(default_factory=list)
     output_dim: int
 
-@dataclass
-class MapSourceConfig:
-    type: str = "tiff" # "tiff", "polygon", "cities"
+# --- Remaining Configs ---
+
+class MapSourceConfig(BaseModel):
+    type: str = "tiff"
     file_path: Optional[Path] = None
-    kwargs: Optional[dict] = None
+    kwargs: Dict[str, Any] = Field(default_factory=dict)
 
-    def build(self, env) -> "MapSource":
-        from bluesky_gym.wrappers.map_datsets import TiffMapSource, RandomMapSource
-
-        if self.type == "tiff":
-            return TiffMapSource(self.file_path)
-        elif self.type == "cities":
-            generator = generate_cities
-        elif self.type == "polygon":
-            print(self.kwargs)
-            generator = partial(generate_random_shapes_map, **self.kwargs)
-        else:
-            raise NotImplementedError(f"type {self.type} is not implemented")
-        return RandomMapSource.from_env_bounds(env=env, random_map_generator=generator)
-
-@dataclass
-class PopulationConfig:
-    observation_shape: tuple[int, int] = (64, 64)
-    observation_range: tuple[int, int] = (100_000, 100_000)
+class PopulationConfig(BaseModel):
+    observation_shape: Tuple[int, int] = (64, 64)
+    observation_range: Tuple[int, int] = (100_000, 100_000)
     noise_penalty_coefficient: float = 0.035
-    fuel_to_noise_ratio: float = 0.5  # Equal weighting of fuel and noise
+    fuel_to_noise_ratio: float = 0.5
     noise_resolution: int = 1_000
-    noise_base: float = 85 # dBA
-    noise_cutoff: float = 55 # dBA
+    noise_base: float = 85
+    noise_cutoff: float = 55
     resampling: str = "cubic_spline"
-    normalization: str = "log" # [none, min_max, log]
-    map_source_config: MapSourceConfig = field(default_factory=lambda: MapSourceConfig())
+    normalization: str = "log"
+    map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
 
+class ExperimentConfig(BaseModel):
+    # Allow extra fields if you want flexibility, or 'forbid' to be strict
+    model_config = ConfigDict(extra='forbid')
 
-
-@dataclass
-class ExperimentConfig:
-    navigation_config: NavigationConfig = field(default_factory=NavigationConfig)
+    navigation_config: NavigationConfig = Field(default_factory=NavigationConfig)
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
-    feature_extractor_config: Optional[FeatureExtractorConfig] = None
+    feature_extractor: Optional[FeatureExtractorConfig] = None
     run_name: Optional[str] = None
 
-    def save(self, path: str | Path) -> None:
-        pyrallis.dump(self, open(path, "w"))
+    def save(self, path: Union[str, Path]) -> None:
+        with open(path, "w") as f:
+            # .model_dump() converts to a dict safely
+            yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     @classmethod
-    def load(cls, path: str | Path) -> "ExperimentConfig":
-        return pyrallis.parse(config_class=cls, config_path=path)
+    def load(cls, path: Union[str, Path]) -> "ExperimentConfig":
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return cls(**data)
 
 if __name__ == '__main__':
     print(ExperimentConfig.load(Path("scripts/common/results/configs_backup/PopulationWrapper-v0/TestMapConfig.yaml")))
