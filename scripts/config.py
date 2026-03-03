@@ -2,7 +2,6 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import numpy.random
 import pyrallis
 from dataclasses import dataclass, field
@@ -85,6 +84,33 @@ class TrainingConfig:
     total_timesteps: int = 1_000_000
     validation_episodes: Optional[int] = 10_000
 
+
+@dataclass
+class ConvolutionLayerConfig:
+    kernel_size: int
+    stride: int
+    padding: int
+    in_channels: Optional[int] = None
+    out_channels: Optional[int] = None
+
+@dataclass
+class PoolingLayerConfig:
+    type: str # "max", "avg"
+    kernel_size: int
+    stride: int
+    padding: int
+
+@dataclass
+class LayerBlockConfig:
+    conv: Optional[ConvolutionLayerConfig] = None
+    pooling: Optional[PoolingLayerConfig] = None
+    activation: Optional[str] = None
+
+@dataclass
+class FeatureExtractorConfig:
+    layers: list[LayerBlockConfig]
+    output_dim: int
+
 @dataclass
 class MapSourceConfig:
     type: str = "tiff" # "tiff", "polygon", "cities"
@@ -125,6 +151,7 @@ class ExperimentConfig:
     navigation_config: NavigationConfig = field(default_factory=NavigationConfig)
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
+    feature_extractor_config: Optional[FeatureExtractorConfig] = None
     run_name: Optional[str] = None
 
     def save(self, path: str | Path) -> None:
@@ -133,3 +160,6 @@ class ExperimentConfig:
     @classmethod
     def load(cls, path: str | Path) -> "ExperimentConfig":
         return pyrallis.parse(config_class=cls, config_path=path)
+
+if __name__ == '__main__':
+    print(ExperimentConfig.load(Path("scripts/common/results/configs_backup/PopulationWrapper-v0/TestMapConfig.yaml")))

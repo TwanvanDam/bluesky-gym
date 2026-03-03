@@ -9,6 +9,7 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.wrappers.population import Population
 from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
+from scripts.feature_extractors import CombinedExtractor
 
 def train_model(experiment_config_path: Path):
     experiment_config = ExperimentConfig.load(experiment_config_path)
@@ -33,8 +34,23 @@ def train_model(experiment_config_path: Path):
     experiment_config.save(configs_backup_dir / f"{experiment_config.run_name}.yaml")
 
     # Initialize Model
+    policy_kwargs = None
+    if hasattr(experiment_config, 'feature_extractor_config') and experiment_config.feature_extractor_config:
+        from functools import partial
+        policy_kwargs = {
+            "features_extractor_class": CombinedExtractor,
+            "features_extractor_kwargs": {"config": experiment_config.feature_extractor_config}
+        }
+
     if training_config.algorithm == "SAC":
-        model = SAC(training_config.policy, env, verbose=1, tensorboard_log=log_dir, device="cuda" if torch.cuda.is_available() else "auto")
+        model = SAC(
+            training_config.policy,
+            env,
+            verbose=1,
+            tensorboard_log=log_dir,
+            device="cuda" if torch.cuda.is_available() else "auto",
+            policy_kwargs=policy_kwargs
+        )
     else:
         raise NotImplementedError
     model.learn(

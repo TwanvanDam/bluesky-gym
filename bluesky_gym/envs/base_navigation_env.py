@@ -59,7 +59,7 @@ class Airport:
     hdg: float
 
 class BaseNavigationEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 1}
 
     def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
                  config: NavigationConfig = NavigationConfig()) -> None:
