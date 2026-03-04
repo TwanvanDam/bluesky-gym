@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-training
-#SBATCH --partition=1
+#SBATCH --partition=general
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -13,7 +13,6 @@
 # Uses the Apptainer/Singularity container built from container.def.
 #
 # Usage:
-#   sbatch HPC/run_training.sbatch                           # runs all experiments in HPC/experiments/
 #   sbatch HPC/run_training.sbatch HPC/experiments/Test.yaml  # runs a single experiment
 # ─────────────────────────────────────────────────────────────
 
