@@ -19,11 +19,13 @@ from scripts.config import PopulationConfig
 
 
 class Population(gym.Wrapper):
-    def __init__(self, env: BaseNavigationEnv, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
+    def __init__(self, env: gym.Env, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
         assert isinstance(env, BaseNavigationEnv)
         super().__init__(env)
-        self.env: BaseNavigationEnv = env
-        self.env._render_owned_by_wrapper = True
+        self.env: gym.Env = env
+        self.base_env: BaseNavigationEnv = self.unwrapped
+
+        self.base_env._render_owned_by_wrapper = True
         self.config = config
 
         self.window = None
@@ -32,8 +34,7 @@ class Population(gym.Wrapper):
         self.population_observation = None
 
         # class to handle all reading and creating of population maps
-        self.map_source = config.map_source_config.build(self.env)
-        self.transformer = Transformer.from_crs(self.env.bluesky_crs, self.env.pygame_crs, always_xy=True)
+        self.map_source = config.map_source_config.build(self.base_env)
 
         # cache the map used as background since it does not change often.
         self.background_map = None
@@ -46,13 +47,13 @@ class Population(gym.Wrapper):
             "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
         })
 
-        self.unwrapped.fuel_to_noise_ratio = config.fuel_to_noise_ratio
-        self.env.add_reward_component(self._get_noise_reward)
+        self.base_env.fuel_to_noise_ratio = config.fuel_to_noise_ratio
+        self.base_env.add_reward_component(self._get_noise_reward)
 
 
     @property
     def composite_window_size(self) -> tuple[int,int]:
-        return self.env.window_size[0] + self._get_panel_size()[0], self.env.window_size[1]
+        return self.base_env.window_size[0] + self._get_panel_size()[0], self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
@@ -62,7 +63,7 @@ class Population(gym.Wrapper):
         self.population_observation = self._get_population_observation()
         observation = {**observation, "population_map": self.population_observation}
 
-        if self.env.render_mode == "human":
+        if self.render_mode == "human":
             self.render()
         return observation, info
 
@@ -75,7 +76,7 @@ class Population(gym.Wrapper):
             self.population_observation = self._get_population_observation()
         observation = {**observation, "population_map": self.population_observation}
 
-        if not done and self.env.render_mode == "human":
+        if not done and self.render_mode == "human":
             self.render()
         return observation, reward, terminated, truncated, info
 
@@ -89,9 +90,9 @@ class Population(gym.Wrapper):
 
         destination = np.zeros(out_shape[::-1])
 
-        # Perform the Warp (Reprojection)
+        # Perform the Reprojection
         reproject(
-            source=rasterio.band(self.map_source.dataset, 1),  # always a dataset now
+            source=rasterio.band(self.map_source.dataset, 1),
             destination=destination,
             src_transform=self.map_source.transform,
             src_crs=self.map_source.crs,
@@ -103,7 +104,7 @@ class Population(gym.Wrapper):
 
     def _get_dst_transform(self, center_position: Position, orientation: float, out_meters: tuple[float, float],
                            out_shape: tuple[int, int]) -> tuple[Affine, ...]:
-        center_xy = self.transformer.transform(center_position.lon, center_position.lat)
+        center_xy = self.base_env.coordinate_transformer.transform(center_position.lon, center_position.lat)
 
         # Calculate the resolution (meters per pixel) for the output slice
         cols, rows = out_shape
@@ -119,37 +120,18 @@ class Population(gym.Wrapper):
         return dst_transform
 
     def _get_population_observation(self):
-        position, heading = self.env.get_aircraft_details()
+        position, heading = self.base_env.get_aircraft_details()
         destination = self._extract_view_from_map(position, heading, self.observation_shape, self.observation_range)
         destination = np.clip(destination, 0, np.inf)
         return destination
 
     def _load_background(self):
-        center_position = Position(lon=self.env.lon_center, lat=self.env.lat_center)
-        out_meters = self.env.x_max - self.env.x_min, self.env.y_max - self.env.y_min
-        background = self._extract_view_from_map(center_position, 0, self.env.window_size, out_meters)
+        center_position = Position(lon=self.base_env.lon_center, lat=self.base_env.lat_center)
+        out_meters = self.base_env.x_max - self.base_env.x_min, self.base_env.y_max - self.base_env.y_min
+        background = self._extract_view_from_map(center_position, 0, self.base_env.window_size, out_meters)
         return background
 
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
-        # TODO Possible do all the array extracting manually to make the environment faster.
-        # ac_x, ac_y = self.unwrapped.coordinate_transformer.transform(ac_position.lon, ac_position.lat)
-        # ac_col_idx = int((ac_x - center_x) * (array_size[0] / width_m))
-        # width_m, height_m = self.unwrapped.x_max - self.unwrapped.x_min, self.unwrapped.y_max - self.unwrapped.y_min
-        # center_x, center_y = self.unwrapped.coordinate_transformer.transform(self.unwrapped.lon_center, self.unwrapped.lat_center)
-        # array_size = (int(width_m / self.config.noise_resolution), int(height_m / self.config.noise_resolution))
-        # grid_map_1km = self._extract_view_from_map(Position(lat=self.unwrapped.lat_center, lon=self.unwrapped.lon_center), 0, array_size, (width_m, height_m))
-        # distance_shape = distance_squared.shape
-        #
-        # ac_col_min = ac_col_idx - int((distance_shape[0] - 1)/2)
-        # ac_col_max = ac_col_idx + int((distance_shape[0] - 1)/2)+1
-        #
-        # ac_row_idx = int((ac_y - center_y) * (array_size[1] / height_m))
-        # ac_row_min =  ac_row_idx - int((distance_shape[1] - 1)/2)
-        # ac_row_max = ac_row_idx + int((distance_shape[1] - 1)/2) +1
-        #
-        # area_around_ac = grid_map_1km[ac_col_min:ac_col_max,ac_row_min : ac_row_max]
-        # print(ac_col_idx, ac_row_idx, area_around_ac.shape)
-
         base_noise = self.config.noise_base # [ dBA ]
         base_distance = 1000 * ft # [ft] -> [m]
         noise_cutoff = self.config.noise_cutoff # [ dBA ]
@@ -161,26 +143,25 @@ class Population(gym.Wrapper):
         noise_radius = np.sqrt(base_noise_power_1m/noise_cutoff_power) # [ m ] Distance where noise power is lower than cutoff
         noise_radius_rounded = self.config.noise_resolution * np.ceil(noise_radius / self.config.noise_resolution)
 
-        altitude = self.env.get_aircraft_altitude()
+        altitude = self.base_env.get_aircraft_altitude()
         x = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
         y = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
         xv, yv = np.meshgrid(x, y)
         distance_squared = xv * xv + yv * yv + altitude * altitude
 
-        ac_position, ac_heading = self.unwrapped.get_aircraft_details()
+        ac_position, ac_heading = self.base_env.get_aircraft_details()
         area_around_ac = self._extract_view_from_map(ac_position, 0, distance_squared.shape, (2 * noise_radius_rounded, 2 * noise_radius_rounded))
 
         sound =  base_noise_power_1m / distance_squared
         sound[sound <= noise_cutoff_power] = 0
         total_noise = np.sum(area_around_ac*sound)
-        return (total_noise / self.config.noise_penalty_coefficient) * (1 - self.unwrapped.fuel_to_noise_ratio), False, TerminationReason.NONE
+        return (total_noise / self.config.noise_penalty_coefficient) * (1 - self.base_env.fuel_to_noise_ratio), False, TerminationReason.NONE
 
     def render(self):
         # Use a canvas with composit_window_size
-
-        self.env.initialize_pygame(self.composite_window_size)
-        self.env.handle_pygame_events()
-        base_surface = pygame.Surface(self.env.window_size)
+        self.base_env.initialize_pygame(self.composite_window_size)
+        self.base_env.handle_pygame_events()
+        base_surface = pygame.Surface(self.base_env.window_size)
         for draw_function in self.get_base_render_layers():
             draw_function(base_surface)
 
@@ -190,22 +171,22 @@ class Population(gym.Wrapper):
 
         canvas = pygame.Surface(self.composite_window_size)
         canvas.blit(base_surface, (0,0))
-        canvas.blit(panel_surface, (self.env.window_size[0], 0))
+        canvas.blit(panel_surface, (self.base_env.window_size[0], 0))
 
-        return self.env.present_canvas(canvas)
+        return self.base_env.present_canvas(canvas)
 
     def _get_panel_size(self) -> tuple[int, int]:
-        return (int((self.observation_range[0] / self.observation_range[1]) * self.env.window_size[0]),
-                self.env.window_size[1])
+        return (int((self.observation_range[0] / self.observation_range[1]) * self.base_env.window_size[0]),
+                self.base_env.window_size[1])
 
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
         return [
             lambda canvas: canvas.fill(pygame.Color("grey")),
-            partial(self._render_array, render_size=self.env.window_size, array=self.background_map,
+            partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map,
                     transparent=True),
-            self.env.draw_airport,
-            self.env.draw_aircraft,
+            self.base_env.draw_airport,
+            self.base_env.draw_aircraft,
             self._draw_box_around_aircraft,
         ]
 
@@ -270,13 +251,13 @@ class Population(gym.Wrapper):
         screen_corners = []
         for col, row in pixel_corners:
             x, y = dst_transform * (col, row)
-            screen_x, screen_y = self.env.meters_to_pix((x, y))
+            screen_x, screen_y = self.base_env.meters_to_pix((x, y))
             screen_corners.append((screen_x, screen_y))
 
         return screen_corners
 
     def _draw_box_around_aircraft(self, canvas):
-        ac_position, ac_heading = self.env.get_aircraft_details()
+        ac_position, ac_heading = self.base_env.get_aircraft_details()
         corners = self._get_view_corners_screen(ac_position, ac_heading,
                                                 self.observation_shape, self.observation_range)
         pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)

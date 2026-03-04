@@ -86,9 +86,33 @@ class FeatureExtractorConfig(BaseModel):
     output_dim: int
 
 class MapSourceConfig(BaseModel):
-    type: str # "tiff" or "random"
+    type: str = "polygon" # "tiff", "polygon" or "cities"
     file_path: Optional[Path] = None
-    kwargs: Dict[str, Any] = Field(default_factory=dict)
+    kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    def build(self, env):
+        from bluesky_gym.wrappers.map_datsets import TiffMapSource, RandomMapSource
+        from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map
+        import functools
+
+        if self.type == "tiff":
+            if not self.file_path:
+                raise ValueError("file_path is required for tiff map source")
+            if self.kwargs: raise ValueError(f"MapSource {self.type} does not support kwargs")
+            return TiffMapSource(str(self.file_path)) # Convert Path to str if needed
+        elif self.type == "cities":
+            # Use kwargs to configure the generator if any
+            generator = generate_cities
+            if self.kwargs:
+                generator = functools.partial(generate_cities, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        elif self.type == "polygon":
+            generator = generate_random_shapes_map
+            if self.kwargs:
+                generator = functools.partial(generate_random_shapes_map, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        else:
+            raise ValueError(f"Unknown map source type: {self.type}")
 
 class PopulationConfig(BaseModel):
     observation_shape: Tuple[int, int] = (64, 64) # [px, px]
