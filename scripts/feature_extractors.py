@@ -29,6 +29,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self.build_cnn(len(self.map_keys))
 
         map_shape = observation_space.spaces[self.map_keys[0]].shape
+        if not all(obs_space.shape == map_shape for obs_space in observation_space.spaces.values()):
+            raise NotImplementedError("Maps with varying sizes are not supported currently.")
+
         with torch.no_grad():
             dummy_input = torch.zeros(1, len(self.map_keys), *map_shape)
             cnn_out = self.cnn(dummy_input)
