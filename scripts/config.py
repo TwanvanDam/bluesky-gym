@@ -87,7 +87,7 @@ class FeatureExtractorConfig(BaseModel):
 
 class MapSourceConfig(BaseModel):
     type: str = "polygon" # "tiff", "polygon" or "cities"
-    file_path: Optional[Path] = None
+    file_path: Optional[str] = None
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     def build(self, env):
@@ -115,8 +115,8 @@ class MapSourceConfig(BaseModel):
             raise ValueError(f"Unknown map source type: {self.type}")
 
 class PopulationConfig(BaseModel):
-    observation_shape: Tuple[int, int] = (64, 64) # [px, px]
-    observation_range: Tuple[int, int] = (100_000, 100_000) # [m, m]
+    observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)]) # [px, px]
+    observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)]) # [m, m]
     noise_penalty_coefficient: float = 0.035
     fuel_to_noise_ratio: float = 0.5
     noise_resolution: int = 1_000 # [ m ]
@@ -136,8 +136,11 @@ class ExperimentConfig(BaseModel):
     run_name: Optional[str] = None
 
     def save(self, path: Union[str, Path]) -> None:
+        def tuple_representer(dumper, data):
+            return dumper.represent_sequence('tag:yaml.org,2002:seq', data)
+
+        yaml.add_representer(tuple, tuple_representer)
         with open(path, "w") as f:
-            # .model_dump() converts to a dict safely
             yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     @classmethod

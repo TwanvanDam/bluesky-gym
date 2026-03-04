@@ -20,8 +20,8 @@ from scripts.config import ExperimentConfig, MapSourceConfig, PopulationConfig
 
 
 if __name__ == "__main__":
-    experiment_config = ExperimentConfig.load(Path("./scripts/common/results/configs_backup/PopulationWrapper-v0/TestMapConfig.yaml"))
-
+    experiment_config = ExperimentConfig.load(Path("./scripts/common/results/configs_backup/PopulationWrapper-v0/Multilayer.yaml"))
+    experiment_config.save("./scripts/common/results/configs_backup/PopulationWrapper-v0/Multilayer.yaml")
     env = BaseNavigationEnv(config = experiment_config.navigation_config, render_mode="human")
     wrapped = Population(env, experiment_config.population_config)
 

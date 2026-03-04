@@ -42,9 +42,14 @@ class Population(gym.Wrapper):
         self.metadata = env.metadata.copy()
 
         assert isinstance(self.env.observation_space, spaces.Dict)
+        if len(self.observation_shape) > 1:
+            maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in enumerate(self.observation_shape)}
+        else:
+            maps = {"population_map" : spaces.Box(low=0, high=np.inf, shape=self.observation_shape[0], dtype=np.float64)}
+
         self.observation_space = spaces.Dict({
             **self.env.observation_space.spaces,
-            "population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape, dtype=np.float64)
+            **maps
         })
 
         self.base_env.fuel_to_noise_ratio = config.fuel_to_noise_ratio
@@ -53,7 +58,7 @@ class Population(gym.Wrapper):
 
     @property
     def composite_window_size(self) -> tuple[int,int]:
-        return self.base_env.window_size[0] + self._get_panel_size()[0], self.base_env.window_size[1]
+        return self.base_env.window_size[0] + sum(x_size for x_size,_ in self._get_panel_sizes()), self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
@@ -121,9 +126,8 @@ class Population(gym.Wrapper):
 
     def _get_population_observation(self):
         position, heading = self.base_env.get_aircraft_details()
-        destination = self._extract_view_from_map(position, heading, self.observation_shape, self.observation_range)
-        destination = np.clip(destination, 0, np.inf)
-        return destination
+        observations = [np.clip(self._extract_view_from_map(position, heading, obs_shape, obs_range),0, np.inf) for obs_shape, obs_range in zip(self.observation_shape, self.observation_range)]
+        return observations
 
     def _load_background(self):
         center_position = Position(lon=self.base_env.lon_center, lat=self.base_env.lat_center)
@@ -165,19 +169,21 @@ class Population(gym.Wrapper):
         for draw_function in self.get_base_render_layers():
             draw_function(base_surface)
 
-        panel_surface = pygame.Surface(self._get_panel_size())
-        for draw_function in self.get_panel_render_layers():
-            draw_function(panel_surface)
-
         canvas = pygame.Surface(self.composite_window_size)
         canvas.blit(base_surface, (0,0))
-        canvas.blit(panel_surface, (self.base_env.window_size[0], 0))
+
+        render_dest = (self.base_env.window_size[0], 0)
+        for draw_function, panel_size in zip(self.get_panel_render_layers(),self._get_panel_sizes()):
+            panel_surface = pygame.Surface(panel_size)
+            draw_function(panel_surface)
+            canvas.blit(panel_surface, render_dest)
+            render_dest = (render_dest[0]+panel_size[0], 0)
 
         return self.base_env.present_canvas(canvas)
 
-    def _get_panel_size(self) -> tuple[int, int]:
-        return (int((self.observation_range[0] / self.observation_range[1]) * self.base_env.window_size[0]),
-                self.base_env.window_size[1])
+    def _get_panel_sizes(self) -> list[tuple[int, int]]:
+        y_size = self.base_env.window_size[1]
+        return [(int((obs_range[0] / obs_range[1]) * self.base_env.window_size[0]), y_size) for obs_range in self.observation_range]
 
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
@@ -191,8 +197,8 @@ class Population(gym.Wrapper):
         ]
 
     def get_panel_render_layers(self) -> list[Callable]:
-        return [partial(self._render_array, render_size=self._get_panel_size(),
-                array=self.population_observation, transparent=False)]
+        return [partial(self._render_array, render_size=size,
+                array=observation, transparent=False) for size, observation in zip(self._get_panel_sizes(), self.population_observation)]
 
     def normalize_heatmap(self, heatmap: np.ndarray) -> np.ndarray:
         heatmap = np.clip(heatmap, 0, np.inf)
@@ -258,9 +264,10 @@ class Population(gym.Wrapper):
 
     def _draw_box_around_aircraft(self, canvas):
         ac_position, ac_heading = self.base_env.get_aircraft_details()
-        corners = self._get_view_corners_screen(ac_position, ac_heading,
-                                                self.observation_shape, self.observation_range)
-        pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
+        for obs_shape, obs_range in zip(self.observation_shape, self.observation_range):
+            corners = self._get_view_corners_screen(ac_position, ac_heading,
+                                                    obs_shape, obs_range)
+            pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
 
 
 
