@@ -48,6 +48,7 @@ class NavigationConfig(BaseModel):
 
     pygame_crs: str = "EPSG:3035"
     use_sin_cos_obs: bool = False
+    normalize_distance_obs: bool = True
     constraint_violation_reward: float = -1.0
     successful_approach_reward: float = 50.0
     fuel_coeff: float = 0.025

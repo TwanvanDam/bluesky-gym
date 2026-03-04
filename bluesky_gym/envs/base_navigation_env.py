@@ -2,10 +2,8 @@ import itertools
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from functools import partial
 from typing import Callable
 
-from bluesky.traffic.performance import PerfBase
 from openap import FuelFlow
 import bluesky as bs
 import gymnasium as gym
@@ -58,6 +56,50 @@ class Airport:
     position: Position
     hdg: float
 
+class SinCosNormalization(gym.ObservationWrapper):
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+
+        # Check if underlying observation space is Dict
+        assert isinstance(env.observation_space, spaces.Dict), "SinCosNormalization only works with Dict observation spaces"
+
+        self.transform_keys = ['destination_relative_heading', 'destination_relative_orientation']
+
+        # Determine the new observation space
+        new_spaces = env.observation_space.spaces.copy()
+
+        for key in self.transform_keys:
+            if key in new_spaces:
+                new_spaces.pop(key)
+                new_spaces[f"{key}_sin"] = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+                new_spaces[f"{key}_cos"] = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+
+        self.observation_space = spaces.Dict(new_spaces)
+
+    def observation(self, observation: dict) -> dict:
+        new_observation = observation.copy()
+        for key in self.transform_keys:
+            if key in new_observation:
+                value = new_observation.pop(key)[0]
+                new_observation[f"{key}_sin"] = np.array([np.sin(np.deg2rad(value))], dtype=np.float64)
+                new_observation[f"{key}_cos"] = np.array([np.cos(np.deg2rad(value))], dtype=np.float64)
+        return new_observation
+
+class DistanceNormalization(gym.ObservationWrapper):
+    def __init__(self, env: gym.Env, normalization_factor: float = 150_000):
+        super().__init__(env)
+        assert isinstance(env.observation_space, spaces.Dict), "DistanceNormalization only works with Dict observation spaces"
+        self.normalization_factor = normalization_factor
+        self.transform_keys = ["destination_ground_distance"]
+
+    def observation(self, observation: dict) -> dict:
+        new_observation = observation.copy()
+        for key in self.transform_keys:
+            if key in new_observation:
+                value = new_observation.pop(key)[0]
+                new_observation[f"{key}"] = np.array([value / self.normalization_factor])
+        return new_observation
+
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 1}
 
@@ -87,35 +129,21 @@ class BaseNavigationEnv(gym.Env):
         self.x_min, self.y_min = self.coordinate_transformer.transform(self.lon_min, self.lat_min)
         self.x_max, self.y_max = self.coordinate_transformer.transform(self.lon_max, self.lat_max)
 
-        self.use_sin_cos_obs = self.config.use_sin_cos_obs
-        if self.use_sin_cos_obs:
-            self.observation_space = spaces.Dict(
-                {
-                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
 
-                    # The sin and cos of the required heading change to reach the destination
-                    "destination_relative_heading_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                    "destination_relative_heading_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+        self.observation_space = spaces.Dict(
+            {
+                # Ground distance to the destination in meters [0, inf]
+                "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
 
-                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
-                    "destination_relative_orientation_sin": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                    "destination_relative_orientation_cos": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                }
-            )
-        else:
-            self.observation_space = spaces.Dict(
-                {
-                    "destination_ground_distance": spaces.Box(0, np.inf, shape=(1,), dtype=np.float64),
+                # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
+                "destination_relative_heading": spaces.Box(-180, 180, shape=(1,), dtype=np.float64),
 
-                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
-                    "destination_relative_heading": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
+                # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
+                "destination_relative_orientation": spaces.Box(-180, 180, shape=(1,), dtype=np.float64),
+            }
+        )
 
-                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
-                    "destination_relative_orientation": spaces.Box(-1, 1, shape=(1,), dtype=np.float64),
-                }
-            )
-
-        self.action_space = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
+        self.action_space = spaces.Box(low=-180, high=180, shape=(1,), dtype=np.float64)
 
         self.fuel_to_noise_ratio = 1
 
@@ -210,7 +238,7 @@ class BaseNavigationEnv(gym.Env):
 
     def step(self, action):
         _, ac_hdg = self.get_aircraft_details()
-        new_heading = fn.bound_angle_0_360(ac_hdg + action[0] * 180)
+        new_heading = fn.bound_angle_0_360(ac_hdg + action[0])
         bs.stack.stack(f"HDG {self.ac_name} {new_heading}")
 
         for i in range(self.action_frequency):
@@ -247,36 +275,27 @@ class BaseNavigationEnv(gym.Env):
         ac_position, ac_hdg = self.get_aircraft_details()
 
         correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
-                                      (self.faf_lat, self.faf_lon)))
+                                      (self.airport_details.position.lat, self.airport_details.position.lon)))
 
-        relative_heading = np.array([fn.bound_angle_positive_negative_180(correct_heading - ac_hdg)])
-        relative_orientation = np.array([fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg)])
+        destination_relative_heading = np.array([fn.bound_angle_positive_negative_180(correct_heading - ac_hdg)])
+        destination_relative_orientation = np.array([fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg)])
 
-        ground_distance = np.array(
-            [np.sqrt((self.faf_lat - ac_position.lat) ** 2 + (self.faf_lon - ac_position.lon) ** 2)],
+        destination_x, destination_y = self.coordinate_transformer.transform(self.airport_details.position.lon, self.airport_details.position.lat)
+        aircraft_x, aircraft_y = self.coordinate_transformer.transform(ac_position.lon, ac_position.lat)
+
+        destination_ground_distance = np.array(
+            [np.sqrt((destination_x - aircraft_x) ** 2 + (destination_y - aircraft_y) ** 2)],
             dtype=np.float64)
 
-        if self.use_sin_cos_obs:
-            observation = {
-                    "destination_ground_distance": ground_distance,
+        observation = {
+                    # Ground distance to the destination in meters [0, inf]
+                    "destination_ground_distance": destination_ground_distance,
 
-                    # The sin and cos of the required heading change to reach the destination
-                    "destination_relative_heading_sin": np.sin(np.deg2rad(relative_heading)),
-                    "destination_relative_heading_cos": np.cos(np.deg2rad(relative_heading)),
+                    # The required heading change to reach the destination in degrees [-180, 180]
+                    "destination_relative_heading": destination_relative_heading,
 
-                    # The sin and cos of the orientation of the destination relative to the aircraft's heading
-                    "destination_relative_orientation_sin": np.sin(np.deg2rad(relative_orientation)),
-                    "destination_relative_orientation_cos": np.cos(np.deg2rad(relative_orientation)),
-                }
-        else:
-           observation = {
-                    "destination_ground_distance": ground_distance,
-
-                    # The required heading change to reach the destination normalized to [0 ,1], which corresponds to [-180, 180]
-                    "destination_relative_heading": relative_heading / 180,
-
-                    # The orientation of the destination relative to the aircraft's heading, normalized to [0 ,1], which corresponds to [-180, 180]
-                    "destination_relative_orientation": relative_orientation / 180,
+                    # The orientation of the destination relative to the aircraft's heading in degrees [-180, 180]
+                    "destination_relative_orientation": destination_relative_orientation,
                 }
         return observation
 
@@ -527,10 +546,10 @@ class BaseNavigationEnv(gym.Env):
         obs = {**obs, "airport_bearing": np.array([self.airport_details.hdg])}
 
         for key, value in obs.items():
-            if "Heading" in key or "Azimuth" in key:
-                text = f"{key}: {value[0] * 180:.4f}"
+            if "distance" in key:
+                text = f"{key}: {value[0] / 1000:.1f} [km]"
             else:
-                text = f"{key}: {value[0]:.4f}"
+                text = f"{key}: {value[0]:.0f} [deg]"
             text_surface = font.render(text, True, text_color)
             canvas.blit(text_surface, (10, y_offset))
             y_offset += 30

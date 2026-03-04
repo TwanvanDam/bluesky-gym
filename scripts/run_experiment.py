@@ -2,27 +2,41 @@ import argparse
 import datetime
 from pathlib import Path
 
-import torch.cuda
+import gymnasium as gym
+import torch
+from gymnasium.wrappers import RescaleAction
 from stable_baselines3 import SAC
 
-from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
+from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, SinCosNormalization, DistanceNormalization
 from bluesky_gym.wrappers.population import Population
 from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
 
+def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
+    env = BaseNavigationEnv(config=experiment_config.navigation_config, render_mode=render_mode)
+
+    if experiment_config.navigation_config.use_sin_cos_obs:
+        env = SinCosNormalization(env)
+
+    if experiment_config.navigation_config.normalize_distance_obs:
+        env = DistanceNormalization(env)
+
+    env = RescaleAction(env, min_action=-1.0, max_action=1.0)
+
+    if experiment_config.population_config:
+        env = Population(env, config=experiment_config.population_config)
+        env_name = "PopulationWrapper-v0"
+    else:
+        env_name = "BaseNavigationEnv-v0"
+
+    return env, env_name
+
 def train_model(experiment_config_path: Path):
     experiment_config = ExperimentConfig.load(experiment_config_path)
     experiment_config.run_name = str(datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S'))
 
-    # Initialize Environment
-    env = BaseNavigationEnv(config=experiment_config.navigation_config)
-    if experiment_config.population_config:
-        env_name = "PopulationWrapper-v0"
-        env = Population(env, config=experiment_config.population_config)
-    else:
-        env_name = "BaseNavigationEnv-v0"
-
+    env, env_name = load_env_from_config(experiment_config=experiment_config)
 
     training_config = experiment_config.training_config
     log_dir = logs_dir.joinpath(env_name)
