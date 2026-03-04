@@ -2,7 +2,6 @@ from functools import partial
 from typing import Callable
 
 import gymnasium as gym
-import matplotlib.pyplot as plt
 from bluesky.tools.aero import ft
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
@@ -217,12 +216,12 @@ class Population(gym.Wrapper):
     def normalize_heatmap(self, heatmap: np.ndarray) -> np.ndarray:
         heatmap = np.clip(heatmap, 0, np.inf)
 
-        if self.config.normalization == "log":
+        if self.config.rendering_normalization == "log":
             epsilon = 1e-10
             heatmap = np.log1p(heatmap + epsilon)
-        elif self.config.normalization == "min_max":
+        elif self.config.rendering_normalization == "min_max":
             heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
-        elif self.config.normalization == "none":
+        elif self.config.rendering_normalization == "none":
             pass
 
         return heatmap

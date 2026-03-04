@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field, ConfigDict
 import numpy as np
 import yaml
 
-# --- Sub-Configs ---
-
 class SamplingConfig(BaseModel):
     distribution: str # "fixed", "normal" or "uniform"
     low: Optional[float] = None
@@ -26,18 +24,21 @@ class SamplingConfig(BaseModel):
 class NavigationConfig(BaseModel):
     ac_name: str = "KL001"
     ac_type: str = "a320"
-    ac_initial_spd: int = 200
-    ac_initial_alt: int = 3_000
+    ac_initial_spd: int = 200 # [ m / s ]
+    ac_initial_alt: int = 3_000 # [ m ]
+
+    # All coordinates in degrees (WGS84)
     lon_min: float = 3.0
     lon_max: float = 7.5
     lat_min: float = 50.5
     lat_max: float = 54.0
+
     max_steps: int = 250
-    sim_dt: int = 3
-    action_time: int = 60
-    faf_distance: float = 25
-    iaf_angle: float = 60
-    iaf_distance: float = 30
+    sim_dt: int = 3 # [ s ]
+    action_time: int = 60 # [ s ]
+    faf_distance: float = 25 # [ km ]
+    iaf_angle: float = 60 # [ degrees ]
+    iaf_distance: float = 30 # [ km ]
 
     # Nested sampling configs with default factories
     airport_lat_sampling: SamplingConfig = Field(default_factory=lambda: SamplingConfig(distribution="fixed", value=52.31))
@@ -62,8 +63,6 @@ class TrainingConfig(BaseModel):
     total_timesteps: int = 1_000_000
     validation_episodes: Optional[int] = 10_000
 
-# --- The Layer Blocks (The part you were struggling with) ---
-
 class ConvolutionLayerConfig(BaseModel):
     in_channels: Optional[int] = None
     out_channels: int
@@ -78,36 +77,32 @@ class PoolingLayerConfig(BaseModel):
     padding: int
 
 class LayerBlockConfig(BaseModel):
-    # These are now correctly handled as optional sub-objects
     conv: Optional[ConvolutionLayerConfig] = None
     pooling: Optional[PoolingLayerConfig] = None
-    activation: Optional[str] = None
+    activation: Optional[str] = None # "ReLU", "Tanh", "Sigmoid"
 
 class FeatureExtractorConfig(BaseModel):
     layers: List[LayerBlockConfig] = Field(default_factory=list)
     output_dim: int
 
-# --- Remaining Configs ---
-
 class MapSourceConfig(BaseModel):
-    type: str = "tiff"
+    type: str # "tiff" or "random"
     file_path: Optional[Path] = None
     kwargs: Dict[str, Any] = Field(default_factory=dict)
 
 class PopulationConfig(BaseModel):
-    observation_shape: Tuple[int, int] = (64, 64)
-    observation_range: Tuple[int, int] = (100_000, 100_000)
+    observation_shape: Tuple[int, int] = (64, 64) # [px, px]
+    observation_range: Tuple[int, int] = (100_000, 100_000) # [m, m]
     noise_penalty_coefficient: float = 0.035
     fuel_to_noise_ratio: float = 0.5
-    noise_resolution: int = 1_000
-    noise_base: float = 85
-    noise_cutoff: float = 55
+    noise_resolution: int = 1_000 # [ m ]
+    noise_base: float = 85 # [ dBA ]
+    noise_cutoff: float = 55 # [ dBA ]
     resampling: str = "cubic_spline"
-    normalization: str = "log"
+    rendering_normalization: str = "log" # "log" or "min-max"
     map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
 
 class ExperimentConfig(BaseModel):
-    # Allow extra fields if you want flexibility, or 'forbid' to be strict
     model_config = ConfigDict(extra='forbid')
 
     navigation_config: NavigationConfig = Field(default_factory=NavigationConfig)
