@@ -129,14 +129,14 @@ class TensorboardCallback(BaseCallback):
                 obs, reward, terminated, truncated, info = self.validation_env.step(action)
                 done = terminated or truncated
             points = [(position.lon, position.lat) for position in
-                      self.validation_env.aircraft_positions]
+                      self.validation_env.unwrapped.aircraft_positions]
             xs, ys = zip(*points)
             plt.plot(xs, ys)
-        plt.xlim(self.validation_env.lon_min, self.validation_env.lon_max)
-        plt.ylim(self.validation_env.lat_min, self.validation_env.lat_max)
+        plt.xlim(self.validation_env.unwrapped.lon_min, self.validation_env.unwrapped.lon_max)
+        plt.ylim(self.validation_env.unwrapped.lat_min, self.validation_env.unwrapped.lat_max)
         plt.scatter(destination.position.lon, destination.position.lat, marker=".", linewidths=5)
         print("saving figure")
-        plt.savefig("figure.png")
+        plt.savefig(f"scripts/common/results/figures_backup/{self.experiment_config.run_name}_{self.num_timesteps}.png")
         self.logger.record("validation/circle_trajectories", Figure(figure, close=True), exclude=("stdout", "log", "json", "csv"))
         self.logger.dump()
         plt.close(figure)
@@ -147,8 +147,7 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         # Check if it's time to make a validation plot
-        if (self.validation_env is not None and
-            self.num_timesteps - self.last_plot_step >= self.plot_frequency):
+        if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
             self.make_validation_plot()
             self.last_plot_step = self.num_timesteps
 
