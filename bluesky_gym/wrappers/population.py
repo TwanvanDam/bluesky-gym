@@ -8,6 +8,7 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationR
 import pygame
 from gymnasium import spaces
 import matplotlib
+from matplotlib.colors import Normalize, FuncNorm
 import rasterio
 import rasterio.features
 from rasterio.warp import reproject, Resampling
@@ -39,6 +40,7 @@ class Population(gym.Wrapper):
         # cache the map used as background since it does not change often.
         self.background_map = None
         self.color_map: str = color_map
+        self.render_normalizer: Normalize | None
         self.metadata = env.metadata.copy()
 
         assert isinstance(self.env.observation_space, spaces.Dict)
@@ -63,6 +65,7 @@ class Population(gym.Wrapper):
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
         self.background_map = self._load_background()
+        self.render_normalizer = self._get_normalization(self.background_map)
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
@@ -200,32 +203,27 @@ class Population(gym.Wrapper):
         return [partial(self._render_array, render_size=size,
                 array=observation, transparent=False) for size, observation in zip(self._get_panel_sizes(), self.population_observation)]
 
-    def normalize_heatmap(self, heatmap: np.ndarray) -> np.ndarray:
-        heatmap = np.clip(heatmap, 0, np.inf)
+    def _get_normalization(self, heatmap: np.ndarray) -> Normalize:
+        """Get the appropriate matplotlib Normalize instance based on config."""
+        heatmap_clipped = np.clip(heatmap, 0, np.inf)
+        vmin = heatmap_clipped.min()
+        vmax = heatmap_clipped.max()
+
+        if vmin == vmax:
+            return Normalize(vmin=0, vmax=1)
 
         if self.config.rendering_normalization == "log":
-            epsilon = 1e-10
-            heatmap = np.log1p(heatmap + epsilon)
+            return FuncNorm(functions=(np.log1p, np.expm1), vmin=vmin, vmax=vmax)
         elif self.config.rendering_normalization == "min_max":
-            heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
-        elif self.config.rendering_normalization == "none":
-            pass
-
-        return heatmap
+            return Normalize(vmin=vmin, vmax=vmax)
+        else:  # "none" or default
+            return Normalize(vmin=0, vmax=1)
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
         # Mask the area that has no data available ( negative population density )
         no_data_mask = population_map < 0
 
-        # If the map has all the same values, return zeros
-        if population_map.min() == population_map.max():
-            normalized_map = np.zeros_like(population_map)
-
-        else:
-            normalized_map = self.normalize_heatmap(population_map)
-            # Ensure values are on the interval [0, 1] for rendering
-            if not (population_map.min() >= 0 and population_map.max() <= 1):
-                normalized_map = (normalized_map - normalized_map.min()) / (normalized_map.max() - normalized_map.min())
+        normalized_map = self.render_normalizer(np.clip(population_map, 0, np.inf))
 
         color_data = matplotlib.colormaps[self.color_map](normalized_map)
         rgba_array = (color_data * 255).astype(np.uint8)
