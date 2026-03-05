@@ -3,7 +3,6 @@ from typing import Callable
 
 import gymnasium as gym
 from bluesky.tools.aero import ft
-
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
 import pygame
 from gymnasium import spaces
@@ -17,6 +16,28 @@ import numpy as np
 from pyproj import Transformer
 from bluesky_gym.wrappers.map_datsets import MapSource
 from scripts.config import PopulationConfig
+
+class MapObservationNormalizer(gym.ObservationWrapper):
+    def __init__(self, env: gym.Env) -> None:
+        super().__init__(env)
+
+        # Check if underlying observation space is Dict
+        self.observation_max = env.observation_max
+
+        assert isinstance(env.observation_space, spaces.Dict), "MapObservationNormalizer only works with Dict observation spaces"
+        observation_space = env.observation_space.spaces.copy()
+        for key in observation_space:
+            if "map" in key:
+                original_space = observation_space.pop(key)
+                observation_space[key] = spaces.Box(low=0, high=1, shape=original_space.shape, dtype=original_space.dtype)
+
+    def observation(self, observation):
+        observation_copy = observation.copy()
+        for key in observation_copy:
+            if "map" in key:
+                value = observation_copy.pop(key)
+                observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
+        return observation_copy
 
 
 class Population(gym.Wrapper):
@@ -36,6 +57,7 @@ class Population(gym.Wrapper):
 
         # class to handle all reading and creating of population maps
         self.map_source = config.map_source_config.build(self.base_env)
+        self.observation_max: float = np.inf
 
         # cache the map used as background since it does not change often.
         self.background_map = None
@@ -65,6 +87,7 @@ class Population(gym.Wrapper):
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
         self.background_map = self._load_background()
+        self.observation_max = np.max(self.background_map)
         self.render_normalizer = self._get_normalization(self.background_map)
 
         observation, info = self.env.reset(seed=seed, options=options)
