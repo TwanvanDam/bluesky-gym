@@ -104,7 +104,9 @@ class Population(gym.Wrapper):
         self.observation_max = np.max(self.background_map)
         self.render_normalizer = self._get_normalization(self.background_map)
 
-        self.mean_noise = np.sum(self._get_noise_kernel() * np.mean(self.background_map))
+        noise_kernel, _ = self._get_noise_kernel()
+
+        self.mean_noise = np.sum(noise_kernel * np.mean(np.clip(self.background_map,0, np.inf)))
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
