@@ -1,0 +1,110 @@
+feature_extractor:
+  layers:
+  - activation: ReLU
+    conv:
+      in_channels: null
+      kernel_size: 3
+      out_channels: 16
+      padding: 1
+      stride: 1
+    pooling: null
+  - activation: ReLU
+    conv:
+      in_channels: 16
+      kernel_size: 3
+      out_channels: 32
+      padding: 1
+      stride: 1
+    pooling: null
+  - activation: null
+    conv: null
+    pooling:
+      kernel_size: 2
+      padding: 0
+      stride: 2
+      type: max
+navigation_config:
+  ac_initial_alt: 3000
+  ac_initial_spd: 200
+  ac_name: KL001
+  ac_type: a320
+  action_time: 120
+  aircraft_lat_sampling:
+    distribution: normal
+    high: null
+    low: null
+    mean: 52.31
+    std: 2.0
+    value: null
+  aircraft_lon_sampling:
+    distribution: normal
+    high: null
+    low: null
+    mean: 4.7
+    std: 2.0
+    value: null
+  airport_hdg_sampling:
+    distribution: uniform
+    high: 360.0
+    low: 0.0
+    mean: null
+    std: null
+    value: null
+  airport_lat_sampling:
+    distribution: fixed
+    high: null
+    low: null
+    mean: null
+    std: null
+    value: 52.31
+  airport_lon_sampling:
+    distribution: fixed
+    high: null
+    low: null
+    mean: null
+    std: null
+    value: 4.7
+  constraint_violation_reward: -1.0
+  faf_distance: 25.0
+  iaf_angle: 60.0
+  iaf_distance: 30.0
+  lat_max: 56.0
+  lat_min: 48.0
+  lon_max: 9.0
+  lon_min: 0.0
+  max_steps: 100
+  mean_episode_length: 1200.0
+  normalize_distance_obs: true
+  pygame_crs: EPSG:3035
+  sim_dt: 5
+  successful_approach_reward: 50.0
+  total_dense_rewards: 0.25
+  use_sin_cos_obs: true
+population_config:
+  fuel_to_noise_ratio: 0.5
+  map_source_config:
+    file_path: null
+    kwargs: null
+    type: cities
+  noise_base: 85.0
+  noise_cutoff: 55.0
+  noise_penalty_coefficient: 0.035
+  noise_resolution: 1000
+  observation_normalization: log
+  observation_range:
+  - - 100000
+    - 100000
+  observation_shape:
+  - - 32
+    - 32
+  rendering_normalization: log
+  resampling: bilinear
+run_name: null
+training_config:
+  algorithm: SAC
+  batch_size: 256
+  buffer_size: 1000000
+  learning_rate: 0.0003
+  policy: MultiInputPolicy
+  total_timesteps: 200000
+  validation_episodes: 50000
