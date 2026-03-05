@@ -97,7 +97,6 @@ class LayerBlockConfig(BaseModel):
 
 class FeatureExtractorConfig(BaseModel):
     layers: List[LayerBlockConfig] = Field(default_factory=list)
-    output_dim: int
 
 
 class MapSourceConfig(BaseModel):
