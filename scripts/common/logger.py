@@ -46,21 +46,38 @@ class CSVLoggerCallback(BaseCallback):
 def _flatten_config(obj, prefix="") -> dict:
     """Recursively flatten a dataclass/dict into a flat dict with string values suitable for TB hparams."""
     flat = {}
-    if hasattr(obj, "__dataclass_fields__"):
+
+    # Check if it's a Pydantic model
+    if hasattr(obj, "model_dump"):
+        items = obj.model_dump()
+    # Check if it's a dataclass
+    elif hasattr(obj, "__dataclass_fields__"):
         items = {f.name: getattr(obj, f.name) for f in fields(obj)}
     elif isinstance(obj, dict):
         items = obj
     else:
-        return {prefix: obj}
+        # For primitive types, return them directly
+        if isinstance(obj, (int, float, bool, str)) or obj is None:
+            return {prefix: obj} if prefix else {str(obj): obj}
+        else:
+            return {prefix: str(obj)} if prefix else {}
 
     for key, value in items.items():
         full_key = f"{prefix}/{key}" if prefix else key
-        if hasattr(value, "__dataclass_fields__") or isinstance(value, dict):
+
+        # Recursively flatten nested objects
+        if hasattr(value, "model_dump") or (hasattr(value, "__dataclass_fields__")) or isinstance(value, dict):
             flat.update(_flatten_config(value, full_key))
+        # Handle None values
         elif value is None:
             flat[full_key] = "None"
+        # Handle primitive types
         elif isinstance(value, (int, float, bool, str)):
             flat[full_key] = value
+        # Handle lists and tuples
+        elif isinstance(value, (list, tuple)):
+            flat[full_key] = str(value)
+        # Convert everything else to string
         else:
             flat[full_key] = str(value)
 
