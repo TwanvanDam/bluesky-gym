@@ -10,7 +10,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 import gymnasium as gym
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
-from bluesky_gym.wrappers.map_datsets import TiffMapSource, RandomMapSource
+from bluesky_gym.wrappers.map_datasets import TiffMapSource, RandomMapSource
 from bluesky_gym.wrappers.population import Population
 from bluesky_gym.wrappers.random_map_generators import generate_random_shapes_map
 from scripts.config import ExperimentConfig, MapSourceConfig, PopulationConfig

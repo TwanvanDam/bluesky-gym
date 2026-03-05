@@ -91,7 +91,7 @@ class MapSourceConfig(BaseModel):
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     def build(self, env):
-        from bluesky_gym.wrappers.map_datsets import TiffMapSource, RandomMapSource
+        from bluesky_gym.wrappers.map_datasets import TiffMapSource, RandomMapSource
         from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map
         import functools
 
