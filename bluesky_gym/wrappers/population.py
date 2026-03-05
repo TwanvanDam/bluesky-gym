@@ -40,7 +40,7 @@ class MapObservationNormalizer(gym.ObservationWrapper):
         observation_copy = observation.copy()
         for key in list(observation_copy.keys()):
             if "map" in key:
-                value = observation_copy.pop(key)
+                value = observation_copy.pop(key)[0]
                 match self.mode:
                     case "log":
                         observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
@@ -54,7 +54,6 @@ class MapObservationNormalizer(gym.ObservationWrapper):
 
 class Population(gym.Wrapper):
     def __init__(self, env: gym.Env, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
-        assert isinstance(env, BaseNavigationEnv)
         super().__init__(env)
         self.env: gym.Env = env
         self.base_env: BaseNavigationEnv = self.unwrapped
@@ -148,7 +147,7 @@ class Population(gym.Wrapper):
             src_transform=self.map_source.transform,
             src_crs=self.map_source.crs,
             dst_transform=dst_transform,
-            dst_crs=self.env.pygame_crs,
+            dst_crs=self.base_env.pygame_crs,
             resampling=getattr(Resampling, self.config.resampling)
         )
         return destination
