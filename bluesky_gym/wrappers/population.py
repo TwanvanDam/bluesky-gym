@@ -13,30 +13,38 @@ import rasterio.features
 from rasterio.warp import reproject, Resampling
 from affine import Affine
 import numpy as np
-from pyproj import Transformer
-from bluesky_gym.wrappers.map_datsets import MapSource
 from scripts.config import PopulationConfig
 
 class MapObservationNormalizer(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env) -> None:
+    def __init__(self, env: gym.Env, mode: str = "log") -> None:
         super().__init__(env)
 
         # Check if underlying observation space is Dict
         self.observation_max = env.observation_max
+        self.mode = mode
 
         assert isinstance(env.observation_space, spaces.Dict), "MapObservationNormalizer only works with Dict observation spaces"
         observation_space = env.observation_space.spaces.copy()
-        for key in observation_space:
+        for key in list(observation_space.keys()):
             if "map" in key:
                 original_space = observation_space.pop(key)
                 observation_space[key] = spaces.Box(low=0, high=1, shape=original_space.shape, dtype=original_space.dtype)
 
+        self.observation_space = spaces.Dict(observation_space)
+
     def observation(self, observation):
         observation_copy = observation.copy()
-        for key in observation_copy:
+        for key in list(observation_copy.keys()):
             if "map" in key:
                 value = observation_copy.pop(key)
-                observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
+                match self.mode:
+                    case "log":
+                        observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
+                    case "min-max":
+                        observation_copy[key] = np.clip(value / self.observation_max, 0 , 1)
+                    case _:
+                        msg = f"Normalization mode {self.mode} is not supported."
+                        raise NotImplementedError(msg)
         return observation_copy
 
 
@@ -89,6 +97,8 @@ class Population(gym.Wrapper):
         self.background_map = self._load_background()
         self.observation_max = np.max(self.background_map)
         self.render_normalizer = self._get_normalization(self.background_map)
+
+        self.noise_normalizer = self._get_noise_reward()
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()

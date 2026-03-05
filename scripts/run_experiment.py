@@ -8,7 +8,7 @@ from gymnasium.wrappers import RescaleAction
 from stable_baselines3 import SAC
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, SinCosNormalization, DistanceNormalization
-from bluesky_gym.wrappers.population import Population
+from bluesky_gym.wrappers.population import Population, MapObservationNormalizer
 from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
@@ -26,6 +26,8 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
 
     if experiment_config.population_config:
         env = Population(env, config=experiment_config.population_config)
+        if experiment_config.population_config.observation_normalization:
+            env = MapObservationNormalizer(env, mode=experiment_config.population_config.observation_normalization)
         env_name = "PopulationWrapper-v0"
     else:
         env_name = "BaseNavigationEnv-v0"

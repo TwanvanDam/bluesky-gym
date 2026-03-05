@@ -124,6 +124,7 @@ class PopulationConfig(BaseModel):
     noise_cutoff: float = 55 # [ dBA ]
     resampling: str = "cubic_spline"
     rendering_normalization: str = "log" # "log" or "min-max"
+    observation_normalization: str = "log"
     map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
 
 class ExperimentConfig(BaseModel):
