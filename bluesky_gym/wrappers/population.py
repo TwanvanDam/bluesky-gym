@@ -99,6 +99,7 @@ class Population(gym.Wrapper):
             self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
+        super().reset(seed=seed, options=options)
         self.map_source.regenerate()
         self.background_map = self._load_background()
         self.observation_max = np.max(self.background_map)
@@ -209,9 +210,9 @@ class Population(gym.Wrapper):
         ac_position, ac_heading = self.base_env.get_aircraft_details()
         area_around_ac = self._extract_view_from_map(ac_position, 0, noise_kernel.shape,
                                                      (2 * noise_radius, 2 * noise_radius))
-        total_noise = np.sum(area_around_ac * noise_kernel)
-        return - (1 - self.base_env.fuel_to_noise_ratio) * (
-                total_noise / self.mean_noise) * self.base_env.dense_reward_scaling, False, TerminationReason.NONE
+        total_noise = np.sum(np.clip(area_around_ac, 0, np.inf) * noise_kernel)
+        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * (total_noise / self.mean_noise) * self.base_env.dense_reward_scaling
+        return noise_penalty, False, TerminationReason.NONE
 
     def render(self):
         # Use a canvas with composit_window_size
