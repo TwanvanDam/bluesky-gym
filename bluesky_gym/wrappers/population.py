@@ -2,18 +2,20 @@ from functools import partial
 from typing import Callable
 
 import gymnasium as gym
-from bluesky.tools.aero import ft
-from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
-import pygame
-from gymnasium import spaces
 import matplotlib
-from matplotlib.colors import Normalize, FuncNorm
+import numpy as np
+import pygame
 import rasterio
 import rasterio.features
-from rasterio.warp import reproject, Resampling
 from affine import Affine
-import numpy as np
+from bluesky.tools.aero import ft
+from gymnasium import spaces
+from matplotlib.colors import Normalize, FuncNorm
+from rasterio.warp import reproject, Resampling
+
+from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
 from scripts.config import PopulationConfig
+
 
 class MapObservationNormalizer(gym.ObservationWrapper):
     def __init__(self, env: gym.Env, mode: str = "log") -> None:
@@ -23,12 +25,14 @@ class MapObservationNormalizer(gym.ObservationWrapper):
         self.observation_max = env.observation_max
         self.mode = mode
 
-        assert isinstance(env.observation_space, spaces.Dict), "MapObservationNormalizer only works with Dict observation spaces"
+        assert isinstance(env.observation_space,
+                          spaces.Dict), "MapObservationNormalizer only works with Dict observation spaces"
         observation_space = env.observation_space.spaces.copy()
         for key in list(observation_space.keys()):
             if "map" in key:
                 original_space = observation_space.pop(key)
-                observation_space[key] = spaces.Box(low=0, high=1, shape=original_space.shape, dtype=original_space.dtype)
+                observation_space[key] = spaces.Box(low=0, high=1, shape=original_space.shape,
+                                                    dtype=original_space.dtype)
 
         self.observation_space = spaces.Dict(observation_space)
 
@@ -41,7 +45,7 @@ class MapObservationNormalizer(gym.ObservationWrapper):
                     case "log":
                         observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
                     case "min-max":
-                        observation_copy[key] = np.clip(value / self.observation_max, 0 , 1)
+                        observation_copy[key] = np.clip(value / self.observation_max, 0, 1)
                     case _:
                         msg = f"Normalization mode {self.mode} is not supported."
                         raise NotImplementedError(msg)
@@ -66,18 +70,20 @@ class Population(gym.Wrapper):
         # class to handle all reading and creating of population maps
         self.map_source = config.map_source_config.build(self.base_env)
         self.observation_max: float = np.inf
+        self.mean_noise: float = np.inf
 
         # cache the map used as background since it does not change often.
-        self.background_map = None
+        self.background_map: None | np.ndarray = None
         self.color_map: str = color_map
         self.render_normalizer: Normalize | None
         self.metadata = env.metadata.copy()
 
         assert isinstance(self.env.observation_space, spaces.Dict)
         if len(self.observation_shape) > 1:
-            maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in enumerate(self.observation_shape)}
+            maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in
+                    enumerate(self.observation_shape)}
         else:
-            maps = {"population_map" : spaces.Box(low=0, high=np.inf, shape=self.observation_shape[0], dtype=np.float64)}
+            maps = {"population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape[0], dtype=np.float64)}
 
         self.observation_space = spaces.Dict({
             **self.env.observation_space.spaces,
@@ -87,10 +93,10 @@ class Population(gym.Wrapper):
         self.base_env.fuel_to_noise_ratio = config.fuel_to_noise_ratio
         self.base_env.add_reward_component(self._get_noise_reward)
 
-
     @property
-    def composite_window_size(self) -> tuple[int,int]:
-        return self.base_env.window_size[0] + sum(x_size for x_size,_ in self._get_panel_sizes()), self.base_env.window_size[1]
+    def composite_window_size(self) -> tuple[int, int]:
+        return self.base_env.window_size[0] + sum(x_size for x_size, _ in self._get_panel_sizes()), \
+            self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
         self.map_source.regenerate()
@@ -98,7 +104,7 @@ class Population(gym.Wrapper):
         self.observation_max = np.max(self.background_map)
         self.render_normalizer = self._get_normalization(self.background_map)
 
-        self.noise_normalizer = self._get_noise_reward()
+        self.mean_noise = np.sum(self._get_noise_kernel() * np.mean(self.background_map))
 
         observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
@@ -126,7 +132,8 @@ class Population(gym.Wrapper):
         self.map_source.close()
         self.env.close()
 
-    def _extract_view_from_map(self, center_position: Position, orientation: float, out_shape: tuple[int, int], out_meters: tuple[float, float]):
+    def _extract_view_from_map(self, center_position: Position, orientation: float, out_shape: tuple[int, int],
+                               out_meters: tuple[float, float]):
         dst_transform = self._get_dst_transform(center_position, orientation, out_meters, out_shape)
 
         destination = np.zeros(out_shape[::-1])
@@ -162,7 +169,8 @@ class Population(gym.Wrapper):
 
     def _get_population_observation(self):
         position, heading = self.base_env.get_aircraft_details()
-        observations = [np.clip(self._extract_view_from_map(position, heading, obs_shape, obs_range),0, np.inf) for obs_shape, obs_range in zip(self.observation_shape, self.observation_range)]
+        observations = [np.clip(self._extract_view_from_map(position, heading, obs_shape, obs_range), 0, np.inf) for
+                        obs_shape, obs_range in zip(self.observation_shape, self.observation_range)]
         return observations
 
     def _load_background(self):
@@ -171,16 +179,17 @@ class Population(gym.Wrapper):
         background = self._extract_view_from_map(center_position, 0, self.base_env.window_size, out_meters)
         return background
 
-    def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
-        base_noise = self.config.noise_base # [ dBA ]
-        base_distance = 1000 * ft # [ft] -> [m]
-        noise_cutoff = self.config.noise_cutoff # [ dBA ]
+    def _get_noise_kernel(self) -> tuple[np.ndarray, int]:
+        base_noise = self.config.noise_base  # [ dBA ]
+        base_distance = 1000 * ft  # [ft] -> [m]
+        noise_cutoff = self.config.noise_cutoff  # [ dBA ]
         W_0 = 1e-12
 
-        base_noise_power = 10 ** (base_noise / 10) * W_0 # [ W ]
-        noise_cutoff_power = 10 ** (noise_cutoff / 10) * W_0 # [ W ]
-        base_noise_power_1m = base_noise_power / ( 1 / (base_distance ** 2)) # [ W ]
-        noise_radius = np.sqrt(base_noise_power_1m/noise_cutoff_power) # [ m ] Distance where noise power is lower than cutoff
+        base_noise_power = 10 ** (base_noise / 10) * W_0  # [ W ]
+        noise_cutoff_power = 10 ** (noise_cutoff / 10) * W_0  # [ W ]
+        base_noise_power_1m = base_noise_power / (1 / (base_distance ** 2))  # [ W ]
+        noise_radius = np.sqrt(
+            base_noise_power_1m / noise_cutoff_power)  # [ m ] Distance where noise power is lower than cutoff
         noise_radius_rounded = self.config.noise_resolution * np.ceil(noise_radius / self.config.noise_resolution)
 
         altitude = self.base_env.get_aircraft_altitude()
@@ -189,13 +198,18 @@ class Population(gym.Wrapper):
         xv, yv = np.meshgrid(x, y)
         distance_squared = xv * xv + yv * yv + altitude * altitude
 
-        ac_position, ac_heading = self.base_env.get_aircraft_details()
-        area_around_ac = self._extract_view_from_map(ac_position, 0, distance_squared.shape, (2 * noise_radius_rounded, 2 * noise_radius_rounded))
-
-        sound =  base_noise_power_1m / distance_squared
+        sound = base_noise_power_1m / distance_squared
         sound[sound <= noise_cutoff_power] = 0
-        total_noise = np.sum(area_around_ac*sound)
-        return (total_noise / self.config.noise_penalty_coefficient) * (1 - self.base_env.fuel_to_noise_ratio), False, TerminationReason.NONE
+        return sound, noise_radius_rounded
+
+    def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
+        noise_kernel, noise_radius = self._get_noise_kernel()
+        ac_position, ac_heading = self.base_env.get_aircraft_details()
+        area_around_ac = self._extract_view_from_map(ac_position, 0, noise_kernel.shape,
+                                                     (2 * noise_radius, 2 * noise_radius))
+        total_noise = np.sum(area_around_ac * noise_kernel)
+        return - (1 - self.base_env.fuel_to_noise_ratio) * (
+                total_noise / self.mean_noise) * self.base_env.dense_reward_scaling, False, TerminationReason.NONE
 
     def render(self):
         # Use a canvas with composit_window_size
@@ -206,20 +220,21 @@ class Population(gym.Wrapper):
             draw_function(base_surface)
 
         canvas = pygame.Surface(self.composite_window_size)
-        canvas.blit(base_surface, (0,0))
+        canvas.blit(base_surface, (0, 0))
 
         render_dest = (self.base_env.window_size[0], 0)
-        for draw_function, panel_size in zip(self.get_panel_render_layers(),self._get_panel_sizes()):
+        for draw_function, panel_size in zip(self.get_panel_render_layers(), self._get_panel_sizes()):
             panel_surface = pygame.Surface(panel_size)
             draw_function(panel_surface)
             canvas.blit(panel_surface, render_dest)
-            render_dest = (render_dest[0]+panel_size[0], 0)
+            render_dest = (render_dest[0] + panel_size[0], 0)
 
         return self.base_env.present_canvas(canvas)
 
     def _get_panel_sizes(self) -> list[tuple[int, int]]:
         y_size = self.base_env.window_size[1]
-        return [(int((obs_range[0] / obs_range[1]) * self.base_env.window_size[0]), y_size) for obs_range in self.observation_range]
+        return [(int((obs_range[0] / obs_range[1]) * self.base_env.window_size[0]), y_size) for obs_range in
+                self.observation_range]
 
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
@@ -234,7 +249,8 @@ class Population(gym.Wrapper):
 
     def get_panel_render_layers(self) -> list[Callable]:
         return [partial(self._render_array, render_size=size,
-                array=observation, transparent=False) for size, observation in zip(self._get_panel_sizes(), self.population_observation)]
+                        array=observation, transparent=False) for size, observation in
+                zip(self._get_panel_sizes(), self.population_observation)]
 
     def _get_normalization(self, heatmap: np.ndarray) -> Normalize:
         """Get the appropriate matplotlib Normalize instance based on config."""
@@ -270,12 +286,12 @@ class Population(gym.Wrapper):
         rgba_array = self._convert_heatmap_to_rgba_array(array)
         shape = array.shape[::-1]
         if transparent:
-            heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape , "RGBA")
+            heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape, "RGBA")
         else:
             heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), shape, "RGB")
         heatmap_surf = pygame.transform.scale(heatmap_surf, render_size)
 
-        canvas.blit(heatmap_surf, (0,0))
+        canvas.blit(heatmap_surf, (0, 0))
 
     def _get_view_corners_screen(self, center_position: Position, orientation: float,
                                  out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[
@@ -299,9 +315,3 @@ class Population(gym.Wrapper):
             corners = self._get_view_corners_screen(ac_position, ac_heading,
                                                     obs_shape, obs_range)
             pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
-
-
-
-
-
-
