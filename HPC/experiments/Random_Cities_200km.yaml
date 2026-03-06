@@ -106,7 +106,7 @@ training_config:
   buffer_size: 1000000
   learning_rate: 0.0003
   policy: MultiInputPolicy
-  total_timesteps: 200000
+  total_timesteps: 150000
   validation_episodes: 50000
   save_frequency: 50000
 
