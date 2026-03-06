@@ -108,3 +108,4 @@ training_config:
   policy: MultiInputPolicy
   total_timesteps: 200000
   validation_episodes: 50000
+  save_frequency: 50000
