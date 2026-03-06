@@ -38,8 +38,7 @@ fi
 
 # ── Run ──────────────────────────────────────────────────────
 # Bind the project directory into the container at /workspace
-# Pass an optional experiment config path as argument, otherwise
-# run_experiment.py will iterate over all configs in HPC/experiments/
+# Pass an experiment config path as argument
 
 echo "Running single experiment: $1"
 apptainer exec --nv \
