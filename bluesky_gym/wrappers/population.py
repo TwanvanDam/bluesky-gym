@@ -210,7 +210,7 @@ class Population(gym.Wrapper):
         area_around_ac = self._extract_view_from_map(ac_position, 0, noise_kernel.shape,
                                                      (2 * noise_radius, 2 * noise_radius))
         total_noise = np.sum(np.clip(area_around_ac, 0, np.inf) * noise_kernel)
-        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * (total_noise / self.mean_noise) * self.base_env.dense_reward_scaling
+        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * (total_noise / self.mean_noise) * self.base_env.dense_reward_scaling * self.base_env.sim_dt
         return noise_penalty, False, TerminationReason.NONE
 
     def render(self):
