@@ -107,7 +107,7 @@ class MapSourceConfig(BaseModel):
 
     def build(self, env):
         from bluesky_gym.wrappers.map_datasets import TiffMapSource, RandomMapSource
-        from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map
+        from bluesky_gym.wrappers.random_map_generators import generate_cities, generate_random_shapes_map, generate_population_density
         import functools
 
         if self.type == "tiff":
@@ -125,6 +125,11 @@ class MapSourceConfig(BaseModel):
             generator = generate_random_shapes_map
             if self.kwargs:
                 generator = functools.partial(generate_random_shapes_map, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        elif self.type == "population_density":
+            generator = generate_population_density
+            if self.kwargs:
+                generator = functools.partial(generate_population_density, **self.kwargs)
             return RandomMapSource.from_env_bounds(env, generator)
         else:
             raise ValueError(f"Unknown map source type: {self.type}")
