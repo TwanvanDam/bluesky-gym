@@ -49,6 +49,10 @@ def train_model(experiment_config_path: Path):
     configs_backup_dir.mkdir(parents=True, exist_ok=True)
     experiment_config.save(configs_backup_dir / f"{experiment_config.run_name}.yaml")
 
+    # Create checkpoints directory
+    checkpoints_dir = base_results_dir / "checkpoints" / env_name / experiment_config.run_name
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
     # Initialize Model
     policy_kwargs = None
     if hasattr(experiment_config, 'feature_extractor_config') and experiment_config.feature_extractor_config:
@@ -71,7 +75,13 @@ def train_model(experiment_config_path: Path):
         raise NotImplementedError
     model.learn(
         total_timesteps=training_config.total_timesteps,
-        callback=TensorboardCallback(experiment_config=experiment_config, validation_env=env, plot_frequency=experiment_config.training_config.validation_episodes),
+        callback=TensorboardCallback(
+            experiment_config=experiment_config,
+            validation_env=env,
+            plot_frequency=experiment_config.training_config.validation_episodes,
+            save_frequency=experiment_config.training_config.save_frequency,
+            save_dir=str(checkpoints_dir),
+        ),
         tb_log_name=experiment_config.run_name,
     )
     model.save(run_dir)
