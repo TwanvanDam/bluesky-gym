@@ -36,7 +36,7 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
 
 def train_model(experiment_config_path: Path):
     experiment_config = ExperimentConfig.load(experiment_config_path)
-    experiment_config.run_name = str(datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S'))
+    experiment_config.run_name = str(datetime.datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
     env, env_name = load_env_from_config(experiment_config=experiment_config)
 
