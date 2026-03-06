@@ -98,8 +98,11 @@ class Population(gym.Wrapper):
             self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed, options=options)
-        self.map_source.regenerate()
+        # Reset the base env first so that np_random is seeded
+        observation, info = self.env.reset(seed=seed, options=options)
+
+        # Now regenerate the map using the seeded random generator
+        self.map_source.regenerate(rng=self.base_env.np_random)
         self.background_map = self._load_background()
         self.observation_max = np.max(self.background_map)
         self.render_normalizer = self._get_normalization(self.background_map)
@@ -108,7 +111,6 @@ class Population(gym.Wrapper):
 
         self.mean_noise = np.sum(noise_kernel * np.mean(np.clip(self.background_map,0, np.inf)))
 
-        observation, info = self.env.reset(seed=seed, options=options)
         self.population_observation = self._get_population_observation()
         observation = {**observation, "population_map": self.population_observation}
 

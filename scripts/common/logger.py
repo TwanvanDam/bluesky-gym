@@ -5,7 +5,7 @@ from dataclasses import fields
 import numpy as np
 from matplotlib import pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.logger import HParam, Figure
+from stable_baselines3.common.logger import HParam, TensorBoardOutputFormat
 
 from bluesky_gym.envs.base_navigation_env import Airport, Position
 from bluesky_gym.envs.common import functions
@@ -85,12 +85,15 @@ def _flatten_config(obj, prefix="") -> dict:
 
 
 class TensorboardCallback(BaseCallback):
-    def __init__(self, experiment_config=None, verbose=0, validation_env = None, plot_frequency=10000):
+    def __init__(self, experiment_config=None, verbose=0, validation_env=None, plot_frequency=10000, save_frequency=50000, save_dir=None):
         super().__init__(verbose)
         self.experiment_config = experiment_config
         self.validation_env = validation_env
         self.plot_frequency = plot_frequency
+        self.save_frequency = save_frequency
+        self.save_dir = save_dir
         self.last_plot_step = 0
+        self.last_save_step = 0
 
     def _on_training_start(self) -> None:
         if self.experiment_config is None:
@@ -123,7 +126,7 @@ class TensorboardCallback(BaseCallback):
                 "airport_hdg": destination.hdg,
                 "aircraft_lat": aircraft_lat,
                 "aircraft_lon": aircraft_lon,
-            })
+            }, seed=42)
             while not done:
                 action, _ = self.model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = self.validation_env.step(action)
@@ -136,9 +139,15 @@ class TensorboardCallback(BaseCallback):
         plt.ylim(self.validation_env.unwrapped.lat_min, self.validation_env.unwrapped.lat_max)
         plt.scatter(destination.position.lon, destination.position.lat, marker=".", linewidths=5)
         print("saving figure")
-        plt.savefig(f"scripts/common/results/figures_backup/{self.experiment_config.run_name}_{self.num_timesteps}.png")
-        self.logger.record("validation/circle_trajectories", Figure(figure, close=True), exclude=("stdout", "log", "json", "csv"))
-        self.logger.dump()
+        figures_dir = "scripts/common/results/figures_backup"
+        os.makedirs(figures_dir, exist_ok=True)
+        plt.savefig(f"{figures_dir}/{self.experiment_config.run_name}_{self.num_timesteps}.png")
+        # Write directly to TensorBoard writer to avoid interfering with SB3's logger step tracking
+        for fmt in self.logger.output_formats:
+            if isinstance(fmt, TensorBoardOutputFormat):
+                fmt.writer.add_figure("validation/circle_trajectories", figure, global_step=self.num_timesteps)
+                fmt.writer.flush()
+                break
         plt.close(figure)
 
     def _on_training_end(self) -> None:
@@ -150,6 +159,14 @@ class TensorboardCallback(BaseCallback):
         if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
             self.make_validation_plot()
             self.last_plot_step = self.num_timesteps
+
+        # Periodically save the model checkpoint
+        if self.save_dir and self.save_frequency and self.num_timesteps - self.last_save_step >= self.save_frequency:
+            checkpoint_path = os.path.join(self.save_dir, f"checkpoint_{self.num_timesteps}_steps")
+            self.model.save(checkpoint_path)
+            if self.verbose:
+                print(f"Model checkpoint saved to {checkpoint_path}")
+            self.last_save_step = self.num_timesteps
 
         for info in self.locals.get('infos', []):
             # Only log your custom termination statistics

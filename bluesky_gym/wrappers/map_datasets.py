@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import rasterio
 from rasterio.io import MemoryFile
 from affine import Affine
@@ -21,7 +22,7 @@ class MapSource(ABC):
     def dataset(self) -> rasterio.DatasetReader: ...
 
     @abstractmethod
-    def regenerate(self):
+    def regenerate(self, rng: np.random.Generator | None = None):
         """Generate a new map (no-op for static sources)."""
         ...
 
@@ -46,7 +47,7 @@ class TiffMapSource(MapSource):
     def dataset(self):
         return self._dataset
 
-    def regenerate(self):
+    def regenerate(self, rng: np.random.Generator | None = None):
         pass  # Static map, nothing to regenerate
 
     def close(self):
@@ -107,12 +108,12 @@ class RandomMapSource(MapSource):
     def dataset(self):
         return self._dataset
 
-    def regenerate(self):
+    def regenerate(self, rng: np.random.Generator | None = None):
         if self._memfile is not None:
             self._dataset.close()
             self._memfile.close()
 
-        raw_map = self._random_map_generator()
+        raw_map = self._random_map_generator(rng=rng)
         h, w = raw_map.shape
 
         self._memfile = MemoryFile()
