@@ -85,7 +85,7 @@ def _flatten_config(obj, prefix="") -> dict:
 
 
 class TensorboardCallback(BaseCallback):
-    def __init__(self, experiment_config=None, verbose=0, validation_env=None, plot_frequency=10000, save_frequency=50000, save_dir=None):
+    def __init__(self, experiment_config=None, verbose=0, validation_env=None, plot_frequency: int | None=10000, save_frequency: int | None =50000, save_dir=None):
         super().__init__(verbose)
         self.experiment_config = experiment_config
         self.validation_env = validation_env
@@ -156,17 +156,19 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         # Check if it's time to make a validation plot
-        if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
-            self.make_validation_plot()
-            self.last_plot_step = self.num_timesteps
+        if self.plot_frequency:
+            if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
+                self.make_validation_plot()
+                self.last_plot_step = self.num_timesteps
 
         # Periodically save the model checkpoint
-        if self.save_dir and self.save_frequency and self.num_timesteps - self.last_save_step >= self.save_frequency:
-            checkpoint_path = os.path.join(self.save_dir, f"checkpoint_{self.num_timesteps}_steps")
-            self.model.save(checkpoint_path)
-            if self.verbose:
-                print(f"Model checkpoint saved to {checkpoint_path}")
-            self.last_save_step = self.num_timesteps
+        if self.save_frequency:
+            if self.save_dir and self.save_frequency and self.num_timesteps - self.last_save_step >= self.save_frequency:
+                checkpoint_path = os.path.join(self.save_dir, f"checkpoint_{self.num_timesteps}_steps")
+                self.model.save(checkpoint_path)
+                if self.verbose:
+                    print(f"Model checkpoint saved to {checkpoint_path}")
+                self.last_save_step = self.num_timesteps
 
         for info in self.locals.get('infos', []):
             # Only log your custom termination statistics
