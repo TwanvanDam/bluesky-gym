@@ -133,13 +133,12 @@ class MapSourceConfig(BaseModel):
 class PopulationConfig(BaseModel):
     observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
     observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
-    noise_penalty_coefficient: float = 1 / (20 * 60 * 2)  # Expected episode duration 20 minutes.
     fuel_to_noise_ratio: float = 0.5
     noise_resolution: int = 1_000  # [ m ]
     noise_base: float = 85  # [ dBA ]
     noise_cutoff: float = 55  # [ dBA ]
     resampling: str = "cubic_spline"
-    rendering_normalization: str = "log"  # "log" or "min-max"
+    rendering_normalization: str = "log"  # "log" or "min_max"
     observation_normalization: str = "log"
     map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
 

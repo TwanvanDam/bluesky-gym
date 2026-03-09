@@ -248,6 +248,7 @@ class Population(gym.Wrapper):
                     transparent=True),
             self.base_env.draw_airport,
             self.base_env.draw_aircraft,
+            self._draw_noise_kernel,
             self._draw_box_around_aircraft,
         ]
 
@@ -260,7 +261,7 @@ class Population(gym.Wrapper):
         """Get the appropriate matplotlib Normalize instance based on config."""
         heatmap_clipped = np.clip(heatmap, 0, np.inf)
         vmin = heatmap_clipped.min()
-        vmax = heatmap_clipped.max()
+        vmax = np.percentile(heatmap_clipped, 99)
 
         if vmin == vmax:
             return Normalize(vmin=0, vmax=1)
@@ -312,6 +313,33 @@ class Population(gym.Wrapper):
             screen_corners.append((screen_x, screen_y))
 
         return screen_corners
+
+    def _draw_noise_kernel(self, canvas):
+        """Draw a circle indicating the noise kernel radius centered on the aircraft."""
+        _, noise_radius = self._get_noise_kernel()
+
+        if noise_radius <= 0:
+            return
+
+        ac_position, _ = self.base_env.get_aircraft_details()
+        ac_screen = self.base_env.lat_lon_to_pix(ac_position)
+
+        # Convert noise_radius from meters to pixels
+        total_meters_x = self.base_env.x_max - self.base_env.x_min
+        total_meters_y = self.base_env.y_max - self.base_env.y_min
+        radius_px_x = int(noise_radius * self.base_env.window_size[0] / total_meters_x)
+        radius_px_y = int(noise_radius * self.base_env.window_size[1] / total_meters_y)
+
+        if radius_px_x < 1 or radius_px_y < 1:
+            return
+
+        rect = pygame.Rect(
+            ac_screen[0] - radius_px_x,
+            ac_screen[1] - radius_px_y,
+            2 * radius_px_x,
+            2 * radius_px_y,
+        )
+        pygame.draw.ellipse(canvas, pygame.Color("red"), rect, width=2)
 
     def _draw_box_around_aircraft(self, canvas):
         ac_position, ac_heading = self.base_env.get_aircraft_details()
