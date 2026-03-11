@@ -2,7 +2,9 @@ import numpy as np
 import rasterio
 import rasterio.features
 import shapely
+from gstools import CovModel
 from matplotlib import colors
+import gstools as gs
 
 """
 TODO map generators should also return a resolution.
@@ -59,134 +61,39 @@ def generate_cities(shape=(512, 512), num_cities=100, base_occupancy=0.5, rng: n
     combined_map = np.maximum(combined_map, 0)
     return (combined_map - combined_map.min()) / (combined_map.max() - combined_map.min())
 
-
-# ---------------------------------------------------------------------------
-# Multi-scale GRF-based population density generator
-# ---------------------------------------------------------------------------
-
-def _generate_grf(shape: tuple[int, int], correlation_length: float,
-                  rng: np.random.Generator) -> np.ndarray:
-    """Generate a Gaussian Random Field via FFT spectral synthesis.
-
-    The power spectrum is defined by a squared-exponential (Gaussian)
-    covariance kernel with the given *correlation_length* (in pixels).
-
-    Parameters
-    ----------
-    shape : tuple[int, int]
-        (rows, cols) of the output field.
-    correlation_length : float
-        Characteristic spatial scale of the field (in pixels).
-    rng : np.random.Generator
-        Seeded random number generator.
-
-    Returns
-    -------
-    np.ndarray
-        A 2-D array with zero-mean, unit-variance Gaussian statistics and
-        spatial correlations governed by *correlation_length*.
-    """
-    rows, cols = shape
-
-    # Frequency grids (centered at 0)
-    freq_y = np.fft.fftfreq(rows)
-    freq_x = np.fft.fftfreq(cols)
-    fy, fx = np.meshgrid(freq_y, freq_x, indexing="ij")
-
-    # Squared-exponential power spectrum  P(k) ∝ exp(-2 π² L² k²)
-    # where L = correlation_length and k² = fx² + fy²
-    power_spectrum = np.exp(
-        -2.0 * (np.pi * correlation_length) ** 2 * (fx ** 2 + fy ** 2)
-    )
-
-    # Draw random Fourier coefficients (complex white noise) and colour them
-    white_noise = (
-        rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
-    )
-    field_fft = np.sqrt(power_spectrum) * white_noise
-    field = np.fft.ifft2(field_fft).real
-
-    # Standardise to zero-mean, unit-variance
-    std = field.std()
-    if std > 0:
-        field = (field - field.mean()) / std
-
-    return field
+def sample_points_from_map(model: gs.CovModel, mean, output_shape: tuple[int,int], rng: np.random.Generator = None):
+    srf = gs.SRF(model, mean=mean)
+    map = srf.structured((np.arange(output_shape[0]), np.arange(output_shape[1])), seed=rng.integers(0, 1e9) if rng else None)
+    return map
 
 
-def generate_population_density(
-    shape: tuple[int, int] = (512, 512),
-    scales: list[tuple[float, float]] | None = None,
-    noise_std: float = 0.05,
-    rng: np.random.Generator = None,
-) -> np.ndarray:
-    """Generate a synthetic population density map using multi-scale GRFs.
-
-    The pipeline reproduces key properties of real population distributions:
-    strong spatial clustering, multi-scale structure, smooth gradients,
-    heavy-tailed densities, and local variability.
-
-    Pipeline
-    --------
-    1. Sum several Gaussian Random Fields at different correlation lengths
-       (large → metropolitan regions, medium → towns, small → neighborhoods).
-    2. Add fine-grained Gaussian noise.
-    3. Apply ``exp`` for a heavy-tailed (≈ lognormal) density.
-    4. Compress with ``log1p`` and normalise to [0, 1].
-
-    Parameters
-    ----------
-    shape : tuple[int, int], default (512, 512)
-        Spatial dimensions (rows, cols) of the output map.
-    scales : list of (correlation_length, weight) pairs, optional
-        Each entry defines one GRF component.  Defaults to::
-
-            [(50, 1.0), (20, 0.6), (8, 0.3)]
-
-    noise_std : float, default 0.05
-        Standard deviation of additive Gaussian noise applied after
-        combining the GRF layers.
-    rng : np.random.Generator, optional
-        Seeded random number generator for reproducibility.
-
-    Returns
-    -------
-    np.ndarray
-        2-D array of shape *shape* with values in [0, 1].
-    """
+def generate_population_density(shape: tuple[int,int],mean: float, len_scales: list[float], variances: list[float], model_types:list[CovModel], rng: np.random.Generator = None) -> np.ndarray:
     rng = rng or np.random.default_rng()
+    # 1. Fit variogram to real data (or use pre-fitted model)
+    models = (model_type(dim=2, len_scale=len_scale, var=var) for model_type, len_scale, var in zip(model_types, len_scales, variances))
+    model = next(models)
+    for m in models:
+        model += m
+    synthetic = np.expm1(sample_points_from_map(model, mean, output_shape=shape, rng=rng))
 
-    if scales is None:
-        scales = [
-            (70, 1.0),   # Large cities / metropolitan regions
-            (20, 0.2),   # Town clusters / suburbs
-            (3,  0.1),   # Neighborhood-level variability
-        ]
+    ocean_model = gs.Exponential(dim=2, len_scale=300) + gs.Gaussian(dim=2, len_scale=300)
+    ocean = sample_points_from_map(ocean_model, mean=0, output_shape=shape, rng=rng)
 
-    # Step 1 & 2: weighted sum of multiscale GRFs
-    field = np.zeros(shape, dtype=np.float64)
-    for correlation_length, weight in scales:
-        field += weight * _generate_grf(shape, correlation_length, rng)
-
-    # Step 3: fine-grained noise for local heterogeneity
-    field += rng.normal(0, noise_std, size=shape)
-
-    # Step 4: exponential transform → heavy-tailed density
-    population = field - np.percentile(field, 40)
-    population = np.exp(population)
-
-    population[population <= 1] = 1
-    return population
+    synthetic_masked = np.where(ocean < np.percentile(ocean, 25), np.nan, synthetic)
+    return np.clip(synthetic_masked, 0, np.nanpercentile(synthetic_masked, 99.9))
 
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     rng = np.random.default_rng(42)
+    mean = 3.354869
+    len_scales = [1.71, 28.9, 80.2]
+    variances = [5.09, 0.512, 1.07]
+    model_types = [gs.Exponential, gs.Gaussian, gs.Gaussian]
     while True:
-        # 3. Population density (multi-scale GRF)
-        pop_map = generate_population_density(rng=rng, shape=(1024,1024))
-        im2 = plt.imshow(pop_map, cmap="Blues", origin="upper", norm=colors.LogNorm(vmin=pop_map.min(), vmax=pop_map.max()))
+        pop_map = generate_population_density(shape=(512, 512), mean=mean, len_scales=len_scales, variances=variances, model_types=model_types, rng=rng)
+        im2 = plt.imshow(np.log1p(pop_map), cmap="Blues", origin="upper", norm=colors.Normalize(vmin=0, vmax=np.log1p(9000)))
         plt.title("Population Density (GRF)")
         plt.colorbar(im2)
         plt.xlabel("x (pixels)")

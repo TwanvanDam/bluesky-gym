@@ -13,6 +13,8 @@ dependencies = [
     "tensorboard",
     "shapely",
     "pydantic>=2.12.5",
+    "gstools>=1.7.0",
+    "gstools-core>=1.2.0",
 ]
 
 authors = [

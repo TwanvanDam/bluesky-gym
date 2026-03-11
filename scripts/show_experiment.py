@@ -28,7 +28,7 @@ def render_experiment(run_name: str):
 
 
 if __name__ == '__main__':
-    run_name = "BaseNavigationEnv-v0/2026-0~3"
+    run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
     parser = argparse.ArgumentParser(description="Show trained RL model(s) from experiment config(s).")
     parser.add_argument(
         "name",
