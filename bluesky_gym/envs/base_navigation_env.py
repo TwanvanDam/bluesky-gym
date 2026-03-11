@@ -133,8 +133,17 @@ class BaseNavigationEnv(gym.Env):
         self.lon_center = (self.lon_max + self.lon_min) / 2
         self.lat_center = (self.lat_max + self.lat_min) / 2
 
-        self.x_min, self.y_min = self.coordinate_transformer.transform(self.lon_min, self.lat_min)
-        self.x_max, self.y_max = self.coordinate_transformer.transform(self.lon_max, self.lat_max)
+        # Use all bbox corners because projected CRS extents are not guaranteed
+        # to align with transformed diagonal corners only.
+        corners_xy = [
+            self.coordinate_transformer.transform(self.lon_min, self.lat_min),
+            self.coordinate_transformer.transform(self.lon_min, self.lat_max),
+            self.coordinate_transformer.transform(self.lon_max, self.lat_min),
+            self.coordinate_transformer.transform(self.lon_max, self.lat_max),
+        ]
+        xs, ys = zip(*corners_xy)
+        self.x_min, self.x_max = min(xs), max(xs)
+        self.y_min, self.y_max = min(ys), max(ys)
 
         self.observation_space = spaces.Dict(
             {

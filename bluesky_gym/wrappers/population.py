@@ -11,6 +11,7 @@ from affine import Affine
 from bluesky.tools.aero import ft
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
+from rasterio.plot import plotting_extent
 from rasterio.warp import reproject, Resampling
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
@@ -73,6 +74,7 @@ class Population(gym.Wrapper):
 
         # cache the map used as background since it does not change often.
         self.background_map: None | np.ndarray = None
+        self.background_transform: Affine | None = None
         self.color_map: str = color_map
         self.render_normalizer: Normalize | None
         self.metadata = env.metadata.copy()
@@ -180,7 +182,22 @@ class Population(gym.Wrapper):
     def _load_background(self):
         center_position = Position(lon=self.base_env.lon_center, lat=self.base_env.lat_center)
         out_meters = self.base_env.x_max - self.base_env.x_min, self.base_env.y_max - self.base_env.y_min
-        background = self._extract_view_from_map(center_position, 0, self.base_env.window_size, out_meters)
+        self.background_transform = self._get_dst_transform(
+            center_position,
+            0,
+            out_meters,
+            self.base_env.window_size,
+        )
+        background = np.zeros(self.base_env.window_size[::-1])
+        reproject(
+            source=rasterio.band(self.map_source.dataset, 1),
+            destination=background,
+            src_transform=self.map_source.transform,
+            src_crs=self.map_source.crs,
+            dst_transform=self.background_transform,
+            dst_crs=self.base_env.pygame_crs,
+            resampling=getattr(Resampling, self.config.resampling)
+        )
         return background
 
     def _get_noise_kernel(self) -> tuple[np.ndarray, int]:
