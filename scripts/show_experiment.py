@@ -44,11 +44,8 @@ def plot_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: 
 
     angles = np.arange(0, 360, angle_interval)
     destination = Airport(Position(lat=52.334, lon=4.7092), hdg=180)
-    figure = plt.figure()
     env.reset(seed=42)
     background = env.env.background_map.copy()
-    print(env.env.map_source.crs)
-    print(env.unwrapped.pygame_crs)
     background[background <= 0] = np.nan  # Set zero values to NaN for better visualization
     extent = plotting_extent(background, env.env.background_transform)
     plt.imshow(background, extent=extent, origin="upper", cmap="Blues", vmin=0, vmax=np.nanpercentile(background, 99))
@@ -79,6 +76,45 @@ def plot_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: 
     plt.scatter(*env.unwrapped.coordinate_transformer.transform(destination.position.lon, destination.position.lat), marker=".", linewidths=5)
     plt.show()
 
+def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: int = 300, map_config: MapSourceConfig | None = None):
+    env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
+    angles = np.arange(0, 360, angle_interval)
+    coordinate_transformer = env.unwrapped.coordinate_transformer
+    destination = Airport(Position(lat=52.334, lon=4.7092), hdg=180)
+    fig, axs = plt.subplots(1,2)
+    for ax, obs_type in zip(axs, ["with_map", "without_map"]):
+        env.reset(seed=42)
+        background = env.env.background_map.copy()
+        background[background <= 0] = np.nan  # Set zero values to NaN for better visualization
+        extent = plotting_extent(background, env.env.background_transform)
+        ax.imshow(background, extent=extent, origin="upper", cmap="Blues", vmin=0, vmax=np.nanpercentile(background, 99))
+        for angle in list(angles):
+            aircraft_lat, aircraft_lon = functions.get_point_at_distance(destination.position.lat, destination.position.lon,
+                                       distance, angle)
+            done = False
+            obs, info = env.reset(options={
+                "airport_lat": destination.position.lat,
+                "airport_lon": destination.position.lon,
+                "airport_hdg": destination.hdg,
+                "aircraft_lat": aircraft_lat,
+                "aircraft_lon": aircraft_lon,
+            }, seed=42)
+            while not done:
+                for key, value in obs.items():
+                    if "map" in key and obs_type == "without_map":
+                        obs[key] = np.zeros_like(value)
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+            points = [coordinate_transformer.transform(position.lon, position.lat) for position in
+                      env.unwrapped.aircraft_positions]
+            xs, ys = zip(*points)
+            ax.plot(xs, ys, color="black")
+        ax.set_xlim(extent[0], extent[1])
+        ax.set_ylim(extent[2], extent[3])
+        ax.scatter(*coordinate_transformer.transform(destination.position.lon, destination.position.lat), marker=".", linewidths=5)
+        ax.set_title(f"{obs_type.replace('_', ' ').title()}")
+    plt.show()
 
 if __name__ == '__main__':
     run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
@@ -92,5 +128,5 @@ if __name__ == '__main__':
         help=f"Name of a single experiment run. If omitted, {run_name} is used.",
     )
     args = parser.parse_args()
-    plot_trajectories_on_map(args.name, map_config=validation_map)
-    # render_experiment(args.name) #, map_config=validation_map)
+    compare_trajectories_on_map(args.name, map_config=validation_map)
+    # render_experiment(args.name, map_config=validation_map)
