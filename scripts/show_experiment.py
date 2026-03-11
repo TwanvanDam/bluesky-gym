@@ -74,8 +74,8 @@ def plot_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: 
                   env.unwrapped.aircraft_positions]
         xs, ys = zip(*points)
         plt.plot(xs, ys, color="black")
-    plt.xlim(env.unwrapped.x_min, env.unwrapped.x_max)
-    plt.ylim(env.unwrapped.y_min, env.unwrapped.y_max)
+    plt.xlim(extent[0], extent[1])
+    plt.ylim(extent[2], extent[3])
     plt.scatter(*env.unwrapped.coordinate_transformer.transform(destination.position.lon, destination.position.lat), marker=".", linewidths=5)
     plt.show()
 
@@ -93,4 +93,4 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
     plot_trajectories_on_map(args.name, map_config=validation_map)
-    # render_experiment(args.name)
+    # render_experiment(args.name) #, map_config=validation_map)

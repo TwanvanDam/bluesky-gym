@@ -5,6 +5,7 @@ from typing import Callable
 import numpy as np
 import rasterio
 from rasterio.io import MemoryFile
+from rasterio.transform import from_bounds
 from affine import Affine
 
 class MapSource(ABC):
@@ -73,21 +74,11 @@ class RandomMapSource(MapSource):
         random raster covers exactly env.(lon_min,lat_min)→(lon_max,lat_max).
         If no array size is provided, the env.window_size is used.
         """
-        transformer = env.coordinate_transformer
         x_min, y_min = env.x_min, env.y_min
         x_max, y_max = env.x_max, env.y_max
-        center_xy = transformer.transform(env.lon_center, env.lat_center)
 
-        array_size = random_map_generator().shape
-
-        res_x = (x_max - x_min) / array_size[0]
-        res_y = (y_max - y_min) / array_size[1]
-
-        transform = (
-                Affine.translation(*center_xy) *
-                Affine.scale(res_x, -res_y) *
-                Affine.translation(- array_size[0] / 2, -array_size[1] / 2)
-        )
+        rows, cols = random_map_generator().shape
+        transform = from_bounds(x_min, y_min, x_max, y_max, cols, rows)
 
         return cls(
             map_crs=env.pygame_crs,  # synthetic data lives in pygame_crs

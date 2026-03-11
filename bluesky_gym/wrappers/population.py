@@ -11,7 +11,7 @@ from affine import Affine
 from bluesky.tools.aero import ft
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
-from rasterio.plot import plotting_extent
+from rasterio.transform import from_bounds
 from rasterio.warp import reproject, Resampling
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
@@ -157,7 +157,7 @@ class Population(gym.Wrapper):
         return destination
 
     def _get_dst_transform(self, center_position: Position, orientation: float, out_meters: tuple[float, float],
-                           out_shape: tuple[int, int]) -> tuple[Affine, ...]:
+                           out_shape: tuple[int, int]) -> Affine:
         center_xy = self.base_env.coordinate_transformer.transform(center_position.lon, center_position.lat)
 
         # Calculate the resolution (meters per pixel) for the output slice
@@ -180,15 +180,16 @@ class Population(gym.Wrapper):
         return observations
 
     def _load_background(self):
-        center_position = Position(lon=self.base_env.lon_center, lat=self.base_env.lat_center)
-        out_meters = self.base_env.x_max - self.base_env.x_min, self.base_env.y_max - self.base_env.y_min
-        self.background_transform = self._get_dst_transform(
-            center_position,
-            0,
-            out_meters,
-            self.base_env.window_size,
+        width, height = self.base_env.window_size
+        self.background_transform = from_bounds(
+            self.base_env.x_min,
+            self.base_env.y_min,
+            self.base_env.x_max,
+            self.base_env.y_max,
+            width,
+            height,
         )
-        background = np.zeros(self.base_env.window_size[::-1])
+        background = np.zeros((height, width))
         reproject(
             source=rasterio.band(self.map_source.dataset, 1),
             destination=background,
@@ -277,7 +278,7 @@ class Population(gym.Wrapper):
         """Get the appropriate matplotlib Normalize instance based on config."""
         heatmap_clipped = np.clip(heatmap, 0, np.inf)
         vmin = heatmap_clipped.min()
-        vmax = heatmap_clipped.max()
+        vmax = np.percentile(heatmap_clipped, 99)  # Use 99th percentile to avoid outliers dominating the color scale
 
         if vmin == vmax:
             return Normalize(vmin=0, vmax=1)
