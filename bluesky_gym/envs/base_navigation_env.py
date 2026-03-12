@@ -538,14 +538,10 @@ class BaseNavigationEnv(gym.Env):
 
         ac_x_position, ac_y_position = self.lat_lon_to_pix(ac_position)
 
-        heading_end_x = ac_x_position + np.sin(np.deg2rad(ac_heading)) * self.aircraft_heading_length
-        heading_end_y = ac_y_position - np.cos(np.deg2rad(ac_heading)) * self.aircraft_heading_length
+        heading_end_lat, heading_end_lon = fn.get_point_at_distance(ac_position.lat, ac_position.lon, self.aircraft_heading_length, ac_heading)
+        heading_end_x , heading_end_y = self.lat_lon_to_pix(Position(lat=heading_end_lat, lon=heading_end_lon))
 
-        ac_surface = pygame.Surface((self.aircraft_width, self.aircraft_length), pygame.SRCALPHA)
-        ac_surface.fill(aircraft_color)
-        rotated_ac_surface = pygame.transform.rotate(ac_surface, -ac_heading)
-        ac_rect = rotated_ac_surface.get_rect(center=(ac_x_position, ac_y_position))
-        canvas.blit(rotated_ac_surface, ac_rect)
+        pygame.draw.circle(canvas, aircraft_color, (int(ac_x_position), int(ac_y_position)), 5)
 
         pygame.draw.line(canvas,
                          aircraft_color,
