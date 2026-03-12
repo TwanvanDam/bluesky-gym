@@ -520,11 +520,6 @@ class BaseNavigationEnv(gym.Env):
         line_sink = np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) // 2, 2))
         line_restrict = np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2))
 
-        airport_surface = pygame.Surface((self.airport_width, self.airport_length), pygame.SRCALPHA)
-        airport_surface.fill(airport_color)
-        rotated_airport_surface = pygame.transform.rotate(airport_surface, -self.airport_details.hdg)
-        airport_rect = rotated_airport_surface.get_rect(center=(airport_x_position, airport_y_position))
-        canvas.blit(rotated_airport_surface, airport_rect)
         pygame.draw.circle(canvas, red_dot_color, (int(airport_x_position), int(airport_y_position)), 5)
 
         self._draw_line_from_points(canvas, airport_color, list(line_sink))
