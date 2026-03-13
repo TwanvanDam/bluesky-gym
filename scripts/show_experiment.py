@@ -38,6 +38,9 @@ def render_experiment(run_name: str, map_config: MapSourceConfig | None = None):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
+        print(f"Fuel: {info["total_episode_fuel_used"]:.2f} kg, Reward:{info["total_episode_fuel_reward"]:.2f}")
+        print(f"Noise: {info["total_episode_noise"]:.2f}, Reward:{info["total_episode_noise_reward"]:.2f}")
+        print(f"Episode Length: {info["episode_length_seconds"]/60:.2f} minutes")
 
 def plot_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: int = 300, map_config: MapSourceConfig | None = None):
     env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
@@ -118,7 +121,8 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
 
 if __name__ == '__main__':
     run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
-    validation_map = MapSourceConfig(type="tiff", file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
+    validation_map = MapSourceConfig(type="tiff", file_path="scripts/population_maps/GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0.tif")
+    # validation_map = MapSourceConfig(type="population_density")
 
     parser = argparse.ArgumentParser(description="Show trained RL model(s) from experiment config(s).")
     parser.add_argument(
@@ -128,5 +132,5 @@ if __name__ == '__main__':
         help=f"Name of a single experiment run. If omitted, {run_name} is used.",
     )
     args = parser.parse_args()
-    compare_trajectories_on_map(args.name, map_config=validation_map)
-    # render_experiment(args.name, map_config=validation_map)
+    # compare_trajectories_on_map(args.name, map_config=validation_map)
+    render_experiment(args.name, map_config=validation_map)

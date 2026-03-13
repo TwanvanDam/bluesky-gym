@@ -41,7 +41,14 @@ class MapObservationNormalizer(gym.ObservationWrapper):
         observation_copy = observation.copy()
         for key in list(observation_copy.keys()):
             if "map" in key:
-                value = observation_copy.pop(key)[0]
+                raw_value = observation_copy.pop(key)
+                # Backward compatibility: older wrappers returned single-map observations wrapped in a list.
+                if isinstance(raw_value, (list, tuple)):
+                    if len(raw_value) == 0:
+                        raise ValueError(f"Observation key '{key}' contains an empty map list")
+                    value = raw_value[0]
+                else:
+                    value = raw_value
                 match self.mode:
                     case "log":
                         observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
@@ -56,6 +63,8 @@ class MapObservationNormalizer(gym.ObservationWrapper):
 class Population(gym.Wrapper):
     def __init__(self, env: gym.Env, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
         super().__init__(env)
+        self.total_episode_noise_reward = None
+        self.total_episode_noise = None
         self.env: gym.Env = env
         self.base_env: BaseNavigationEnv = self.unwrapped
 
@@ -110,11 +119,12 @@ class Population(gym.Wrapper):
         self.render_normalizer = self._get_normalization(self.background_map)
 
         noise_kernel, _ = self._get_noise_kernel()
-
+        self.total_episode_noise = 0.0
+        self.total_episode_noise_reward = 0.0
         self.mean_noise = np.sum(noise_kernel * np.mean(np.clip(self.background_map,0, np.inf)))
 
         self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+        observation = self._inject_population_maps(observation)
 
         if self.render_mode == "human":
             self.render()
@@ -124,10 +134,12 @@ class Population(gym.Wrapper):
         observation, reward, terminated, truncated, info = self.env.step(action)
         done = terminated or truncated
 
-        # TODO: Verify that population observation updates should be skipped when episode ends
         if not done:
             self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+        observation = self._inject_population_maps(observation)
+        if done:
+            info["total_episode_noise"] = self.total_episode_noise
+            info["total_episode_noise_reward"] = self.total_episode_noise_reward
 
         if not done and self.render_mode == "human":
             self.render()
@@ -178,6 +190,13 @@ class Population(gym.Wrapper):
         observations = [np.clip(self._extract_view_from_map(position, heading, obs_shape, obs_range), 0, np.inf) for
                         obs_shape, obs_range in zip(self.observation_shape, self.observation_range)]
         return observations
+
+    def _inject_population_maps(self, observation: dict) -> dict:
+        if len(self.observation_shape) > 1:
+            maps = {f"population_map_{i}": obs for i, obs in enumerate(self.population_observation)}
+        else:
+            maps = {"population_map": self.population_observation[0]}
+        return {**observation, **maps}
 
     def _load_background(self):
         width, height = self.base_env.window_size
@@ -230,7 +249,10 @@ class Population(gym.Wrapper):
         area_around_ac = self._extract_view_from_map(ac_position, 0, noise_kernel.shape,
                                                      (2 * noise_radius, 2 * noise_radius))
         total_noise = np.sum(np.clip(area_around_ac, 0, np.inf) * noise_kernel)
-        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * (total_noise / self.mean_noise) * self.base_env.dense_reward_scaling * self.base_env.sim_dt
+        normalized_noise = (total_noise / self.mean_noise) * self.base_env.sim_dt
+        self.total_episode_noise += normalized_noise
+        self.total_episode_noise_reward += - (1 - self.base_env.fuel_to_noise_ratio) * self.base_env.dense_reward_scaling * normalized_noise
+        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * self.base_env.dense_reward_scaling * normalized_noise
         return noise_penalty, False, TerminationReason.NONE
 
     def render(self):
