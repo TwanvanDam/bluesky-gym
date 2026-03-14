@@ -1,12 +1,47 @@
+import functools
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional, Dict, Any
 
 import numpy as np
 import rasterio
+from pydantic import BaseModel, Field
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from affine import Affine
+
+class MapSourceConfig(BaseModel):
+    type: str = "polygon"  # "tiff", "polygon" or "cities"
+    file_path: Optional[str] = None
+    kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    def build(self, env):
+        from bluesky_gym.maps.random_map_generators import generate_cities, generate_random_shapes_map, generate_population_density
+
+        if self.type == "tiff":
+            if not self.file_path:
+                raise ValueError("file_path is required for tiff map source")
+            if self.kwargs: raise ValueError(f"MapSource {self.type} does not support kwargs")
+            return TiffMapSource(str(self.file_path))  # Convert Path to str if needed
+        elif self.type == "cities":
+            # Use kwargs to configure the generator if any
+            generator = generate_cities
+            if self.kwargs:
+                generator = functools.partial(generate_cities, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        elif self.type == "polygon":
+            generator = generate_random_shapes_map
+            if self.kwargs:
+                generator = functools.partial(generate_random_shapes_map, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        elif self.type == "population_density":
+            generator = generate_population_density
+            if self.kwargs:
+                generator = functools.partial(generate_population_density, **self.kwargs)
+            return RandomMapSource.from_env_bounds(env, generator)
+        else:
+            raise ValueError(f"Unknown map source type: {self.type}")
+
 
 class MapSource(ABC):
 
@@ -26,6 +61,11 @@ class MapSource(ABC):
     def regenerate(self, rng: np.random.Generator | None = None):
         """Generate a new map (no-op for static sources)."""
         ...
+
+    @property
+    def max(self) -> float:
+        """Returns the maximum population density value in the map."""
+        return self.dataset.read(1).max()
 
     def close(self):
         pass

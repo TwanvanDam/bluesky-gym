@@ -13,11 +13,51 @@ from bluesky.tools.aero import ft, kts
 from gymnasium import spaces
 from matplotlib.path import Path
 from openap import FuelFlow
+from pydantic import BaseModel, Field
 
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
-from scripts.config import NavigationConfig
+from bluesky_gym.utils.sampling_config import SamplingConfig
 
+
+class NavigationConfig(BaseModel):
+    ac_name: str = "KL001"
+    ac_type: str = "a320"
+    ac_initial_spd: int = 200  # [ m / s ]
+    ac_initial_alt: int = 3_000  # [ m ]
+
+    # All coordinates in degrees (WGS84)
+    lon_min: float = 3.0
+    lon_max: float = 7.5
+    lat_min: float = 50.5
+    lat_max: float = 54.0
+
+    max_steps: int = 250
+    sim_dt: int = 3  # [ s ]
+    action_time: int = 60  # [ s ]
+    faf_distance: float = 25  # [ km ]
+    iaf_angle: float = 60  # [ degrees ]
+    iaf_distance: float = 30  # [ km ]
+
+    # Nested sampling configs with default factories
+    airport_lat_sampling: SamplingConfig = Field(
+        default_factory=lambda: SamplingConfig(distribution="fixed", value=52.31))
+    airport_lon_sampling: SamplingConfig = Field(
+        default_factory=lambda: SamplingConfig(distribution="fixed", value=4.7))
+    destination_hdg_sampling: SamplingConfig = Field(
+        default_factory=lambda: SamplingConfig(distribution="uniform", low=0, high=360))
+    destination_lat_sampling: SamplingConfig = Field(
+        default_factory=lambda: SamplingConfig(distribution="normal", mean=52.31, std=1))
+    destination_lon_sampling: SamplingConfig = Field(
+        default_factory=lambda: SamplingConfig(distribution="normal", mean=4.7, std=1))
+
+    pygame_crs: str = "EPSG:3035"
+    use_sin_cos_obs: bool = False
+    normalize_distance_obs: bool = True
+    constraint_violation_reward: float = -1.0
+    successful_approach_reward: float = 50.0
+    mean_episode_length: float = 20 * 60  # [ s ]
+    total_dense_rewards: float = 0.25  # Summed dense reward on average
 
 class TerminationReason(Enum):
     SUCCESS = "success"
@@ -54,58 +94,9 @@ class Position:
 
 
 @dataclass
-class Airport:
+class Destination:
     position: Position
     hdg: float
-
-
-class SinCosNormalization(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env):
-        super().__init__(env)
-
-        # Check if underlying observation space is Dict
-        assert isinstance(env.observation_space,
-                          spaces.Dict), "SinCosNormalization only works with Dict observation spaces"
-
-        self.transform_keys = ['destination_relative_heading', 'destination_relative_orientation']
-
-        # Determine the new observation space
-        new_spaces = env.observation_space.spaces.copy()
-
-        for key in self.transform_keys:
-            if key in new_spaces:
-                new_spaces.pop(key)
-                new_spaces[f"{key}_sin"] = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
-                new_spaces[f"{key}_cos"] = spaces.Box(-1, 1, shape=(1,), dtype=np.float64)
-
-        self.observation_space = spaces.Dict(new_spaces)
-
-    def observation(self, observation: dict) -> dict:
-        new_observation = observation.copy()
-        for key in self.transform_keys:
-            if key in new_observation:
-                value = new_observation.pop(key)[0]
-                new_observation[f"{key}_sin"] = np.array([np.sin(np.deg2rad(value))], dtype=np.float64)
-                new_observation[f"{key}_cos"] = np.array([np.cos(np.deg2rad(value))], dtype=np.float64)
-        return new_observation
-
-
-class DistanceNormalization(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env, normalization_factor: float = 150_000):
-        super().__init__(env)
-        assert isinstance(env.observation_space,
-                          spaces.Dict), "DistanceNormalization only works with Dict observation spaces"
-        self.normalization_factor = normalization_factor
-        self.transform_keys = ["destination_ground_distance"]
-
-    def observation(self, observation: dict) -> dict:
-        new_observation = observation.copy()
-        for key in self.transform_keys:
-            if key in new_observation:
-                value = new_observation.pop(key)[0]
-                new_observation[f"{key}"] = np.array([value / self.normalization_factor])
-        return new_observation
-
 
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
@@ -187,7 +178,7 @@ class BaseNavigationEnv(gym.Env):
 
         self.fuel_flow_model = FuelFlow(self.config.ac_type)
         self.fuel_used_during_step: float | None = None
-        self.airport_details: Airport | None = None
+        self.destination: Destination | None = None
         self.aircraft_positions: list[Position] = []
 
         self.faf_distance = config.faf_distance  # [ km ]
@@ -214,7 +205,7 @@ class BaseNavigationEnv(gym.Env):
         Args:
             seed: Random seed for reproducibility.
             options: Optional dict to force specific positions and headings:
-                - airport_lat, airport_lon, airport_hdg: Force airport position and heading.
+                - destination_lat, destination_lon, destination_hdg: Force destination position and heading.
                 - aircraft_lat, aircraft_lon: Force aircraft position.
                 - aircraft_hdg: Force aircraft heading (defaults to pointing towards airport).
         """
@@ -226,11 +217,11 @@ class BaseNavigationEnv(gym.Env):
         self.current_step = 0
         self.fuel_used_during_step = 0.0
 
-        if "airport_lat" in options and "airport_lon" in options and "airport_hdg" in options:
-            self.airport_details = Airport(Position(lat=options["airport_lat"], lon=options["airport_lon"]),
+        if "destination_lat" in options and "destination_lon" in options and "destination_hdg" in options:
+            self.destination = Destination(Position(lat=options["airport_lat"], lon=options["airport_lon"]),
                                            hdg=options["airport_hdg"])
         else:
-            self.airport_details = self._generate_airport(self.np_random)
+            self.destination = self._generate_airport(self.np_random)
         self._set_terminal_condition()
 
         if "aircraft_lat" in options and "aircraft_lon" in options:
@@ -243,7 +234,7 @@ class BaseNavigationEnv(gym.Env):
             aircraft_initial_hdg = options["aircraft_hdg"]
         else:
             aircraft_initial_hdg = fn.get_hdg((aircraft_initial_position.lat, aircraft_initial_position.lon),
-                                              (self.airport_details.position.lat, self.airport_details.position.lon))
+                                              (self.destination.position.lat, self.destination.position.lon))
         bs.traf.cre(self.ac_name, actype=self.config.ac_type, aclat=aircraft_initial_position.lat,
                     aclon=aircraft_initial_position.lon,
                     achdg=aircraft_initial_hdg, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
@@ -255,7 +246,7 @@ class BaseNavigationEnv(gym.Env):
         return self._get_obs(), {}
 
     def step(self, action):
-        _, ac_hdg = self.get_aircraft_details()
+        ac_hdg = self.get_aircraft_heading()
         new_heading = fn.bound_angle_0_360(ac_hdg + action[0])
         bs.stack.stack(f"HDG {self.ac_name} {new_heading}")
         reward = 0
@@ -263,7 +254,7 @@ class BaseNavigationEnv(gym.Env):
 
         for i in range(self.action_frequency):
             bs.sim.step()
-            ac_pos, _ = self.get_aircraft_details()
+            ac_pos = self.get_aircraft_position()
             self.aircraft_positions.append(ac_pos)
 
             intermediate_reward, terminated, truncated = self._get_reward()
@@ -290,18 +281,19 @@ class BaseNavigationEnv(gym.Env):
             self.window = None
 
     def _get_obs(self):
-        ac_position, ac_hdg = self.get_aircraft_details()
+        ac_pos = self.get_aircraft_position()
+        ac_hdg = self.get_aircraft_heading()
 
-        correct_heading = (fn.get_hdg((ac_position.lat, ac_position.lon),
-                                      (self.airport_details.position.lat, self.airport_details.position.lon)))
+        correct_heading = (fn.get_hdg((ac_pos.lat, ac_pos.lon),
+                                      (self.destination.position.lat, self.destination.position.lon)))
 
         destination_relative_heading = np.array([fn.bound_angle_positive_negative_180(correct_heading - ac_hdg)])
         destination_relative_orientation = np.array(
-            [fn.bound_angle_positive_negative_180(self.airport_details.hdg - ac_hdg)])
+            [fn.bound_angle_positive_negative_180(self.destination.hdg - ac_hdg)])
 
-        destination_x, destination_y = self.coordinate_transformer.transform(self.airport_details.position.lon,
-                                                                             self.airport_details.position.lat)
-        aircraft_x, aircraft_y = self.coordinate_transformer.transform(ac_position.lon, ac_position.lat)
+        destination_x, destination_y = self.coordinate_transformer.transform(self.destination.position.lon,
+                                                                             self.destination.position.lat)
+        aircraft_x, aircraft_y = self.coordinate_transformer.transform(ac_pos.lon, ac_pos.lat)
 
         destination_ground_distance = np.array(
             [np.sqrt((destination_x - aircraft_x) ** 2 + (destination_y - aircraft_y) ** 2)],
@@ -319,13 +311,16 @@ class BaseNavigationEnv(gym.Env):
         }
         return observation
 
-    def get_aircraft_details(self) -> tuple[Position, float]:
+    def get_aircraft_position(self) -> Position:
         ac_idx = bs.traf.id2idx(self.ac_name)
-
-        ac_hdg = bs.traf.hdg[ac_idx]
         ac_lat = bs.traf.lat[ac_idx]
         ac_lon = bs.traf.lon[ac_idx]
-        return Position(lat=ac_lat, lon=ac_lon), ac_hdg
+        return Position(lat=ac_lat, lon=ac_lon)
+
+    def get_aircraft_heading(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        ac_hdg = bs.traf.hdg[ac_idx]
+        return ac_hdg
 
     def get_aircraft_altitude(self) -> float:
         ac_idx = bs.traf.id2idx(self.ac_name)
@@ -386,9 +381,9 @@ class BaseNavigationEnv(gym.Env):
         """Adapted from PathPlanningEnv by Groot et al."""
         num_points = 36
 
-        airport_lat = self.airport_details.position.lat
-        airport_lon = self.airport_details.position.lon
-        airport_hdg = self.airport_details.hdg
+        airport_lat = self.destination.position.lat
+        airport_lon = self.destination.position.lon
+        airport_hdg = self.destination.hdg
 
         self.faf_lat, self.faf_lon = fn.get_point_at_distance(airport_lat, airport_lon, self.faf_distance,
                                                               fn.bound_angle_0_360(airport_hdg + 180))
@@ -414,7 +409,7 @@ class BaseNavigationEnv(gym.Env):
         reward = 0
 
         shapes = bs.tools.areafilter.basic_shapes
-        current_pos, _ = self.get_aircraft_details()
+        current_pos = self.get_aircraft_position()
         if self.aircraft_positions:
             last_pos = self.aircraft_positions[-1]
             line_ac = Path(np.array([[last_pos.lat, last_pos.lon], [current_pos.lat, current_pos.lon]]))
@@ -435,21 +430,22 @@ class BaseNavigationEnv(gym.Env):
         return reward, terminated, reason
 
     def _check_out_of_bounds(self) -> bool:
-        aircraft_position, aircraft_heading = self.get_aircraft_details()
+        aircraft_position = self.get_aircraft_position()
+        aircraft_heading = self.get_aircraft_heading()
         aircraft_inside_bounds = (self.lat_min <= aircraft_position.lat <= self.lat_max) and (
                 self.lon_min <= aircraft_position.lon <= self.lon_max)
         return not aircraft_inside_bounds
 
-    def _generate_airport(self, np_random: np.random.Generator) -> Airport:
-        return Airport(
+    def _generate_airport(self, np_random: np.random.Generator) -> Destination:
+        return Destination(
             Position(lat=self.config.airport_lat_sampling.sample(np_random),
                      lon=self.config.airport_lon_sampling.sample(np_random)),
-            hdg=self.config.airport_hdg_sampling.sample(np_random)
+            hdg=self.config.destination_hdg_sampling.sample(np_random)
         )
 
     def _generate_initial_position(self, np_random: np.random.Generator) -> Position:
         return Position(
-            lat=self.config.aircraft_lat_sampling.sample(np_random),
+            lat=self.config.destination_lat_sampling.sample(np_random),
             lon=self.config.airport_lon_sampling.sample(np_random)
         )
 
@@ -515,7 +511,7 @@ class BaseNavigationEnv(gym.Env):
         airport_color = pygame.Color("black")
         red_dot_color = pygame.Color("red")
 
-        airport_x_position, airport_y_position = self.lat_lon_to_pix(self.airport_details.position)
+        airport_x_position, airport_y_position = self.lat_lon_to_pix(self.destination.position)
         shapes = bs.tools.areafilter.basic_shapes
         line_sink = np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) // 2, 2))
         line_restrict = np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2))
@@ -528,7 +524,8 @@ class BaseNavigationEnv(gym.Env):
 
     def draw_aircraft(self, canvas):
         aircraft_color = pygame.Color("black")
-        ac_position, ac_heading = self.get_aircraft_details()
+        ac_position = self.get_aircraft_position()
+        ac_heading = self.get_aircraft_heading()
 
         red_line_color = pygame.Color("red")
         for point_1, point_2 in itertools.pairwise(self.aircraft_positions):
@@ -563,7 +560,7 @@ class BaseNavigationEnv(gym.Env):
 
         obs = self._get_obs()
         y_offset = 10
-        obs = {**obs, "airport_bearing": np.array([self.airport_details.hdg])}
+        obs = {**obs, "destination_bearing": np.array([self.destination.hdg])}
 
         for key, value in obs.items():
             if "distance" in key:

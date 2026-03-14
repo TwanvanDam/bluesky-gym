@@ -7,8 +7,12 @@ import torch
 from gymnasium.wrappers import RescaleAction
 from stable_baselines3 import SAC
 
-from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, SinCosNormalization, DistanceNormalization
-from bluesky_gym.wrappers.population import Population, MapObservationNormalizer
+from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
+from bluesky_gym.wrappers.distance_normalizer import DistanceNormalization
+from bluesky_gym.wrappers.map_observation_normalizer import MapObservationNormalizer
+from bluesky_gym.wrappers.population import Population
+from bluesky_gym.wrappers.sin_cos_normalizer import SinCosNormalization
+
 from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
