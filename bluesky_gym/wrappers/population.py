@@ -260,6 +260,7 @@ class Population(gym.Wrapper):
                                                            orientation=ac_hdg,
                                                            out_shape=obs_shape,
                                                            out_meters=obs_range)
+            corners = [self.base_env.meters_to_pix(corner) for corner in corners]
             pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
 
 

@@ -1,13 +1,14 @@
 import argparse
 from pathlib import Path
 
+import bluesky
 import numpy as np
 import pandas as pd
+from bluesky.tools.position import Position
 from matplotlib import pyplot as plt
 from rasterio.plot import plotting_extent
 from stable_baselines3 import SAC
 import gymnasium as gym
-from bluesky_gym.envs.base_navigation_env import Destination, Position
 from bluesky_gym.envs.common import functions
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 from scripts.config import ExperimentConfig
@@ -32,9 +33,16 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
     return env, model
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None):
+    destination = Position(name="EHAM/RW18R", reflat=0, reflon=0)
+    options = {
+        "destination_lat": destination.lat,
+        "destination_lon": destination.lon,
+        "destination_hdg": destination.refhdg
+    }
+
     env, model = load_env_and_model(run_name, render_mode="human", map_config=map_config)
     while True:
-        obs, info = env.reset()
+        obs, info = env.reset(options=options)
         done = False
         while not done:
             action, _ = model.predict(obs, deterministic=True)
@@ -56,7 +64,7 @@ def _simulate_trajectories(
     results = []
     coordinate_transformer = env.unwrapped.coordinate_transformer
     angles = np.arange(0, 360, angle_interval)
-    destination = Destination(Position(lat=52.334, lon=4.7092), hdg=180)
+    destination = Position(name="EHAM/RW18R", reflat=0, reflon=0)
     env.reset(seed=seed)
     background = env.env.background_map.copy()
     background_transform = env.env.get_background_transform()
@@ -172,7 +180,7 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
     env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
     angles = np.arange(0, 360, angle_interval)
     coordinate_transformer = env.unwrapped.coordinate_transformer
-    destination = Destination(Position(lat=52.334, lon=4.7092), hdg=180)
+    destination = Position(name="EHAM/RW18R", reflat=0, reflon=0)
     fig, axs = plt.subplots(1,2)
     for ax, obs_type in zip(axs, ["with_map", "without_map"]):
         env.reset(seed=42)
@@ -185,8 +193,8 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
                                        distance, angle)
             done = False
             obs, info = env.reset(options={
-                "airport_lat": destination.position.lat,
-                "airport_lon": destination.position.lon,
+                "airport_lat": destination.lat,
+                "airport_lon": destination.lon,
                 "airport_hdg": destination.hdg,
                 "aircraft_lat": aircraft_lat,
                 "aircraft_lon": aircraft_lon,
@@ -209,6 +217,7 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
     plt.show()
 
 if __name__ == '__main__':
+    bluesky.init()
     run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
     validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
     # validation_map = MapSourceConfig(type="population_density")

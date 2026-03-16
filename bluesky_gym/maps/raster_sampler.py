@@ -8,7 +8,7 @@ from rasterio.enums import Resampling
 from rasterio.transform import from_bounds
 from rasterio.warp import reproject
 
-from bluesky_gym.envs.base_navigation_env import Position
+from bluesky.tools.position import Position
 from bluesky_gym.maps.map_datasets import MapSource
 
 @dataclass

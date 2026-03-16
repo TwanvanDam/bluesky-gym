@@ -3,12 +3,10 @@ import os
 from dataclasses import fields
 
 import numpy as np
-from matplotlib import pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.logger import HParam, TensorBoardOutputFormat
+from stable_baselines3.common.logger import HParam
 
-from bluesky_gym.envs.base_navigation_env import Destination, Position, TerminationReason
-from bluesky_gym.envs.common import functions
+from bluesky_gym.envs.base_navigation_env import TerminationReason
 
 
 class CSVLoggerCallback(BaseCallback):
@@ -85,14 +83,12 @@ def _flatten_config(obj, prefix="") -> dict:
 
 
 class TensorboardCallback(BaseCallback):
-    def __init__(self, experiment_config=None, verbose=0, validation_env=None, plot_frequency=10000, save_frequency=50000, save_dir=None):
+    def __init__(self, experiment_config=None, verbose=0, validation_env=None, save_frequency=50000, save_dir=None):
         super().__init__(verbose)
         self.experiment_config = experiment_config
         self.validation_env = validation_env
-        self.plot_frequency = plot_frequency
         self.save_frequency = save_frequency
         self.save_dir = save_dir
-        self.last_plot_step = 0
         self.last_save_step = 0
 
     def _on_training_start(self) -> None:
@@ -111,48 +107,6 @@ class TensorboardCallback(BaseCallback):
             HParam(hparam_dict, metric_dict),
             exclude=("stdout", "log", "json", "csv"),
         )
-
-    def make_validation_plot(self):
-        angles = np.arange(0, 360, 10)
-        destination = Destination(Position(lat=52.31, lon=4.7), hdg=180)
-        figure = plt.figure()
-        for angle in list(angles):
-            aircraft_lat, aircraft_lon = functions.get_point_at_distance(destination.position.lat, destination.position.lon,
-                                       300, angle)
-            done = False
-            obs, info = self.validation_env.reset(options={
-                "airport_lat": destination.position.lat,
-                "airport_lon": destination.position.lon,
-                "airport_hdg": destination.hdg,
-                "aircraft_lat": aircraft_lat,
-                "aircraft_lon": aircraft_lon,
-            }, seed=42)
-            while not done:
-                action, _ = self.model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, info = self.validation_env.step(action)
-                done = terminated or truncated
-            points = [(position.lon, position.lat) for position in
-                      self.validation_env.unwrapped.aircraft_positions]
-            xs, ys = zip(*points)
-            plt.plot(xs, ys)
-        plt.xlim(self.validation_env.unwrapped.lon_min, self.validation_env.unwrapped.lon_max)
-        plt.ylim(self.validation_env.unwrapped.lat_min, self.validation_env.unwrapped.lat_max)
-        plt.scatter(destination.position.lon, destination.position.lat, marker=".", linewidths=5)
-        print("saving figure")
-        figures_dir = "scripts/common/results/figures_backup"
-        os.makedirs(figures_dir, exist_ok=True)
-        plt.savefig(f"{figures_dir}/{self.experiment_config.run_name}_{self.num_timesteps}.png")
-        # Write directly to TensorBoard writer to avoid interfering with SB3's logger step tracking
-        for fmt in self.logger.output_formats:
-            if isinstance(fmt, TensorBoardOutputFormat):
-                fmt.writer.add_figure("validation/circle_trajectories", figure, global_step=self.num_timesteps)
-                fmt.writer.flush()
-                break
-        plt.close(figure)
-
-    def _on_training_end(self) -> None:
-        if self.validation_env is not None:
-            self.make_validation_plot()
 
     def _on_step(self) -> bool:
         scalar_types = (int, float, np.integer, np.floating)
@@ -173,11 +127,6 @@ class TensorboardCallback(BaseCallback):
                             self.logger.record_mean(f"episode/termination_reason/{reason.name}", 0.0)
                 if isinstance(value, scalar_types):
                     self.logger.record_mean(f"episode/{key}", float(value))
-
-        # Check if it's time to make a validation plot
-        if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
-            self.make_validation_plot()
-            self.last_plot_step = self.num_timesteps
 
         # Periodically save the model checkpoint
         if self.save_dir and self.save_frequency and self.num_timesteps - self.last_save_step >= self.save_frequency:
