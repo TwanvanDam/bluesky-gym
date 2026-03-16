@@ -92,9 +92,9 @@ class Population(gym.Wrapper):
         # Reset noise tracking variables
         self.total_episode_noise = 0.0
         self.total_episode_noise_reward = 0.0
-        self.mean_step_noise = self.noise_model.calculate_mean_step_noise(self.background_map,
-                                                                          self.base_env.get_aircraft_altitude(),
-                                                                          self.base_env.sim_dt)
+        self.mean_step_noise = self.noise_model.calculate_mean_step_noise(population_map=self.background_map,
+                                                                          altitude=self.base_env.get_aircraft_altitude(),
+                                                                          sim_dt=self.base_env.sim_dt)
 
         if self.render_mode is not None:
             self.background_max = np.nanmax(self.background_map)
@@ -169,8 +169,10 @@ class Population(gym.Wrapper):
                                                                              out_shape=noise_kernel_shape_pixels,
                                                                              out_meters=noise_kernel_shape_meters)
 
-        step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract, ac_alt,
-                                                                       self.mean_step_noise, sim_dt)
+        step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
+                                                                       altitude=ac_alt,
+                                                                       mean_step_noise=self.mean_step_noise,
+                                                                       sim_dt=sim_dt)
         noise_penalty = - (
                     1 - self.base_env.fuel_to_noise_ratio) * step_normalized_noise * self.base_env.dense_reward_scaling
 

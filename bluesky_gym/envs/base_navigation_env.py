@@ -7,14 +7,13 @@ import gymnasium as gym
 import numpy as np
 import pygame
 import pyproj
-from bluesky.tools.aero import ft, kts
 from gymnasium import spaces
 from matplotlib.path import Path
-from openap import FuelFlow
 from pydantic import BaseModel, Field
 
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
+from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.utils.sampling_config import SamplingConfig
 from bluesky.tools.position import Position
 
@@ -74,7 +73,7 @@ def bs_position(lat: float, lon: float, hdg: float | None = None) -> Position:
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
+    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512), save_trajectory: bool = False,
                  config: NavigationConfig = NavigationConfig()) -> None:
         self.total_episode_fuel_reward = None
         self.episode_length_seconds = None
@@ -86,6 +85,8 @@ class BaseNavigationEnv(gym.Env):
 
         self.config = config
         self.ac_name = config.ac_name
+        self.save_trajectory = save_trajectory
+        self._telemetry_history = []
 
         self.bluesky_crs = "WGS84"
         self.pygame_crs = config.pygame_crs
@@ -151,7 +152,7 @@ class BaseNavigationEnv(gym.Env):
         bs.scr = ScreenDummy()
         bs.stack.stack(f'DT {self.sim_dt};FF')
 
-        self.fuel_flow_model = FuelFlow(self.config.ac_type)
+        self.fuel_flow_model = FuelModel(self.config.ac_type)
         self.fuel_used_during_step: float | None = None
         self.destination: Position | None = None
         self.aircraft_positions: list[Position] = []
@@ -193,6 +194,7 @@ class BaseNavigationEnv(gym.Env):
         self.episode_length_seconds = 0
         self.total_episode_fuel_reward = 0.0
         self.total_episode_fuel_used = 0.0
+        self._telemetry_history = []
 
 
         self.destination = self._generate_airport(self.np_random, options)
@@ -227,6 +229,8 @@ class BaseNavigationEnv(gym.Env):
             ac_pos = self.get_aircraft_position()
             self.episode_length_seconds += self.sim_dt
             self.aircraft_positions.append(ac_pos)
+            if self.save_trajectory:
+                self._save_telemetry()
 
             intermediate_reward, terminated, truncated, reason = self._get_reward()
             reward += intermediate_reward
@@ -300,6 +304,14 @@ class BaseNavigationEnv(gym.Env):
         ac_idx = bs.traf.id2idx(self.ac_name)
         return bs.traf.alt[ac_idx]
 
+    def get_aircraft_mass(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        return bs.traf.perf.mass[ac_idx]
+
+    def get_aircraft_tas(self) -> float:
+        ac_idx = bs.traf.id2idx(self.ac_name)
+        return bs.traf.tas[ac_idx]
+
     def _get_reward(self) -> tuple[float, bool, bool, TerminationReason]:
         total_reward = 0.0
         terminated = False
@@ -322,11 +334,10 @@ class BaseNavigationEnv(gym.Env):
         self._reward_components.append(function)
 
     def _get_fuel_flow(self) -> float:
-        ac_idx = bs.traf.id2idx(self.ac_name)
-        ac_tas = bs.traf.tas[ac_idx] / kts  # m/s -> kts
-        ac_alt = bs.traf.alt[ac_idx] / ft  # m -> ft
-        ac_mass = bs.traf.perf.mass[ac_idx]  # kg
-        fuel_flow = self.fuel_flow_model.enroute(mass=ac_mass, tas=ac_tas, alt=ac_alt)
+        ac_tas = self.get_aircraft_tas() # m/s
+        ac_alt = self.get_aircraft_altitude()  # m
+        ac_mass = self.get_aircraft_mass()  # kg
+        fuel_flow = self.fuel_flow_model.step_fuel_flow(mass=ac_mass, tas=ac_tas, altitude=ac_alt)
         return fuel_flow
 
     @property
@@ -431,6 +442,17 @@ class BaseNavigationEnv(gym.Env):
             lat=aircraft_lat,
             lon=aircraft_lon
         )
+
+    def _save_telemetry(self) -> None:
+        ac_alt = self.get_aircraft_altitude()
+        ac_pos = self.get_aircraft_position()
+        ac_tas = self.get_aircraft_tas()
+        ac_mass = self.get_aircraft_mass()
+        sim_dt = self.sim_dt
+        self._telemetry_history.append({"lat": ac_pos.lat, "lon": ac_pos.lon, "tas": ac_tas, "mass": ac_mass, "alt": ac_alt, "sim_dt": sim_dt})
+
+    def get_telemetry_history(self) -> list[dict[str, float]]:
+        return self._telemetry_history
 
     def lat_lon_to_pix(self, position: Position) -> tuple[int, int]:
         x_meters, y_meters = self.coordinate_transformer.transform(position.lon, position.lat)
