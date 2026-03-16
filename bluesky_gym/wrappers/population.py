@@ -1,56 +1,30 @@
 from functools import partial
-from typing import Callable
+from typing import Callable, List, Tuple
 
 import gymnasium as gym
 import matplotlib
 import numpy as np
 import pygame
-import rasterio
-import rasterio.features
 from affine import Affine
-from bluesky.tools.aero import ft
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
-from rasterio.transform import from_bounds
-from rasterio.warp import reproject, Resampling
+from pydantic import BaseModel, Field
 
-from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason, Position
-from scripts.config import PopulationConfig
+from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
+from bluesky_gym.maps.map_datasets import MapSourceConfig
+from bluesky_gym.maps.raster_sampler import RasterSampler
+from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
 
-class MapObservationNormalizer(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env, mode: str = "log") -> None:
-        super().__init__(env)
-
-        # Check if underlying observation space is Dict
-        self.observation_max = env.observation_max
-        self.mode = mode
-
-        assert isinstance(env.observation_space,
-                          spaces.Dict), "MapObservationNormalizer only works with Dict observation spaces"
-        observation_space = env.observation_space.spaces.copy()
-        for key in list(observation_space.keys()):
-            if "map" in key:
-                original_space = observation_space.pop(key)
-                observation_space[key] = spaces.Box(low=0, high=1, shape=original_space.shape,
-                                                    dtype=original_space.dtype)
-
-        self.observation_space = spaces.Dict(observation_space)
-
-    def observation(self, observation):
-        observation_copy = observation.copy()
-        for key in list(observation_copy.keys()):
-            if "map" in key:
-                value = observation_copy.pop(key)[0]
-                match self.mode:
-                    case "log":
-                        observation_copy[key] = np.clip(np.log1p(value / self.observation_max), 0, 1)
-                    case "min-max":
-                        observation_copy[key] = np.clip(value / self.observation_max, 0, 1)
-                    case _:
-                        msg = f"Normalization mode {self.mode} is not supported."
-                        raise NotImplementedError(msg)
-        return observation_copy
+class PopulationConfig(BaseModel):
+    noise_model_config: NoiseConfig = Field(default_factory=NoiseConfig)
+    map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
+    observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
+    observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
+    fuel_to_noise_ratio: float = 0.5
+    resampling: str = "cubic_spline"
+    rendering_normalization: str = "log"  # "log" or "min-max"
+    observation_normalization: str = "log"
 
 
 class Population(gym.Wrapper):
@@ -58,26 +32,28 @@ class Population(gym.Wrapper):
         super().__init__(env)
         self.env: gym.Env = env
         self.base_env: BaseNavigationEnv = self.unwrapped
-
         self.base_env._render_owned_by_wrapper = True
+
         self.config = config
+        self.noise_model = NoiseModel(config.noise_model_config)
+
+        # class to handle all reading and creating of population maps
+        self.map_source = config.map_source_config.build(self.base_env)
+        self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
+                                            destination_crs=self.base_env.pygame_crs)
+        self.map_source_max: float = np.nan
+        self.mean_step_noise: float = np.nan
 
         self.window = None
         self.observation_shape = config.observation_shape
         self.observation_range = config.observation_range
         self.population_observation = None
 
-        # class to handle all reading and creating of population maps
-        self.map_source = config.map_source_config.build(self.base_env)
-        self.observation_max: float = np.inf
-        self.mean_noise: float = np.inf
-
         # cache the map used as background since it does not change often.
         self.background_map: None | np.ndarray = None
-        self.background_transform: Affine | None = None
         self.color_map: str = color_map
-        self.render_normalizer: Normalize | None
-        self.metadata = env.metadata.copy()
+        self.background_max = None
+        self.render_normalizer: Normalize | None = None
 
         assert isinstance(self.env.observation_space, spaces.Dict)
         if len(self.observation_shape) > 1:
@@ -105,16 +81,18 @@ class Population(gym.Wrapper):
 
         # Now regenerate the map using the seeded random generator
         self.map_source.regenerate(rng=self.base_env.np_random)
-        self.background_map = self._load_background()
-        self.observation_max = np.max(self.background_map)
-        self.render_normalizer = self._get_normalization(self.background_map)
+        self.map_source_max = self.map_source.max # Cache the max value for the map normalization wrapper
+        self._update_population_observation()
+        observation = self._inject_population_observation(observation)
 
-        noise_kernel, _ = self._get_noise_kernel()
+        self.background_map = self.get_background()
+        self.mean_step_noise = self.noise_model.calculate_mean_step_noise(self.background_map,
+                                                                          self.base_env.get_aircraft_altitude(),
+                                                                          self.base_env.sim_dt)
 
-        self.mean_noise = np.sum(noise_kernel * np.mean(np.clip(self.background_map,0, np.inf)))
-
-        self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+        if self.render_mode is not None:
+            self.background_max = np.nanmax(self.background_map)
+            self.render_normalizer = self._get_normalization(self.background_map)
 
         if self.render_mode == "human":
             self.render()
@@ -126,8 +104,8 @@ class Population(gym.Wrapper):
 
         # TODO: Verify that population observation updates should be skipped when episode ends
         if not done:
-            self.population_observation = self._get_population_observation()
-        observation = {**observation, "population_map": self.population_observation}
+            self._update_population_observation()
+        observation = self._inject_population_observation(observation)
 
         if not done and self.render_mode == "human":
             self.render()
@@ -138,103 +116,60 @@ class Population(gym.Wrapper):
         self.map_source.close()
         self.env.close()
 
-    def _extract_view_from_map(self, center_position: Position, orientation: float, out_shape: tuple[int, int],
-                               out_meters: tuple[float, float]):
-        dst_transform = self._get_dst_transform(center_position, orientation, out_meters, out_shape)
+    def _inject_population_observation(self, observation: dict) -> dict:
+        return {**observation, **self.population_observation}
 
-        destination = np.zeros(out_shape[::-1])
+    def _update_population_observation(self) -> None:
+        ac_pos = self.base_env.get_aircraft_position()
+        ac_hdg = self.base_env.get_aircraft_heading()
+        observations = {f"population_map":
+            self.raster_sampler.get_observation_clipped(center_position=ac_pos, orientation=ac_hdg, out_shape=obs_shape,
+                                                        out_meters=obs_range) for
+            i, (obs_shape, obs_range) in enumerate(zip(self.observation_shape, self.observation_range))}
+        self.population_observation = observations
+        return
 
-        # Perform the Reprojection
-        reproject(
-            source=rasterio.band(self.map_source.dataset, 1),
-            destination=destination,
-            src_transform=self.map_source.transform,
-            src_crs=self.map_source.crs,
-            dst_transform=dst_transform,
-            dst_crs=self.base_env.pygame_crs,
-            resampling=getattr(Resampling, self.config.resampling)
-        )
-        return destination
-
-    def _get_dst_transform(self, center_position: Position, orientation: float, out_meters: tuple[float, float],
-                           out_shape: tuple[int, int]) -> Affine:
-        center_xy = self.base_env.coordinate_transformer.transform(center_position.lon, center_position.lat)
-
-        # Calculate the resolution (meters per pixel) for the output slice
-        cols, rows = out_shape
-        res_x = out_meters[0] / cols
-        res_y = out_meters[1] / rows
-
-        dst_transform = (
-                Affine.translation(*center_xy) *
-                Affine.rotation(- orientation) *
-                Affine.scale(res_x, -res_y) *
-                Affine.translation(- cols / 2, -rows / 2)
-        )
-        return dst_transform
-
-    def _get_population_observation(self):
-        position, heading = self.base_env.get_aircraft_details()
-        observations = [np.clip(self._extract_view_from_map(position, heading, obs_shape, obs_range), 0, np.inf) for
-                        obs_shape, obs_range in zip(self.observation_shape, self.observation_range)]
-        return observations
-
-    def _load_background(self):
+    def get_background(self):
+        """Returns the background population map for the entire environment bounds, used for rendering the full map as the background."""
         width, height = self.base_env.window_size
-        self.background_transform = from_bounds(
-            self.base_env.x_min,
-            self.base_env.y_min,
-            self.base_env.x_max,
-            self.base_env.y_max,
-            width,
-            height,
-        )
-        background = np.zeros((height, width))
-        reproject(
-            source=rasterio.band(self.map_source.dataset, 1),
-            destination=background,
-            src_transform=self.map_source.transform,
-            src_crs=self.map_source.crs,
-            dst_transform=self.background_transform,
-            dst_crs=self.base_env.pygame_crs,
-            resampling=getattr(Resampling, self.config.resampling)
-        )
-        return background
+        return self.raster_sampler.get_background(x_min=self.base_env.x_min,
+                                                  y_min=self.base_env.y_min,
+                                                  x_max=self.base_env.x_max,
+                                                  y_max=self.base_env.y_max,
+                                                  width=width,
+                                                  height=height)
 
-    def _get_noise_kernel(self) -> tuple[np.ndarray, int]:
-        base_noise = self.config.noise_base  # [ dBA ]
-        base_distance = 1000 * ft  # [ft] -> [m]
-        noise_cutoff = self.config.noise_cutoff  # [ dBA ]
-        W_0 = 1e-12
-
-        base_noise_power = 10 ** (base_noise / 10) * W_0  # [ W ]
-        noise_cutoff_power = 10 ** (noise_cutoff / 10) * W_0  # [ W ]
-        base_noise_power_1m = base_noise_power / (1 / (base_distance ** 2))  # [ W ]
-        noise_radius = np.sqrt(
-            base_noise_power_1m / noise_cutoff_power)  # [ m ] Distance where noise power is lower than cutoff
-        noise_radius_rounded = self.config.noise_resolution * np.ceil(noise_radius / self.config.noise_resolution)
-
-        altitude = self.base_env.get_aircraft_altitude()
-        x = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
-        y = np.arange(-noise_radius_rounded, noise_radius_rounded + 1, self.config.noise_resolution)
-        xv, yv = np.meshgrid(x, y)
-        distance_squared = xv * xv + yv * yv + altitude * altitude
-
-        sound = base_noise_power_1m / distance_squared
-        sound[sound <= noise_cutoff_power] = 0
-        return sound, noise_radius_rounded
+    def get_background_transform(self) -> Affine:
+        width, height = self.base_env.window_size
+        return self.raster_sampler.get_dst_transform_from_bounds(x_min=self.base_env.x_min,
+                                                                 y_min=self.base_env.y_min,
+                                                                 x_max=self.base_env.x_max,
+                                                                 y_max=self.base_env.y_max,
+                                                                 width=width,
+                                                                 height=height)
 
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
-        noise_kernel, noise_radius = self._get_noise_kernel()
-        ac_position, ac_heading = self.base_env.get_aircraft_details()
-        area_around_ac = self._extract_view_from_map(ac_position, 0, noise_kernel.shape,
-                                                     (2 * noise_radius, 2 * noise_radius))
-        total_noise = np.sum(np.clip(area_around_ac, 0, np.inf) * noise_kernel)
-        noise_penalty = - (1 - self.base_env.fuel_to_noise_ratio) * (total_noise / self.mean_noise) * self.base_env.dense_reward_scaling * self.base_env.sim_dt
+        ac_alt = self.base_env.get_aircraft_altitude()
+        ac_pos = self.base_env.get_aircraft_position()
+        sim_dt = self.base_env.sim_dt
+
+        noise_kernel_shape_meters, noise_kernel_shape_pixels = self.noise_model.get_noise_power_kernel_shape_meters_and_pixels(
+            ac_alt)
+
+        population_map_extract = self.raster_sampler.get_observation_clipped(center_position=ac_pos,
+                                                                             orientation=0,
+                                                                             out_shape=noise_kernel_shape_pixels,
+                                                                             out_meters=noise_kernel_shape_meters)
+
+        step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract, ac_alt,
+                                                                       self.mean_step_noise, sim_dt)
+        noise_penalty = - (
+                    1 - self.base_env.fuel_to_noise_ratio) * step_normalized_noise * self.base_env.dense_reward_scaling
+
         return noise_penalty, False, TerminationReason.NONE
 
     def render(self):
-        # Use a canvas with composit_window_size
+        # Use a canvas with composite_window_size
         self.base_env.initialize_pygame(self.composite_window_size)
         self.base_env.handle_pygame_events()
         base_surface = pygame.Surface(self.base_env.window_size)
@@ -262,39 +197,36 @@ class Population(gym.Wrapper):
         """Override to insert custom layers into rendering pipeline."""
         return [
             lambda canvas: canvas.fill(pygame.Color("grey")),
-            partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map,
-                    transparent=True),
+            partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map),
             self.base_env.draw_airport,
             self.base_env.draw_aircraft,
             self._draw_box_around_aircraft,
         ]
 
     def get_panel_render_layers(self) -> list[Callable]:
-        return [partial(self._render_array, render_size=size,
-                        array=observation, transparent=False) for size, observation in
-                zip(self._get_panel_sizes(), self.population_observation)]
+        return [partial(self._render_array, render_size=size,array=observation) for size, observation in
+                zip(self._get_panel_sizes(), self.population_observation.values())]
 
     def _get_normalization(self, heatmap: np.ndarray) -> Normalize:
         """Get the appropriate matplotlib Normalize instance based on config."""
-        heatmap_clipped = np.clip(heatmap, 0, np.inf)
-        vmin = heatmap_clipped.min()
-        vmax = np.percentile(heatmap_clipped, 99)  # Use 99th percentile to avoid outliers dominating the color scale
+        v_min = np.nanmin(heatmap)
+        v_max = np.nanpercentile(heatmap, 99)  # Use 99th percentile to avoid outliers dominating the color scale
 
-        if vmin == vmax:
-            return Normalize(vmin=0, vmax=1)
+        if v_min == v_max:
+            return Normalize(vmin=0, vmax=v_max)
 
         if self.config.rendering_normalization == "log":
-            return FuncNorm(functions=(np.log1p, np.expm1), vmin=vmin, vmax=vmax)
+            return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max)
         elif self.config.rendering_normalization == "min_max":
-            return Normalize(vmin=vmin, vmax=vmax)
+            return Normalize(vmin=v_min, vmax=v_max)
         else:  # "none" or default
             return Normalize(vmin=0, vmax=1)
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
         # Mask the area that has no data available ( negative population density )
-        no_data_mask = population_map < 0
+        no_data_mask = np.isnan(population_map)
 
-        normalized_map = self.render_normalizer(np.clip(population_map, 0, np.inf))
+        normalized_map = self.render_normalizer(population_map)
 
         color_data = matplotlib.colormaps[self.color_map](normalized_map)
         rgba_array = (color_data * 255).astype(np.uint8)
@@ -303,37 +235,21 @@ class Population(gym.Wrapper):
         rgba_array[no_data_mask, 3] = 0
         return rgba_array
 
-    def _render_array(self, canvas: pygame.Surface, render_size: tuple[int, int],
-                      array: np.ndarray, transparent: bool = True) -> None:
+    def _render_array(self, canvas: pygame.Surface, render_size: tuple[int, int], array: np.ndarray) -> None:
         rgba_array = self._convert_heatmap_to_rgba_array(array)
         shape = array.shape[::-1]
-        if transparent:
-            heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape, "RGBA")
-        else:
-            heatmap_surf = pygame.image.frombuffer(rgba_array[:, :, :3].tobytes(), shape, "RGB")
+        heatmap_surf = pygame.image.frombuffer(rgba_array.tobytes(), shape, "RGBA")
         heatmap_surf = pygame.transform.scale(heatmap_surf, render_size)
-
         canvas.blit(heatmap_surf, (0, 0))
 
-    def _get_view_corners_screen(self, center_position: Position, orientation: float,
-                                 out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[
-        tuple[float, float]]:
-        dst_transform = self._get_dst_transform(center_position, orientation, out_meters, out_shape)
-
-        cols, rows = out_shape
-        pixel_corners = [(0, 0), (cols, 0), (cols, rows), (0, rows)]
-
-        screen_corners = []
-        for col, row in pixel_corners:
-            x, y = dst_transform * (col, row)
-            screen_x, screen_y = self.base_env.meters_to_pix((x, y))
-            screen_corners.append((screen_x, screen_y))
-
-        return screen_corners
-
     def _draw_box_around_aircraft(self, canvas):
-        ac_position, ac_heading = self.base_env.get_aircraft_details()
+        ac_pos = self.base_env.get_aircraft_position()
+        ac_hdg = self.base_env.get_aircraft_heading()
         for obs_shape, obs_range in zip(self.observation_shape, self.observation_range):
-            corners = self._get_view_corners_screen(ac_position, ac_heading,
-                                                    obs_shape, obs_range)
+            corners = self.raster_sampler.get_view_corners(center_position=ac_pos,
+                                                           orientation=ac_hdg,
+                                                           out_shape=obs_shape,
+                                                           out_meters=obs_range)
             pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
+
+

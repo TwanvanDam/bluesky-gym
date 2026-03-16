@@ -6,9 +6,10 @@ from matplotlib import pyplot as plt
 from rasterio.plot import plotting_extent
 from stable_baselines3 import SAC
 import gymnasium as gym
-from bluesky_gym.envs.base_navigation_env import Airport, Position
+from bluesky_gym.envs.base_navigation_env import Destination, Position
 from bluesky_gym.envs.common import functions
-from scripts.config import ExperimentConfig, MapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfig
+from scripts.config import ExperimentConfig
 from scripts.run_experiment import load_env_from_config
 
 def load_env_and_model(run_name: str, render_mode: str | None = "human", map_config: MapSourceConfig | None = None) -> tuple[gym.Env, SAC]:
@@ -43,7 +44,7 @@ def plot_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: 
     env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
 
     angles = np.arange(0, 360, angle_interval)
-    destination = Airport(Position(lat=52.334, lon=4.7092), hdg=180)
+    destination = Destination(Position(lat=52.334, lon=4.7092), hdg=180)
     env.reset(seed=42)
     background = env.env.background_map.copy()
     background[background <= 0] = np.nan  # Set zero values to NaN for better visualization
@@ -80,13 +81,13 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
     env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
     angles = np.arange(0, 360, angle_interval)
     coordinate_transformer = env.unwrapped.coordinate_transformer
-    destination = Airport(Position(lat=52.334, lon=4.7092), hdg=180)
+    destination = Destination(Position(lat=52.334, lon=4.7092), hdg=180)
     fig, axs = plt.subplots(1,2)
     for ax, obs_type in zip(axs, ["with_map", "without_map"]):
         env.reset(seed=42)
         background = env.env.background_map.copy()
-        background[background <= 0] = np.nan  # Set zero values to NaN for better visualization
-        extent = plotting_extent(background, env.env.background_transform)
+        background_transform = env.env.get_background_transform()
+        extent = plotting_extent(background, background_transform)
         ax.imshow(background, extent=extent, origin="upper", cmap="Blues", vmin=0, vmax=np.nanpercentile(background, 99))
         for angle in list(angles):
             aircraft_lat, aircraft_lon = functions.get_point_at_distance(destination.position.lat, destination.position.lon,
@@ -128,5 +129,5 @@ if __name__ == '__main__':
         help=f"Name of a single experiment run. If omitted, {run_name} is used.",
     )
     args = parser.parse_args()
-    compare_trajectories_on_map(args.name, map_config=validation_map)
-    # render_experiment(args.name, map_config=validation_map)
+    # compare_trajectories_on_map(args.name, map_config=validation_map)
+    render_experiment(args.name, map_config=validation_map)

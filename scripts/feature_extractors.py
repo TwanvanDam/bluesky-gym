@@ -1,10 +1,34 @@
+from typing import Optional, List
+
 import gymnasium as gym
 import torch
+from pydantic import BaseModel, Field
 from torch import nn
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-from scripts.config import FeatureExtractorConfig
+class ConvolutionLayerConfig(BaseModel):
+    in_channels: Optional[int] = None
+    out_channels: int
+    kernel_size: int
+    stride: int
+    padding: int
 
+
+class PoolingLayerConfig(BaseModel):
+    type: str  # "max", "avg"
+    kernel_size: int
+    stride: int
+    padding: int
+
+
+class LayerBlockConfig(BaseModel):
+    conv: Optional[ConvolutionLayerConfig] = None
+    pooling: Optional[PoolingLayerConfig] = None
+    activation: Optional[str] = None  # "ReLU", "Tanh", "Sigmoid"
+
+
+class FeatureExtractorConfig(BaseModel):
+    layers: List[LayerBlockConfig] = Field(default_factory=list)
 
 class CombinedExtractor(BaseFeaturesExtractor):
     """Expected observation_spaces:

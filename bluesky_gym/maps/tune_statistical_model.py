@@ -32,7 +32,7 @@ def plot_histogram(density: np.ndarray):
 
 if __name__ == '__main__':
     from gstools import vario_estimate_unstructured
-    path = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
+    path = "/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
     density = read_population_map(path)
     density = mask_empty_values(density)
     norm = colors.Normalize(vmin=0, vmax=np.log1p(np.nanpercentile(density, 99.9)))

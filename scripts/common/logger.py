@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam, TensorBoardOutputFormat
 
-from bluesky_gym.envs.base_navigation_env import Airport, Position
+from bluesky_gym.envs.base_navigation_env import Destination, Position
 from bluesky_gym.envs.common import functions
 
 
@@ -114,7 +114,7 @@ class TensorboardCallback(BaseCallback):
 
     def make_validation_plot(self):
         angles = np.arange(0, 360, 10)
-        destination = Airport(Position(lat=52.31, lon=4.7), hdg=180)
+        destination = Destination(Position(lat=52.31, lon=4.7), hdg=180)
         figure = plt.figure()
         for angle in list(angles):
             aircraft_lat, aircraft_lon = functions.get_point_at_distance(destination.position.lat, destination.position.lon,
