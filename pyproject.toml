@@ -10,11 +10,9 @@ dependencies = [
     "bluesky-simulator>=1.0.7",
     "rasterio",
     "pyproj",
-    "tensorboard",
     "shapely",
-    "pydantic>=2.12.5",
-    "gstools>=1.7.0",
-    "gstools-core>=1.2.0",
+    "gstools",
+    "pydantic"
 ]
 
 authors = [
@@ -43,6 +41,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+train = ["tensorboard"]
+speedups = ["gstools-core"]
+all = [
+    "tensorboard",
+    "gstools-core",
+]
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
