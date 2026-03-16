@@ -88,6 +88,10 @@ class Population(gym.Wrapper):
         observation = self._inject_population_observation(observation)
 
         self.background_map = self.get_background()
+
+        # Reset noise tracking variables
+        self.total_episode_noise = 0.0
+        self.total_episode_noise_reward = 0.0
         self.mean_step_noise = self.noise_model.calculate_mean_step_noise(self.background_map,
                                                                           self.base_env.get_aircraft_altitude(),
                                                                           self.base_env.sim_dt)
@@ -104,12 +108,11 @@ class Population(gym.Wrapper):
         observation, reward, terminated, truncated, info = self.env.step(action)
         done = terminated or truncated
 
-        if not done:
-            self._update_population_observation()
-            self.population_observation = self._get_population_observation()
-        else:
+        if done:
             info["total_episode_noise"] = self.total_episode_noise
             info["total_episode_noise_reward"] = self.total_episode_noise_reward
+        else:
+            self._update_population_observation()
         observation = self._inject_population_observation(observation)
 
         if not done and self.render_mode == "human":
@@ -171,6 +174,8 @@ class Population(gym.Wrapper):
         noise_penalty = - (
                     1 - self.base_env.fuel_to_noise_ratio) * step_normalized_noise * self.base_env.dense_reward_scaling
 
+        self.total_episode_noise += step_normalized_noise
+        self.total_episode_noise_reward += noise_penalty
         return noise_penalty, False, TerminationReason.NONE
 
     def render(self):

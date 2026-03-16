@@ -59,8 +59,9 @@ def _simulate_trajectories(
     destination = Destination(Position(lat=52.334, lon=4.7092), hdg=180)
     env.reset(seed=seed)
     background = env.env.background_map.copy()
+    background_transform = env.env.get_background_transform()
     background[background <= 0] = np.nan  # Set zero values to NaN for better visualization
-    extent = plotting_extent(background, env.env.background_transform)
+    extent = plotting_extent(background, background_transform)
     destination_xy = coordinate_transformer.transform(destination.position.lon, destination.position.lat)
     trajectories = []
 
@@ -220,7 +221,7 @@ if __name__ == '__main__':
         help=f"Name of a single experiment run. If omitted, {run_name} is used.",
     )
     args = parser.parse_args()
-    plot_trajectories_on_map(args.name, map_config=validation_map)
-    df = pd.read_csv("Test.csv")
-    _plot_trajectory_metrics_comparison(df)
-    # render_experiment(args.name, map_config=validation_map)
+    # plot_trajectories_on_map(args.name, map_config=validation_map)
+    # df = pd.read_csv("Test.csv")
+    # _plot_trajectory_metrics_comparison(df)
+    render_experiment(args.name, map_config=validation_map)
