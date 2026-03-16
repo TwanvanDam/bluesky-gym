@@ -11,14 +11,14 @@ from matplotlib.colors import Normalize, FuncNorm
 from pydantic import BaseModel, Field
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
-from bluesky_gym.maps.map_datasets import MapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, RandomMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
 
 class PopulationConfig(BaseModel):
     noise_model_config: NoiseConfig = Field(default_factory=NoiseConfig)
-    map_source_config: MapSourceConfig = Field(default_factory=MapSourceConfig)
+    map_source_config: MapSourceConfigType = Field(default_factory=lambda: RandomMapSourceConfig(type="cities"))
     observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
     observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
     fuel_to_noise_ratio: float = 0.5
@@ -40,7 +40,7 @@ class Population(gym.Wrapper):
         self.noise_model = NoiseModel(config.noise_model_config)
 
         # class to handle all reading and creating of population maps
-        self.map_source = config.map_source_config.build(self.base_env)
+        self.map_source = config.map_source_config.build_for_env(self.base_env)
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
                                             destination_crs=self.base_env.pygame_crs)
         self.map_source_max: float = np.nan

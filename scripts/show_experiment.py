@@ -9,11 +9,11 @@ from stable_baselines3 import SAC
 import gymnasium as gym
 from bluesky_gym.envs.base_navigation_env import Destination, Position
 from bluesky_gym.envs.common import functions
-from bluesky_gym.maps.map_datasets import MapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 from scripts.config import ExperimentConfig
 from scripts.run_experiment import load_env_from_config
 
-def load_env_and_model(run_name: str, render_mode: str | None = "human", map_config: MapSourceConfig | None = None) -> tuple[gym.Env, SAC]:
+def load_env_and_model(run_name: str, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
     experiment_config_path = Path("scripts/common/results/configs_backup").joinpath(run_name).with_suffix(".yaml")
     model_path = Path("scripts/common/results/models_backup").joinpath(run_name).with_suffix(".zip")
     experiment_config = ExperimentConfig.load(experiment_config_path)
@@ -31,7 +31,7 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
 
     return env, model
 
-def render_experiment(run_name: str, map_config: MapSourceConfig | None = None):
+def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None):
     env, model = load_env_and_model(run_name, render_mode="human", map_config=map_config)
     while True:
         obs, info = env.reset()
@@ -152,7 +152,7 @@ def _plot_trajectory_metrics_comparison(results: pd.DataFrame):
     plt.show()
 
 
-def plot_trajectories_on_map(run_name: str, angle_interval: int = 45, distance: int = 200, map_config: MapSourceConfig | None = None, seed: int = 42):
+def plot_trajectories_on_map(run_name: str, angle_interval: int = 45, distance: int = 200, map_config: MapSourceConfigType | None = None, seed: int = 42):
     results = []
     for option in ["map", "no_map"]:
         env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
@@ -168,7 +168,7 @@ def plot_trajectories_on_map(run_name: str, angle_interval: int = 45, distance: 
         results.extend(results_simulation)
     pd.DataFrame(results).to_csv("Test.csv")
 
-def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: int = 300, map_config: MapSourceConfig | None = None):
+def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distance: int = 300, map_config: MapSourceConfigType | None = None):
     env, model = load_env_and_model(run_name, render_mode=None, map_config=map_config)
     angles = np.arange(0, 360, angle_interval)
     coordinate_transformer = env.unwrapped.coordinate_transformer
@@ -210,7 +210,7 @@ def compare_trajectories_on_map(run_name: str, angle_interval: int = 30, distanc
 
 if __name__ == '__main__':
     run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
-    validation_map = MapSourceConfig(type="tiff", file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
+    validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
     # validation_map = MapSourceConfig(type="population_density")
 
     parser = argparse.ArgumentParser(description="Show trained RL model(s) from experiment config(s).")
