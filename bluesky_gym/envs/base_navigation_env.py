@@ -67,26 +67,6 @@ class TerminationReason(Enum):
     NONE = "none"
 
 
-class EpisodeTerminationTracker:
-    def __init__(self, window_size: int = 50):
-        self.window_size = window_size
-        self.episode_reasons = deque(maxlen=window_size)
-
-    def log_episode(self, reason: TerminationReason):
-        if len(self.episode_reasons) == self.window_size:
-            self.episode_reasons.popleft()
-        self.episode_reasons.append(reason)
-
-    def get_statistics(self) -> dict:
-        if not self.episode_reasons:
-            return {}
-
-        stats = {reason.value: 100 / len(self.episode_reasons) * sum(
-            1 for episode_reason in self.episode_reasons if episode_reason == reason)
-                 for reason in TerminationReason}
-        return stats
-
-
 @dataclass
 class Position:
     lat: float
@@ -98,11 +78,16 @@ class Destination:
     position: Position
     hdg: float
 
+
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
     def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
                  config: NavigationConfig = NavigationConfig()) -> None:
+        self.total_episode_fuel_reward = None
+        self.episode_length_seconds = None
+        self.mean_fuel_flow = None
+        self.total_episode_fuel_used = None
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
         self._render_owned_by_wrapper = False
@@ -160,8 +145,6 @@ class BaseNavigationEnv(gym.Env):
             self._truncation_reward,
         ]
 
-        self.episode_tracker = EpisodeTerminationTracker()
-
         self.max_steps = config.max_steps
         self.sim_dt = config.sim_dt  # s
         self.action_time = config.action_time
@@ -215,7 +198,9 @@ class BaseNavigationEnv(gym.Env):
         options = options or {}
 
         self.current_step = 0
-        self.fuel_used_during_step = 0.0
+        self.episode_length_seconds = 0
+        self.total_episode_fuel_reward = 0.0
+        self.total_episode_fuel_used = 0.0
 
         if "destination_lat" in options and "destination_lon" in options and "destination_hdg" in options:
             self.destination = Destination(Position(lat=options["airport_lat"], lon=options["airport_lon"]),
@@ -255,9 +240,10 @@ class BaseNavigationEnv(gym.Env):
         for i in range(self.action_frequency):
             bs.sim.step()
             ac_pos = self.get_aircraft_position()
+            self.episode_length_seconds += self.sim_dt
             self.aircraft_positions.append(ac_pos)
 
-            intermediate_reward, terminated, truncated = self._get_reward()
+            intermediate_reward, terminated, truncated, reason = self._get_reward()
             reward += intermediate_reward
             done = terminated or truncated
             if done:
@@ -268,7 +254,10 @@ class BaseNavigationEnv(gym.Env):
         info = {}
 
         if done:
-            info["termination_stats"] = self.episode_tracker.get_statistics()
+            info["termination_reason"] = reason.value
+            info["episode_length_seconds"] = self.episode_length_seconds
+            info["total_episode_fuel_reward"] = self.total_episode_fuel_reward
+            info["total_episode_fuel_used"] = self.total_episode_fuel_used
 
         elif self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()
@@ -326,20 +315,23 @@ class BaseNavigationEnv(gym.Env):
         ac_idx = bs.traf.id2idx(self.ac_name)
         return bs.traf.alt[ac_idx]
 
-    def _get_reward(self):
+    def _get_reward(self) -> tuple[float, bool, bool, TerminationReason]:
         total_reward = 0.0
         terminated = False
-        termination_reason = TerminationReason.NONE
         truncated = self.current_step >= self.max_steps
+        if truncated:
+            reason = TerminationReason.MAX_STEPS
+        else:
+            reason = TerminationReason.NONE
 
         for component in self._reward_components:
-            component_reward, component_terminated, reason = component()
+            component_reward, component_terminated, component_reason = component()
+            if component_terminated and reason == TerminationReason.NONE:
+                reason = component_reason
             total_reward += component_reward
-            if component_terminated and termination_reason == TerminationReason.NONE:
-                self.episode_tracker.log_episode(reason=reason)
             terminated = terminated or component_terminated
 
-        return total_reward, terminated, truncated
+        return total_reward, terminated, truncated, reason
 
     def add_reward_component(self, function: Callable) -> None:
         self._reward_components.append(function)
@@ -360,6 +352,8 @@ class BaseNavigationEnv(gym.Env):
         fuel_flow = self._get_fuel_flow()
         fuel_used = fuel_flow * self.sim_dt
         normalized_fuel_usage = fuel_used / self.mean_fuel_flow
+        self.total_episode_fuel_used += fuel_used
+        self.total_episode_fuel_reward += - self.fuel_to_noise_ratio * (normalized_fuel_usage * self.dense_reward_scaling)
         return - self.fuel_to_noise_ratio * (normalized_fuel_usage * (
             self.dense_reward_scaling)), False, TerminationReason.NONE
 

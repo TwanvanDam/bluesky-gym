@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam, TensorBoardOutputFormat
 
-from bluesky_gym.envs.base_navigation_env import Destination, Position
+from bluesky_gym.envs.base_navigation_env import Destination, Position, TerminationReason
 from bluesky_gym.envs.common import functions
 
 
@@ -155,6 +155,25 @@ class TensorboardCallback(BaseCallback):
             self.make_validation_plot()
 
     def _on_step(self) -> bool:
+        scalar_types = (int, float, np.integer, np.floating)
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+
+        # Record episode-level metrics exactly when an episode terminates.
+        for done, info in zip(dones, infos):
+            if not done:
+                continue
+
+            for key, value in info.items():
+                if key == "termination_reason":
+                    for reason in TerminationReason:
+                        if reason.value == value:
+                            self.logger.record_mean(f"episode/termination_reason/{reason.name}", 1.0)
+                        else:
+                            self.logger.record_mean(f"episode/termination_reason/{reason.name}", 0.0)
+                if isinstance(value, scalar_types):
+                    self.logger.record_mean(f"episode/{key}", float(value))
+
         # Check if it's time to make a validation plot
         if self.validation_env and self.num_timesteps - self.last_plot_step >= self.plot_frequency:
             self.make_validation_plot()

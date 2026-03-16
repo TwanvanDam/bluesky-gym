@@ -30,6 +30,8 @@ class PopulationConfig(BaseModel):
 class Population(gym.Wrapper):
     def __init__(self, env: gym.Env, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
         super().__init__(env)
+        self.total_episode_noise_reward = None
+        self.total_episode_noise = None
         self.env: gym.Env = env
         self.base_env: BaseNavigationEnv = self.unwrapped
         self.base_env._render_owned_by_wrapper = True
@@ -102,9 +104,12 @@ class Population(gym.Wrapper):
         observation, reward, terminated, truncated, info = self.env.step(action)
         done = terminated or truncated
 
-        # TODO: Verify that population observation updates should be skipped when episode ends
         if not done:
             self._update_population_observation()
+            self.population_observation = self._get_population_observation()
+        else:
+            info["total_episode_noise"] = self.total_episode_noise
+            info["total_episode_noise_reward"] = self.total_episode_noise_reward
         observation = self._inject_population_observation(observation)
 
         if not done and self.render_mode == "human":
