@@ -18,11 +18,11 @@ from scripts.config import ExperimentConfig
 from scripts.run_experiment import load_env_from_config
 import bluesky as bs
 
-def plot_trajectories(trajectories: pd.DataFrame, map_config: MapSourceConfigType):
+def plot_trajectories(trajectories: pd.DataFrame, map_config: MapSourceConfigType, runway: str = "EHAM/RW27"):
     bs.init()
     map_source = TiffMapSourceConfig(file_path=map_config.file_path).build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
-    destination = Position(name="EHAM/RW18R", reflat=0, reflon=0)
+    destination = Position(name=runway, reflat=0, reflon=0)
 
     coordinate_transformer = pyproj.Transformer.from_crs("WGS84", raster_sampler.destination_crs, always_xy=True)
     destination_xy = coordinate_transformer.transform(destination.lon, destination.lat)
@@ -60,6 +60,5 @@ if __name__ == '__main__':
     df = pd.read_csv(args.trajectories_csv)
     with open(Path(args.trajectories_csv).parent.joinpath("details.pkl"), "rb") as f:
         trajectory_details = pickle.load(f)
-
     map_config = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
     plot_trajectories(df, map_config)
