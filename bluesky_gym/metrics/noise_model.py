@@ -12,6 +12,7 @@ class NoiseConfig(BaseModel):
     noise_cutoff_dba: float = 55  # Minimum noise level
     noise_resolution_m: float = 1000  # Noise resolution in meters
     w_0: float = 1e-12  # Reference sound power in watts (0 dBA corresponds to 1e-12 W)
+    reward_scaling_factor: float = 2.0  # Scaling factor for noise reward
     base_distance: float = 1000 * ft_to_m # Reference distance in meters for noise calculation
 
     @model_validator(mode="after")
@@ -65,9 +66,8 @@ class NoiseModel:
         return noise_power
 
     def calculate_mean_step_noise(self, population_map: np.ndarray, altitude: float, sim_dt: float) -> float:
-        population_map = np.where(np.isnan(population_map), 0, population_map)  # Treat NaNs as zero population
         population_map = np.clip(population_map, 0, None)  # Ensure no negative population values
-        mean_population_density = float(np.mean(population_map))
+        mean_population_density = float(np.nanmean(population_map))
         mean_step_noise_power = self.step_total_noise(mean_population_density, altitude, sim_dt)
         return mean_step_noise_power
 
@@ -79,7 +79,9 @@ class NoiseModel:
 
     def step_normalized_noise(self, population_map_extract: np.ndarray, altitude: float, mean_step_noise: float, sim_dt: float) -> float:
         step_total_noise = self.step_total_noise(population_map_extract, altitude, sim_dt)
-        normalized_noise = step_total_noise / mean_step_noise if mean_step_noise > 0 else 0
+
+        # Multiply by 2 to have the right magnitude compared to fuel consumption.
+        normalized_noise = self.config.reward_scaling_factor * step_total_noise / mean_step_noise if mean_step_noise > 0 else 0
         return normalized_noise
 
 
