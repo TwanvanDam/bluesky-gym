@@ -6,6 +6,7 @@ from typing import Callable, Optional, Dict, Any, Literal, Annotated
 
 import gymnasium
 import numpy as np
+import pyproj
 import rasterio
 from pydantic import BaseModel, Field
 from rasterio.io import MemoryFile
@@ -24,9 +25,10 @@ class MapSourceConfig(BaseModel):
 class TiffMapSourceConfig(MapSourceConfig):
     type: Literal["tiff"] = "tiff"
     file_path: str
+    source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
 
     def build(self) -> TiffMapSource:
-        return TiffMapSource(self.file_path)
+        return TiffMapSource(self.file_path, source_unit=self.source_unit)
 
     def build_for_env(self, env) -> TiffMapSource:
         return self.build()
@@ -34,9 +36,14 @@ class TiffMapSourceConfig(MapSourceConfig):
 class RandomMapSourceConfig(MapSourceConfig):
     type: Literal["cities", "polygon", "population_density"]
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
 
     @staticmethod
-    def from_env_bounds(env: gymnasium.Env, random_map_generator: Callable):
+    def from_env_bounds(
+        env: gymnasium.Env,
+        random_map_generator: Callable,
+        source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel",
+    ):
         """Derive Affine transform + CRS from the env's geographic bounds.
 
         Uses env.pygame_crs as the target CRS (same space that rendering
@@ -53,7 +60,7 @@ class RandomMapSourceConfig(MapSourceConfig):
         x_min, y_min = env.x_min, env.y_min
         x_max, y_max = env.x_max, env.y_max
 
-        rows, cols = random_map_generator().shape
+        rows, cols = random_map_generator()[0].shape
         transform = from_bounds(x_min, y_min, x_max, y_max, cols, rows)
 
         return RandomMapSource(
@@ -68,17 +75,17 @@ class RandomMapSourceConfig(MapSourceConfig):
             generator = generate_cities
             if self.kwargs:
                 generator = functools.partial(generate_cities, **self.kwargs)
-            return self.from_env_bounds(env, generator)
+            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         elif self.type == "polygon":
             generator = generate_random_shapes_map
             if self.kwargs:
                 generator = functools.partial(generate_random_shapes_map, **self.kwargs)
-            return self.from_env_bounds(env, generator)
+            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         elif self.type == "population_density":
             generator = generate_population_density
             if self.kwargs:
                 generator = functools.partial(generate_population_density, **self.kwargs)
-            return self.from_env_bounds(env, generator)
+            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         raise ValueError(f"Unsupported random map source type: {self.type}")
 
     def build(self) -> RandomMapSource:
@@ -89,6 +96,10 @@ MapSourceConfigType = Annotated[TiffMapSourceConfig | RandomMapSourceConfig, Fie
 
 
 class MapSource(ABC):
+    def __init__(self, source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"):
+        self._source_unit = source_unit
+        self._conversion_factor: float | None = None
+
 
     @property
     @abstractmethod
@@ -107,6 +118,43 @@ class MapSource(ABC):
         """Generate a new map (no-op for static sources)."""
         ...
 
+    @staticmethod
+    def _pixel_area_m2(dataset: rasterio.DatasetReader) -> float:
+        """Compute pixel area in m^2 from affine transform and projected CRS units."""
+        crs = pyproj.CRS.from_user_input(dataset.crs)
+        if crs.is_geographic:
+            raise ValueError(
+                "Cannot convert people_per_pixel to people_per_km2 for geographic CRS. "
+                "Reproject the GeoTIFF to a projected CRS with metric units first."
+            )
+        resolution = dataset.res
+        return abs(resolution[0] * resolution[1])
+
+    @property
+    def conversion_factor(self) -> float:
+        """Factor to convert raw map values to people_per_km2."""
+        if self._conversion_factor is None:
+            self.refresh_conversion_factor()
+        return self._conversion_factor
+
+    def refresh_conversion_factor(self):
+        """Refresh conversion factor after dataset is created/recreated."""
+        if self._source_unit == "people_per_km2":
+            self._conversion_factor = 1.0
+            return
+
+        if self.dataset is None:
+            raise RuntimeError("Dataset must be initialized before computing conversion factor.")
+
+        self._conversion_factor = self._get_conversion_factor()
+
+    def _get_conversion_factor(self) -> float:
+        """If the source unit is people_per_pixel, returns the factor to convert to people_per_km2."""
+        pixel_area_km2 = self._pixel_area_m2(self.dataset) / 1_000_000.0
+        conversion = 1 / pixel_area_km2
+        print(f"MapSource conversion factor (people_per_pixel -> people_per_km2): {conversion:.2f}")
+        return conversion
+
     @property
     def max(self) -> float:
         """Returns the maximum population density value in the map."""
@@ -119,8 +167,10 @@ class MapSource(ABC):
 class TiffMapSource(MapSource):
     """Loads a real GeoTIFF population map (static — no regeneration)."""
 
-    def __init__(self, filepath: str | Path):
+    def __init__(self, filepath: str | Path, source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"):
+        super().__init__(source_unit=source_unit)
         self._dataset = rasterio.open(filepath)
+        self.refresh_conversion_factor()
 
     @property
     def crs(self):
@@ -150,6 +200,7 @@ class RandomMapSource(MapSource):
         self._random_map_generator = random_map_generator
         self._dataset: rasterio.DatasetReader | None = None
         self.regenerate()
+        super().__init__(source_unit=self._source_unit)
 
     @property
     def crs(self):
@@ -165,10 +216,12 @@ class RandomMapSource(MapSource):
 
     def regenerate(self, rng: np.random.Generator | None = None):
         if self._memfile is not None:
-            self._dataset.close()
+            if self._dataset is not None:
+                self._dataset.close()
             self._memfile.close()
 
-        raw_map = self._random_map_generator(rng=rng)
+        raw_map, source_unit = self._random_map_generator(rng=rng)
+        self._source_unit = source_unit
         h, w = raw_map.shape
 
         self._memfile = MemoryFile()
@@ -182,6 +235,7 @@ class RandomMapSource(MapSource):
             transform=self._transform,
         )
         self._dataset.write(raw_map, 1)
+        self.refresh_conversion_factor()
 
     def close(self):
         if self._dataset is not None:

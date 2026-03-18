@@ -2,7 +2,7 @@ import bluesky
 from bluesky.tools.position import Position
 
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
 
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
@@ -28,6 +28,7 @@ def render_experiment(run_name: str, map_config: MapSourceConfigType | None = No
 
 if __name__ == '__main__':
     run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
-    validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
+    # validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/JRC-CENSUS_2021_100m.tif", source_unit="people_per_pixel")
+    validation_map = RandomMapSourceConfig(type="population_density", source_unit="people_per_km2")
 
     render_experiment(run_name, map_config=validation_map, runway="EHRD/RW24")

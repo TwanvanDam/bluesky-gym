@@ -22,14 +22,14 @@ def generate_random_polygon(shape: tuple[int,int], obstacle_size:int, rng: np.ra
     vertices.sort(key=lambda v: np.arctan2(v[1] - centroid_y, v[0] - centroid_x))
     return shapely.Polygon(vertices)
 
-def generate_random_shapes_map(shape:tuple[int,int]=(512, 512), obstacle_size:int=100, rng: np.random.Generator = None) -> np.ndarray:
+def generate_random_shapes_map(shape:tuple[int,int]=(512, 512), obstacle_size:int=100, multiplier:float=50_000, rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
     rng = rng or np.random.default_rng()
     num_obstacles = rng.integers(2,12)
 
     polygons = [generate_random_polygon(shape, obstacle_size, rng=rng) for _ in range(num_obstacles)]
     map = rasterio.features.rasterize(polygons, out_shape=shape)
-
-    return map
+    map *= multiplier
+    return map, "people_per_pixel"
 
 def generate_cities(shape=(512, 512), num_cities=100, base_occupancy=0.5, rng: np.random.Generator = None):
     rng = rng or np.random.default_rng()
@@ -59,7 +59,7 @@ def generate_cities(shape=(512, 512), num_cities=100, base_occupancy=0.5, rng: n
 
     # 4. Final Normalization
     combined_map = np.maximum(combined_map, 0)
-    return (combined_map - combined_map.min()) / (combined_map.max() - combined_map.min())
+    return combined_map, "people_per_pixel"
 
 def sample_points_from_map(model: gs.CovModel, mean, output_shape: tuple[int,int], rng: np.random.Generator = None):
     srf = gs.SRF(model, mean=mean)
@@ -67,7 +67,7 @@ def sample_points_from_map(model: gs.CovModel, mean, output_shape: tuple[int,int
     return map
 
 
-def generate_population_density(shape: tuple[int,int]=(512,512), rng: np.random.Generator = None) -> np.ndarray:
+def generate_population_density(shape: tuple[int,int]=(512,512), rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
     rng = rng or np.random.default_rng()
     # 1. Fit variogram to real data (or use pre-fitted model)
     mean = 3.354869
@@ -84,7 +84,7 @@ def generate_population_density(shape: tuple[int,int]=(512,512), rng: np.random.
     ocean = sample_points_from_map(ocean_model, mean=0, output_shape=shape, rng=rng)
     synthetic_clipped = np.clip(synthetic, 0, None)
     synthetic_masked = np.where(ocean < np.percentile(ocean, 10), -9999, synthetic_clipped)
-    return synthetic_masked
+    return synthetic_masked, "people_per_km2"
 
 
 

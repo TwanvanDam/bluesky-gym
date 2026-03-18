@@ -55,7 +55,7 @@ class RasterSampler:
             dst_crs=self.destination_crs,
             resampling=getattr(Resampling, self.resampling)
         )
-        return destination
+        return destination * self.map_source.conversion_factor
 
     def get_view_corners(self, center_position: Position, orientation: float,
                                  out_shape: tuple[int, int], out_meters: tuple[float, float]) -> list[
