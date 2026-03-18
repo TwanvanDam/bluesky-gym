@@ -12,7 +12,8 @@ dependencies = [
     "pyproj",
     "shapely",
     "gstools",
-    "pydantic"
+    "pydantic",
+    "tqdm>=4.67.3",
 ]
 
 authors = [

@@ -515,7 +515,7 @@ def compare_models(fitted_model, size: int = 512, seed: int = 42):
 
 if __name__ == "__main__":
     # Example usage
-    file_path = "/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
+    file_path = "scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
     # First, check dataset info
     print("=== Dataset Info ===")

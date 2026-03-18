@@ -19,9 +19,30 @@ def calculate_noise(lat, lon, altitude, sim_dt):
     noise = noise_model.step_total_noise(population_map, altitude, sim_dt)
     return noise
 
+def plot_noise_bar_chart(df: pd.DataFrame):
+    import matplotlib.pyplot as plt
+    noise_by_angle = df.groupby("start_angle")["calculated_noise"].sum()
+    noise_by_angle.plot(kind="bar")
+    plt.title("Total Noise by Start Angle")
+    plt.xlabel("Start Angle (degrees)")
+    plt.ylabel("Total Noise")
+    plt.xticks(rotation=45)
+    plt.show()
+
+def plot_fuel_bar_chart(df: pd.DataFrame):
+    import matplotlib.pyplot as plt
+    fuel_by_angle = df.groupby("start_angle")["calculated_fuel"].sum()
+    fuel_by_angle.plot(kind="bar")
+    plt.title("Total Fuel Consumption by Start Angle")
+    plt.xlabel("Start Angle (degrees)")
+    plt.ylabel("Total Fuel Consumption (kg)")
+    plt.xticks(rotation=45)
+    plt.show()
+
 def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    df["calculated_fuel"] = df.apply(lambda row: calculate_fuel(row["altitude"], row["tas"], row["sim_dt"], row["mass"]), axis=1)
-    df["calculated_noise"] = df.apply(lambda row: calculate_noise(row["lat"], row["lon"], row["altitude"], row["sim_dt"]), axis=1)
+    altitude_key = "altitude" if "altitude" in df.columns else "alt"
+    df["calculated_fuel"] = df.apply(lambda row: calculate_fuel(row[altitude_key], row["tas"], row["sim_dt"], row["mass"]), axis=1)
+    df["calculated_noise"] = df.apply(lambda row: calculate_noise(row["lat"], row["lon"], row[altitude_key], row["sim_dt"]), axis=1)
     return df
 
 if __name__ == '__main__':
@@ -37,10 +58,14 @@ if __name__ == '__main__':
     parser.add_argument("trajectories_csv", type=str, help="Path to CSV file containing trajectory data")
     args = parser.parse_args()
     df = pd.read_csv(args.trajectories_csv)
+    df["start_angle"] = ((df["start_angle"] / 10) .round() * 10) .astype(int)  # Round start angles to nearest integer for grouping
     df = calculate_metrics(df)
 
     for start_angle, group in df.groupby("start_angle"):
         print(f"Start Angle: {start_angle} {group['calculated_fuel'].sum()} kg, {group['sim_dt'].sum()} seconds")
         print(f"Start Angle: {start_angle} {group['calculated_noise'].sum()} noise, {group['sim_dt'].sum()} seconds")
+
+    plot_fuel_bar_chart(df)
+    plot_noise_bar_chart(df)
 
 
