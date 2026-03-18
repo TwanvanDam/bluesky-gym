@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import rasterio
 import rasterio.features
@@ -62,28 +64,30 @@ def generate_cities(shape=(512, 512), num_cities=100, base_occupancy=0.5, rng: n
     return combined_map, "people_per_pixel"
 
 def sample_points_from_map(model: gs.CovModel, mean, output_shape: tuple[int,int], rng: np.random.Generator = None):
-    srf = gs.SRF(model, mean=mean)
+    srf = gs.SRF(model)
     map = srf.structured((np.arange(output_shape[0]), np.arange(output_shape[1])), seed=rng.integers(0, 1e9) if rng else None)
     return map
 
 
-def generate_population_density(shape: tuple[int,int]=(512,512), rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
+def generate_population_density(shape: tuple[int,int]=(128,128), rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
     rng = rng or np.random.default_rng()
-    # 1. Fit variogram to real data (or use pre-fitted model)
-    mean = 3.354869
-    len_scales = [1.71, 28.9, 80.2]
-    variances = [5.09, 0.512, 1.07]
-    model_types = [gs.Exponential, gs.Gaussian, gs.Gaussian]
-    models = (model_type(dim=2, len_scale=len_scale, var=var) for model_type, len_scale, var in zip(model_types, len_scales, variances))
-    model = next(models)
+    mean = 1
+    # Adjust length scales based on output shape to maintain similar spatial patterns across different resolutions
+    len_factor = 512 / shape[0]
+    rescale = 50_000
+    models = [gs.Matern(dim=2, var=0.867,len_scale=1.23e2 / len_factor, nu=21),
+              gs.Stable(dim=2, var=4.97, len_scale=0.988 / len_factor, alpha=0.669),
+              gs.Spherical(dim=2, var=1.3, len_scale=1.12e2 / len_factor)]
+    model = models[0]
     for m in models:
         model += m
     synthetic = np.expm1(sample_points_from_map(model, mean, output_shape=shape, rng=rng))
 
-    ocean_model = gs.Exponential(dim=2, len_scale=300, var=0.5) + gs.Gaussian(dim=2, len_scale=500, var=1)
+    ocean_model = gs.Exponential(dim=2, len_scale=300 / len_factor, var=0.5) + gs.Gaussian(dim=2, len_scale=500 / len_factor, var=1)
     ocean = sample_points_from_map(ocean_model, mean=0, output_shape=shape, rng=rng)
-    synthetic_clipped = np.clip(synthetic, 0, None)
-    synthetic_masked = np.where(ocean < np.percentile(ocean, 10), -9999, synthetic_clipped)
+    synthetic_clipped = np.clip(synthetic, 0, np.percentile(synthetic, 99.9))
+    synthetic_rescaled = synthetic_clipped / np.nanmax(synthetic_clipped) * rescale
+    synthetic_masked = np.where(ocean < np.percentile(ocean, 10), -9999, synthetic_rescaled)
     return synthetic_masked, "people_per_km2"
 
 
@@ -95,9 +99,21 @@ if __name__ == "__main__":
     len_scales = [1.71, 28.9, 80.2]
     variances = [5.09, 0.512, 1.07]
     model_types = [gs.Exponential, gs.Gaussian, gs.Gaussian]
+    def plot_histogram(density: np.ndarray):
+        plt.hist(density[~np.isnan(density)].flatten(), bins=50, log=True)
+        plt.title("Population Density Distribution")
+        plt.xlabel("Population Density")
+        plt.ylabel("Frequency (log scale)")
+        plt.show()
+
+
     while True:
-        pop_map = generate_population_density(shape=(512, 512), mean=mean, len_scales=len_scales, variances=variances, model_types=model_types, rng=rng)
-        im2 = plt.imshow(np.log1p(pop_map), cmap="Blues", origin="upper", norm=colors.Normalize(vmin=0, vmax=np.log1p(9000)))
+        start = time.time()
+        pop_map,_ = generate_population_density()
+        print(time.time() - start)
+        pop_map = np.where(pop_map == -9999, np.nan, pop_map)
+        plot_histogram(pop_map)
+        im2 = plt.imshow(pop_map, cmap="Blues", origin="upper", norm=colors.Normalize(vmin=0, vmax=np.nanpercentile(pop_map, 99)))
         plt.title("Population Density (GRF)")
         plt.colorbar(im2)
         plt.xlabel("x (pixels)")

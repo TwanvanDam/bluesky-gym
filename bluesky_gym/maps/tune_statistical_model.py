@@ -72,26 +72,26 @@ if __name__ == '__main__':
         rmse = np.sqrt((residuals ** 2).mean())
         if rmse < best_rmse:
             best_rmse, best_model = rmse, model
-        print(f"Model: {model_components}, RMSE: {rmse:.4f}")
-    print(f"Fitted parameters: {best_model.parameters}, RMSE: {best_rmse:.4f}")
+        # print(f"Model: {model_components}, RMSE: {rmse:.4f}")
+        # print(f"Fitted parameters: {best_model.models}, RMSE: {best_rmse:.4f}")
 
-    # print("Fitted model:", model)
-    # while True:
-    #     start = time.time()
-    #     mean = np.nanmean(np.log1p(benelux))
-    #     print(mean)
-    #     srf = gs.SRF(model, mean=np.nanmean(np.log1p(benelux)))
-    #     synthetic_log = srf.structured((np.arange(benelux.shape[0]),
-    #                                         np.arange(benelux.shape[1])))
-    #     print(time.time() - start)
-    #     synthetic = np.expm1(synthetic_log)
-    #     np.clip(synthetic, 0, np.percentile(synthetic, 99.9), out=synthetic)
-    #
-    #     ocean_model = gs.Exponential(dim=2, len_scale=300) + gs.Gaussian(dim=2, len_scale=300)
-    #     ocean_srf = gs.SRF(ocean_model)
-    #     ocean = ocean_srf.structured((np.arange(benelux.shape[0]), np.arange(benelux.shape[1])))
-    #
-    #     synthetic_masked = np.where(ocean < np.percentile(ocean, 25), np.nan, synthetic)
-    #
-    #     plot_map(synthetic_masked)
-    #     plot_histogram(synthetic_masked)
+    print("Fitted model:", best_model)
+    while True:
+        start = time.time()
+        mean = np.nanmean(np.log1p(benelux))
+        print(mean)
+        srf = gs.SRF(best_model, mean=np.nanmean(np.log1p(benelux)))
+        synthetic_log = srf.structured((np.arange(benelux.shape[0]),
+                                            np.arange(benelux.shape[1])))
+        print(time.time() - start)
+        synthetic = np.expm1(synthetic_log)
+        np.clip(synthetic, 0, np.percentile(synthetic, 99.9), out=synthetic)
+
+        ocean_model = gs.Exponential(dim=2, len_scale=300) + gs.Gaussian(dim=2, len_scale=300)
+        ocean_srf = gs.SRF(ocean_model)
+        ocean = ocean_srf.structured((np.arange(benelux.shape[0]), np.arange(benelux.shape[1])))
+
+        synthetic_masked = np.where(ocean < np.percentile(ocean, 25), np.nan, synthetic)
+
+        plot_map(synthetic_masked)
+        plot_histogram(synthetic_masked)
