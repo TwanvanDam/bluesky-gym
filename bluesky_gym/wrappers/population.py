@@ -229,7 +229,7 @@ class Population(gym.Wrapper):
 
         if self.config.rendering_normalization == "log":
             return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max)
-        elif self.config.rendering_normalization == "min_max":
+        elif self.config.rendering_normalization in ["min_max", "min-max"]:
             return Normalize(vmin=v_min, vmax=v_max)
         else:  # "none" or default
             return Normalize(vmin=0, vmax=1)
