@@ -19,7 +19,7 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
         env = SinCosNormalization(env)
 
     if experiment_config.navigation_config.normalize_distance_obs:
-        env = DistanceNormalization(env)
+        env = DistanceNormalization(env, normalization_factor=experiment_config.navigation_config.normalize_distance_obs)
 
     env = RescaleAction(env, min_action=-1.0, max_action=1.0)
 
