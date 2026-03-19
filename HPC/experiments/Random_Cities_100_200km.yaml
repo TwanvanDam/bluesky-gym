@@ -110,7 +110,11 @@ population_config:
   observation_range:
   - - 100000
     - 100000
+  - - 200000
+    - 200000
   observation_shape:
+  - - 32
+    - 32
   - - 32
     - 32
   rendering_normalization: log
