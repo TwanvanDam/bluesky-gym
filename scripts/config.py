@@ -1,68 +1,13 @@
+from __future__ import annotations
 from pathlib import Path
-from typing import Optional, List, Tuple, Union, Any, Dict
+from typing import Optional, Union
 
-import numpy as np
 import yaml
 from pydantic import BaseModel, Field, ConfigDict
 
-
-class SamplingConfig(BaseModel):
-    distribution: str  # "fixed", "normal" or "uniform"
-    low: Optional[float] = None
-    high: Optional[float] = None
-    mean: Optional[float] = None
-    std: Optional[float] = None
-    value: Optional[float] = None
-
-    def sample(self, rng: np.random.Generator) -> float:
-        if self.distribution == "fixed":
-            return self.value
-        elif self.distribution == "uniform":
-            return float(rng.uniform(self.low, self.high))
-        elif self.distribution == "normal":
-            return float(rng.normal(self.mean, self.std))
-        raise ValueError(f"Unknown distribution {self.distribution}")
-
-
-class NavigationConfig(BaseModel):
-    ac_name: str = "KL001"
-    ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ m / s ]
-    ac_initial_alt: int = 3_000  # [ m ]
-
-    # All coordinates in degrees (WGS84)
-    lon_min: float = 3.0
-    lon_max: float = 7.5
-    lat_min: float = 50.5
-    lat_max: float = 54.0
-
-    max_steps: int = 250
-    sim_dt: int = 3  # [ s ]
-    action_time: int = 60  # [ s ]
-    faf_distance: float = 25  # [ km ]
-    iaf_angle: float = 60  # [ degrees ]
-    iaf_distance: float = 30  # [ km ]
-
-    # Nested sampling configs with default factories
-    airport_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="fixed", value=52.31))
-    airport_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="fixed", value=4.7))
-    airport_hdg_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="uniform", low=0, high=360))
-    aircraft_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="normal", mean=52.31, std=1))
-    aircraft_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="normal", mean=4.7, std=1))
-
-    pygame_crs: str = "EPSG:3035"
-    use_sin_cos_obs: bool = False
-    normalize_distance_obs: bool = True
-    constraint_violation_reward: float = -1.0
-    successful_approach_reward: float = 50.0
-    mean_episode_length: float = 20 * 60  # [ s ]
-    total_dense_rewards: float = 0.25  # Summed dense reward on average
-
+from bluesky_gym.envs.base_navigation_env import NavigationConfig
+from bluesky_gym.wrappers.population import PopulationConfig
+from scripts.feature_extractors import FeatureExtractorConfig
 
 class TrainingConfig(BaseModel):
     algorithm: str = "SAC"
@@ -71,7 +16,6 @@ class TrainingConfig(BaseModel):
     batch_size: int = 256
     buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
-    validation_episodes: Optional[int] = 10_000
     save_frequency: Optional[int] = 50_000
 
 
@@ -161,7 +105,7 @@ class ExperimentConfig(BaseModel):
             yaml.dump(self.model_dump(), f, default_flow_style=False)
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> "ExperimentConfig":
+    def load(cls, path: Union[str, Path]) -> ExperimentConfig:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         return cls(**data)

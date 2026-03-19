@@ -1,5 +1,8 @@
+import gymnasium as gym
 import numpy as np
-from typing import List
+from typing import TypeVar
+
+T = TypeVar('T')
 
 def bound_angle_positive_negative_180(angle_deg: float) -> float:
     """ maps any angle in degrees to the [-180,180] interval 
@@ -189,4 +192,18 @@ def get_hdg(point1: np.array, point2: np.array) -> float:
     hdg = (hdg + 360) % 360 # Convert back to [0, 360] interval
     
     return hdg
+
+
+def find_env_layer(env: gym.Env, target_class: type[T]) -> T | None:
+    """
+    Recursively search through the environment layers to find an instance of the target class.
+    Use this function only with gymnasium environments that follow the convention of wrapping environments with an 'env' attribute.
+    """
+    while True:
+        if isinstance(env, target_class):
+            return env
+        elif hasattr(env, 'env'):
+            env = env.env
+        else:
+            return None
 

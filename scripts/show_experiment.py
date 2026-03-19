@@ -1,41 +1,34 @@
-import argparse
-from pathlib import Path
-from stable_baselines3 import SAC
-from scripts.config import ExperimentConfig
-from scripts.run_experiment import load_env_from_config
+import bluesky
+from bluesky.tools.position import Position
+
+from bluesky_gym.envs.common.environment_factory import load_env_and_model
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
 
 
-def render_experiment(run_name: str):
-    experiment_config_path = Path("scripts/common/results/configs_backup").joinpath(run_name).with_suffix(".yaml")
-    model_path = Path("scripts/common/results/models_backup").joinpath(run_name).with_suffix(".zip")
-    experiment_config = ExperimentConfig.load(experiment_config_path)
+def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
+    bluesky.init()
+    destination = Position(name=runway, reflat=0, reflon=0)
+    options = {
+        "destination_lat": destination.lat,
+        "destination_lon": destination.lon,
+        "destination_hdg": destination.refhdg
+    }
 
-    env, _ = load_env_from_config(experiment_config=experiment_config, render_mode="human")
-
-    if experiment_config.training_config.algorithm == "SAC":
-        model = SAC.load(model_path, env=env, device='auto')
-    else:
-        raise NotImplementedError
-
+    env, model = load_env_and_model(run_name, render_mode="human", map_config=map_config)
     while True:
-        obs, info = env.reset()
+        obs, info = env.reset(options=options)
         done = False
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
-
-
+        print(f"Fuel: {info['total_episode_fuel_used']:.2f} kg, Reward:{info['total_episode_fuel_reward']:.2f}")
+        print(f"Noise: {info['total_episode_noise']:.2f}, Reward:{info['total_episode_noise_reward']:.2f}")
+        print(f"Episode Length: {info['episode_length_seconds']/60:.2f} minutes")
 
 if __name__ == '__main__':
-    run_name = "BaseNavigationEnv-v0/2026-0~3"
-    parser = argparse.ArgumentParser(description="Show trained RL model(s) from experiment config(s).")
-    parser.add_argument(
-        "name",
-        nargs="?",
-        default=run_name,
-        help=f"Name of a single experiment run. If omitted, {run_name} is used.",
-    )
-    args = parser.parse_args()
+    run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
+    validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
+    # validation_map = RandomMapSourceConfig(type="population_density", source_unit="people_per_km2")
 
-    render_experiment(args.name)
+    render_experiment(run_name, map_config=validation_map, runway="EHRD/RW24")
