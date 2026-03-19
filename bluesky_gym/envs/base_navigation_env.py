@@ -1,28 +1,30 @@
 import itertools
 from enum import Enum
-from typing import Callable
+from typing import Callable, Optional
 
 import bluesky as bs
 import gymnasium as gym
 import numpy as np
 import pygame
 import pyproj
+from bluesky.tools.position import Position
 from gymnasium import spaces
 from matplotlib.path import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.utils.sampling_config import SamplingConfig
-from bluesky.tools.position import Position
+from bluesky_gym.utils.sampling_config import SamplingConfig, UniformSamplingConfig, FixedSamplingConfig, \
+    NormalSamplingConfig
 
 
 class NavigationConfig(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
     ac_name: str = "KL001"
     ac_type: str = "a320"
-    ac_initial_spd: int = 200  # [ m / s ]
-    ac_initial_alt: int = 3_000  # [ m ]
+    ac_initial_spd: float = 200  # [ m / s ]
+    ac_initial_alt: float = 3_000  # [ m ]
 
     # All coordinates in degrees (WGS84)
     lon_min: float = 3.0
@@ -39,23 +41,24 @@ class NavigationConfig(BaseModel):
 
     # Nested sampling configs with default factories
     destination_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="fixed", value=52.31))
+        default_factory=lambda: FixedSamplingConfig(value=52.31))
     destination_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="fixed", value=4.7))
+        default_factory=lambda: FixedSamplingConfig(value=4.7))
     destination_hdg_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="uniform", low=0, high=360))
+        default_factory=lambda: UniformSamplingConfig(low=0, high=360))
     aircraft_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="normal", mean=52.31, std=1))
+        default_factory=lambda: NormalSamplingConfig(mean=52.31, std=1))
     aircraft_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: SamplingConfig(distribution="normal", mean=4.7, std=1))
+        default_factory=lambda: NormalSamplingConfig(mean=4.7, std=1))
 
     pygame_crs: str = "EPSG:3035"
     use_sin_cos_obs: bool = False
-    normalize_distance_obs: bool = True
+    normalize_distance_obs: Optional[float] = None
     constraint_violation_reward: float = -1.0
     successful_approach_reward: float = 50.0
     mean_episode_length: float = 20 * 60  # [ s ]
     total_dense_rewards: float = 0.25  # Summed dense reward on average
+
 
 class TerminationReason(Enum):
     SUCCESS = "success"
@@ -64,16 +67,19 @@ class TerminationReason(Enum):
     MAX_STEPS = "max_steps"
     NONE = "none"
 
+
 def bs_position(lat: float, lon: float, hdg: float | None = None) -> Position:
     pos = Position(name=f"{lat},{lon}", reflat=0, reflon=0)
     if hdg is not None:
         pos.refhdg = hdg
     return pos
 
+
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512), save_trajectory: bool = False,
+    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
+                 save_trajectory: bool = False,
                  config: NavigationConfig = NavigationConfig()) -> None:
         self.total_episode_fuel_reward = None
         self.episode_length_seconds = None
@@ -195,7 +201,6 @@ class BaseNavigationEnv(gym.Env):
         self.total_episode_fuel_reward = 0.0
         self.total_episode_fuel_used = 0.0
         self._telemetry_history = []
-
 
         self.destination = self._generate_airport(self.np_random, options)
         self._set_terminal_condition()
@@ -334,7 +339,7 @@ class BaseNavigationEnv(gym.Env):
         self._reward_components.append(function)
 
     def _get_fuel_flow(self) -> float:
-        ac_tas = self.get_aircraft_tas() # m/s
+        ac_tas = self.get_aircraft_tas()  # m/s
         ac_alt = self.get_aircraft_altitude()  # m
         ac_mass = self.get_aircraft_mass()  # kg
         fuel_flow = self.fuel_flow_model.step_fuel_flow(mass=ac_mass, tas=ac_tas, altitude=ac_alt)
@@ -349,7 +354,8 @@ class BaseNavigationEnv(gym.Env):
         fuel_used = fuel_flow * self.sim_dt
         normalized_fuel_usage = fuel_used / self.mean_fuel_flow
         self.total_episode_fuel_used += fuel_used
-        self.total_episode_fuel_reward += - self.fuel_to_noise_ratio * (normalized_fuel_usage * self.dense_reward_scaling)
+        self.total_episode_fuel_reward += - self.fuel_to_noise_ratio * (
+                    normalized_fuel_usage * self.dense_reward_scaling)
         return - self.fuel_to_noise_ratio * (normalized_fuel_usage * (
             self.dense_reward_scaling)), False, TerminationReason.NONE
 
@@ -371,14 +377,14 @@ class BaseNavigationEnv(gym.Env):
         """Adapted from PathPlanningEnv by Groot et al."""
         num_points = 36
 
-        airport_lat = self.destination.lat
-        airport_lon = self.destination.lon
-        airport_hdg = self.destination.refhdg
+        destination_lat = self.destination.lat
+        destination_lon = self.destination.lon
+        destination_hdg = self.destination.refhdg
 
-        self.faf_lat, self.faf_lon = fn.get_point_at_distance(airport_lat, airport_lon, self.faf_distance,
-                                                              fn.bound_angle_0_360(airport_hdg + 180))
-        cw_bound = fn.bound_angle_0_360(airport_hdg + 180) + (self.iaf_angle / 2)
-        ccw_bound = fn.bound_angle_0_360(airport_hdg + 180) - (self.iaf_angle / 2)
+        self.faf_lat, self.faf_lon = fn.get_point_at_distance(destination_lat, destination_lon, self.faf_distance,
+                                                              fn.bound_angle_0_360(destination_hdg + 180))
+        cw_bound = fn.bound_angle_0_360(destination_hdg + 180) + (self.iaf_angle / 2)
+        ccw_bound = fn.bound_angle_0_360(destination_hdg + 180) - (self.iaf_angle / 2)
 
         angles = np.linspace(cw_bound, ccw_bound, num_points)
         iaf_lat, iaf_lon = fn.get_point_at_distance(self.faf_lat, self.faf_lon, self.iaf_distance, angles)
@@ -449,7 +455,8 @@ class BaseNavigationEnv(gym.Env):
         ac_tas = self.get_aircraft_tas()
         ac_mass = self.get_aircraft_mass()
         sim_dt = self.sim_dt
-        self._telemetry_history.append({"lat": ac_pos.lat, "lon": ac_pos.lon, "tas": ac_tas, "mass": ac_mass, "alt": ac_alt, "sim_dt": sim_dt})
+        self._telemetry_history.append(
+            {"lat": ac_pos.lat, "lon": ac_pos.lon, "tas": ac_tas, "mass": ac_mass, "alt": ac_alt, "sim_dt": sim_dt})
 
     def get_telemetry_history(self) -> list[dict[str, float]]:
         return self._telemetry_history
@@ -540,8 +547,9 @@ class BaseNavigationEnv(gym.Env):
 
         ac_x_position, ac_y_position = self.lat_lon_to_pix(ac_position)
 
-        heading_end_lat, heading_end_lon = fn.get_point_at_distance(ac_position.lat, ac_position.lon, self.aircraft_heading_length, ac_heading)
-        heading_end_x , heading_end_y = self.lat_lon_to_pix(bs_position(lat=heading_end_lat, lon=heading_end_lon))
+        heading_end_lat, heading_end_lon = fn.get_point_at_distance(ac_position.lat, ac_position.lon,
+                                                                    self.aircraft_heading_length, ac_heading)
+        heading_end_x, heading_end_y = self.lat_lon_to_pix(bs_position(lat=heading_end_lat, lon=heading_end_lon))
 
         pygame.draw.circle(canvas, aircraft_color, (int(ac_x_position), int(ac_y_position)), 5)
 

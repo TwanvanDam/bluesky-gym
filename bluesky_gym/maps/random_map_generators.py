@@ -69,19 +69,21 @@ def sample_points_from_map(model: gs.CovModel, mean, output_shape: tuple[int,int
     return map
 
 
-def generate_population_density(shape: tuple[int,int]=(128,128), rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
+def generate_population_density(covariance_models: dict[str, dict], shape: tuple[int,int]=(128,128), rng: np.random.Generator = None) -> tuple[np.ndarray, str]:
+
     rng = rng or np.random.default_rng()
     mean = 1
     # Adjust length scales based on output shape to maintain similar spatial patterns across different resolutions
     len_factor = 512 / shape[0]
     rescale = 50_000
-    models = [gs.Matern(dim=2, var=0.867,len_scale=1.23e2 / len_factor, nu=21),
-              gs.Stable(dim=2, var=4.97, len_scale=0.988 / len_factor, alpha=0.669),
-              gs.Spherical(dim=2, var=1.3, len_scale=1.12e2 / len_factor)]
-    model = models[0]
-    for m in models:
-        model += m
-    synthetic = np.expm1(sample_points_from_map(model, mean, output_shape=shape, rng=rng))
+
+    sum_model = None
+    for cov in covariance_models.values():
+        cov_model = getattr(gs, cov.pop("cov_model"))
+        model = cov_model(dim=2, **cov)
+        sum_model = model if sum_model is None else sum_model + model
+
+    synthetic = np.expm1(sample_points_from_map(sum_model, mean, output_shape=shape, rng=rng))
 
     ocean_model = gs.Exponential(dim=2, len_scale=300 / len_factor, var=0.5) + gs.Gaussian(dim=2, len_scale=500 / len_factor, var=1)
     ocean = sample_points_from_map(ocean_model, mean=0, output_shape=shape, rng=rng)
@@ -95,10 +97,9 @@ def generate_population_density(shape: tuple[int,int]=(128,128), rng: np.random.
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     rng = np.random.default_rng(42)
-    mean = 3.354869
-    len_scales = [1.71, 28.9, 80.2]
-    variances = [5.09, 0.512, 1.07]
-    model_types = [gs.Exponential, gs.Gaussian, gs.Gaussian]
+    covariance_models = {"cov_1" : {"cov_model" : "Matern", 'var':0.867, 'len_scale':1.23e2, 'nu':21},
+                         "cov_2" : {"cov_model" : "Stable", 'var':4.97, 'len_scale':0.988, 'alpha':0.669},
+                         "cov_3" : {"cov_model" : "Spherical", 'var':1.3, 'len_scale':1.12e2}}
     def plot_histogram(density: np.ndarray):
         plt.hist(density[~np.isnan(density)].flatten(), bins=50, log=True)
         plt.title("Population Density Distribution")
@@ -109,7 +110,7 @@ if __name__ == "__main__":
 
     while True:
         start = time.time()
-        pop_map,_ = generate_population_density()
+        pop_map,_ = generate_population_density(covariance_models)
         print(time.time() - start)
         pop_map = np.where(pop_map == -9999, np.nan, pop_map)
         plot_histogram(pop_map)

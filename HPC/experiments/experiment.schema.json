@@ -1,0 +1,731 @@
+{
+  "$defs": {
+    "ConvolutionLayerConfig": {
+      "properties": {
+        "in_channels": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Channels"
+        },
+        "out_channels": {
+          "title": "Out Channels",
+          "type": "integer"
+        },
+        "kernel_size": {
+          "title": "Kernel Size",
+          "type": "integer"
+        },
+        "stride": {
+          "title": "Stride",
+          "type": "integer"
+        },
+        "padding": {
+          "title": "Padding",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "out_channels",
+        "kernel_size",
+        "stride",
+        "padding"
+      ],
+      "title": "ConvolutionLayerConfig",
+      "type": "object"
+    },
+    "FeatureExtractorConfig": {
+      "properties": {
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/LayerBlockConfig"
+          },
+          "title": "Layers",
+          "type": "array"
+        }
+      },
+      "title": "FeatureExtractorConfig",
+      "type": "object"
+    },
+    "FixedSamplingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "fixed",
+          "default": "fixed",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "FixedSamplingConfig",
+      "type": "object"
+    },
+    "LayerBlockConfig": {
+      "properties": {
+        "conv": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConvolutionLayerConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pooling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoolingLayerConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "activation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activation"
+        }
+      },
+      "title": "LayerBlockConfig",
+      "type": "object"
+    },
+    "NavigationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "ac_name": {
+          "default": "KL001",
+          "title": "Ac Name",
+          "type": "string"
+        },
+        "ac_type": {
+          "default": "a320",
+          "title": "Ac Type",
+          "type": "string"
+        },
+        "ac_initial_spd": {
+          "default": 200,
+          "title": "Ac Initial Spd",
+          "type": "number"
+        },
+        "ac_initial_alt": {
+          "default": 3000,
+          "title": "Ac Initial Alt",
+          "type": "number"
+        },
+        "lon_min": {
+          "default": 3.0,
+          "title": "Lon Min",
+          "type": "number"
+        },
+        "lon_max": {
+          "default": 7.5,
+          "title": "Lon Max",
+          "type": "number"
+        },
+        "lat_min": {
+          "default": 50.5,
+          "title": "Lat Min",
+          "type": "number"
+        },
+        "lat_max": {
+          "default": 54.0,
+          "title": "Lat Max",
+          "type": "number"
+        },
+        "max_steps": {
+          "default": 250,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "sim_dt": {
+          "default": 3,
+          "title": "Sim Dt",
+          "type": "integer"
+        },
+        "action_time": {
+          "default": 60,
+          "title": "Action Time",
+          "type": "integer"
+        },
+        "faf_distance": {
+          "default": 25,
+          "title": "Faf Distance",
+          "type": "number"
+        },
+        "iaf_angle": {
+          "default": 60,
+          "title": "Iaf Angle",
+          "type": "number"
+        },
+        "iaf_distance": {
+          "default": 30,
+          "title": "Iaf Distance",
+          "type": "number"
+        },
+        "destination_lat_sampling": {
+          "discriminator": {
+            "mapping": {
+              "fixed": "#/$defs/FixedSamplingConfig",
+              "normal": "#/$defs/NormalSamplingConfig",
+              "uniform": "#/$defs/UniformSamplingConfig"
+            },
+            "propertyName": "distribution"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/FixedSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/UniformSamplingConfig"
+            }
+          ],
+          "title": "Destination Lat Sampling"
+        },
+        "destination_lon_sampling": {
+          "discriminator": {
+            "mapping": {
+              "fixed": "#/$defs/FixedSamplingConfig",
+              "normal": "#/$defs/NormalSamplingConfig",
+              "uniform": "#/$defs/UniformSamplingConfig"
+            },
+            "propertyName": "distribution"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/FixedSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/UniformSamplingConfig"
+            }
+          ],
+          "title": "Destination Lon Sampling"
+        },
+        "destination_hdg_sampling": {
+          "discriminator": {
+            "mapping": {
+              "fixed": "#/$defs/FixedSamplingConfig",
+              "normal": "#/$defs/NormalSamplingConfig",
+              "uniform": "#/$defs/UniformSamplingConfig"
+            },
+            "propertyName": "distribution"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/FixedSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/UniformSamplingConfig"
+            }
+          ],
+          "title": "Destination Hdg Sampling"
+        },
+        "aircraft_lat_sampling": {
+          "discriminator": {
+            "mapping": {
+              "fixed": "#/$defs/FixedSamplingConfig",
+              "normal": "#/$defs/NormalSamplingConfig",
+              "uniform": "#/$defs/UniformSamplingConfig"
+            },
+            "propertyName": "distribution"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/FixedSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/UniformSamplingConfig"
+            }
+          ],
+          "title": "Aircraft Lat Sampling"
+        },
+        "aircraft_lon_sampling": {
+          "discriminator": {
+            "mapping": {
+              "fixed": "#/$defs/FixedSamplingConfig",
+              "normal": "#/$defs/NormalSamplingConfig",
+              "uniform": "#/$defs/UniformSamplingConfig"
+            },
+            "propertyName": "distribution"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NormalSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/FixedSamplingConfig"
+            },
+            {
+              "$ref": "#/$defs/UniformSamplingConfig"
+            }
+          ],
+          "title": "Aircraft Lon Sampling"
+        },
+        "pygame_crs": {
+          "default": "EPSG:3035",
+          "title": "Pygame Crs",
+          "type": "string"
+        },
+        "use_sin_cos_obs": {
+          "default": false,
+          "title": "Use Sin Cos Obs",
+          "type": "boolean"
+        },
+        "normalize_distance_obs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normalize Distance Obs"
+        },
+        "constraint_violation_reward": {
+          "default": -1.0,
+          "title": "Constraint Violation Reward",
+          "type": "number"
+        },
+        "successful_approach_reward": {
+          "default": 50.0,
+          "title": "Successful Approach Reward",
+          "type": "number"
+        },
+        "mean_episode_length": {
+          "default": 1200,
+          "title": "Mean Episode Length",
+          "type": "number"
+        },
+        "total_dense_rewards": {
+          "default": 0.25,
+          "title": "Total Dense Rewards",
+          "type": "number"
+        }
+      },
+      "title": "NavigationConfig",
+      "type": "object"
+    },
+    "NoiseConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "noise_base_dba": {
+          "default": 85,
+          "title": "Noise Base Dba",
+          "type": "number"
+        },
+        "noise_cutoff_dba": {
+          "default": 55,
+          "title": "Noise Cutoff Dba",
+          "type": "number"
+        },
+        "noise_resolution_m": {
+          "default": 1000,
+          "title": "Noise Resolution M",
+          "type": "number"
+        },
+        "w_0": {
+          "default": 1e-12,
+          "title": "W 0",
+          "type": "number"
+        },
+        "reward_scaling_factor": {
+          "default": 2.0,
+          "title": "Reward Scaling Factor",
+          "type": "number"
+        },
+        "base_distance": {
+          "default": 304.8,
+          "title": "Base Distance",
+          "type": "number"
+        }
+      },
+      "title": "NoiseConfig",
+      "type": "object"
+    },
+    "NormalSamplingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "normal",
+          "default": "normal",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "std": {
+          "title": "Std",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mean",
+        "std"
+      ],
+      "title": "NormalSamplingConfig",
+      "type": "object"
+    },
+    "PoolingLayerConfig": {
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "kernel_size": {
+          "title": "Kernel Size",
+          "type": "integer"
+        },
+        "stride": {
+          "title": "Stride",
+          "type": "integer"
+        },
+        "padding": {
+          "title": "Padding",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "kernel_size",
+        "stride",
+        "padding"
+      ],
+      "title": "PoolingLayerConfig",
+      "type": "object"
+    },
+    "PopulationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "noise_model_config": {
+          "$ref": "#/$defs/NoiseConfig"
+        },
+        "map_source_config": {
+          "discriminator": {
+            "mapping": {
+              "cities": "#/$defs/RandomMapSourceConfig",
+              "polygon": "#/$defs/RandomMapSourceConfig",
+              "population_density": "#/$defs/RandomMapSourceConfig",
+              "tiff": "#/$defs/TiffMapSourceConfig"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TiffMapSourceConfig"
+            },
+            {
+              "$ref": "#/$defs/RandomMapSourceConfig"
+            }
+          ],
+          "title": "Map Source Config"
+        },
+        "observation_shape": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Observation Shape",
+          "type": "array"
+        },
+        "observation_range": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Observation Range",
+          "type": "array"
+        },
+        "fuel_to_noise_ratio": {
+          "default": 0.5,
+          "title": "Fuel To Noise Ratio",
+          "type": "number"
+        },
+        "resampling": {
+          "default": "cubic_spline",
+          "title": "Resampling",
+          "type": "string"
+        },
+        "rendering_normalization": {
+          "default": "log",
+          "title": "Rendering Normalization",
+          "type": "string"
+        },
+        "observation_normalization": {
+          "default": "log",
+          "title": "Observation Normalization",
+          "type": "string"
+        }
+      },
+      "required": [
+        "map_source_config"
+      ],
+      "title": "PopulationConfig",
+      "type": "object"
+    },
+    "RandomMapSourceConfig": {
+      "properties": {
+        "type": {
+          "enum": [
+            "cities",
+            "polygon",
+            "population_density"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "map_shape": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Map Shape",
+          "type": "array"
+        },
+        "kwargs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Kwargs"
+        },
+        "source_unit": {
+          "default": "people_per_pixel",
+          "enum": [
+            "people_per_pixel",
+            "people_per_km2"
+          ],
+          "title": "Source Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "map_shape"
+      ],
+      "title": "RandomMapSourceConfig",
+      "type": "object"
+    },
+    "TiffMapSourceConfig": {
+      "properties": {
+        "type": {
+          "const": "tiff",
+          "default": "tiff",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "source_unit": {
+          "default": "people_per_pixel",
+          "enum": [
+            "people_per_pixel",
+            "people_per_km2"
+          ],
+          "title": "Source Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "title": "TiffMapSourceConfig",
+      "type": "object"
+    },
+    "TrainingConfig": {
+      "properties": {
+        "algorithm": {
+          "default": "SAC",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "policy": {
+          "default": "MultiInputPolicy",
+          "title": "Policy",
+          "type": "string"
+        },
+        "learning_rate": {
+          "default": 0.0003,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "batch_size": {
+          "default": 256,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "buffer_size": {
+          "default": 1000000,
+          "title": "Buffer Size",
+          "type": "integer"
+        },
+        "total_timesteps": {
+          "default": 1000000,
+          "title": "Total Timesteps",
+          "type": "integer"
+        },
+        "save_frequency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 50000,
+          "title": "Save Frequency"
+        }
+      },
+      "title": "TrainingConfig",
+      "type": "object"
+    },
+    "UniformSamplingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "uniform",
+          "default": "uniform",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "low": {
+          "title": "Low",
+          "type": "number"
+        },
+        "high": {
+          "title": "High",
+          "type": "number"
+        }
+      },
+      "required": [
+        "low",
+        "high"
+      ],
+      "title": "UniformSamplingConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "navigation_config": {
+      "$ref": "#/$defs/NavigationConfig"
+    },
+    "training_config": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TrainingConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "population_config": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PopulationConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "feature_extractor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FeatureExtractorConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Name"
+    }
+  },
+  "title": "ExperimentConfig",
+  "type": "object"
+}

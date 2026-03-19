@@ -6,7 +6,7 @@ from pydantic import model_validator, ConfigDict, BaseModel
 
 
 class NoiseConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     noise_base_dba: float = 85  # Base noise level
     noise_cutoff_dba: float = 55  # Minimum noise level

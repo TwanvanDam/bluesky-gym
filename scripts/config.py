@@ -43,4 +43,10 @@ class ExperimentConfig(BaseModel):
 
 
 if __name__ == '__main__':
-    print(ExperimentConfig.load(Path("scripts/common/results/configs_backup/PopulationWrapper-v0/TestMapConfig.yaml")))
+    import argparse
+    parser = argparse.ArgumentParser(description="Test loading an experiment config")
+    parser.add_argument("config_path", type=str, help="Path to the experiment config YAML file to load and validate")
+    args = parser.parse_args()
+
+    dummy = ExperimentConfig.load(args.config_path)
+    print(f"Successfully loaded config: {args.config_path}")

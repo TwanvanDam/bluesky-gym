@@ -1,22 +1,36 @@
-from typing import Optional
+from typing import Annotated, Literal
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 
 
-class SamplingConfig(BaseModel):
-    distribution: str  # "fixed", "normal" or "uniform"
-    low: Optional[float] = None
-    high: Optional[float] = None
-    mean: Optional[float] = None
-    std: Optional[float] = None
-    value: Optional[float] = None
+class SamplingConfigBase(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
 
     def sample(self, rng: np.random.Generator) -> float:
-        if self.distribution == "fixed":
-            return self.value
-        elif self.distribution == "uniform":
-            return float(rng.uniform(self.low, self.high))
-        elif self.distribution == "normal":
-            return float(rng.normal(self.mean, self.std))
-        raise ValueError(f"Unknown distribution {self.distribution}")
+        raise NotImplementedError("sample() must be implemented by subclasses of SamplingConfig")
+
+class FixedSamplingConfig(SamplingConfigBase):
+    distribution: Literal["fixed"] = "fixed"
+    value: float
+
+    def sample(self, rng: np.random.Generator) -> float:
+        return self.value
+
+class UniformSamplingConfig(SamplingConfigBase):
+    distribution: Literal["uniform"] = "uniform"
+    low: float
+    high: float
+
+    def sample(self, rng: np.random.Generator) -> float:
+        return float(rng.uniform(self.low, self.high))
+
+class NormalSamplingConfig(SamplingConfigBase):
+    distribution: Literal["normal"] = "normal"
+    mean: float
+    std: float
+
+    def sample(self, rng: np.random.Generator) -> float:
+        return float(rng.normal(self.mean, self.std))
+
+SamplingConfig = Annotated[NormalSamplingConfig | FixedSamplingConfig | UniformSamplingConfig, Field(discriminator="distribution")]
