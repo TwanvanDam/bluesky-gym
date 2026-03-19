@@ -13,12 +13,16 @@ From: pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
         pygame \
         gymnasium[other] \
         stable-baselines3 \
+        "numpy" \
         "bluesky-simulator>=1.0.7" \
         "rasterio" \
         "pyproj" \
-        "tensorboard" \
         "shapely" \
-        "pydantic"
+        "gstools" \
+        "gstools-core" \
+        "pydantic" \
+        "tqdm" \
+        "tensorboard"
 
 %environment
     export PYTHONUNBUFFERED=1
