@@ -87,4 +87,5 @@ class RasterSampler:
         dst_transform = self.get_dst_transform_from_bounds(x_min, y_min, x_max, y_max, width, height)
         map_extract = self._extract_view_from_map(dst_transform, (width, height))
         map_extract = np.where(map_extract < -100, np.nan, map_extract)
+        map_extract = np.clip(map_extract, 0, None)
         return map_extract
