@@ -8,12 +8,13 @@ import gymnasium
 import numpy as np
 import pyproj
 import rasterio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from affine import Affine
 
 class MapSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     def build(self) -> MapSource:
         """Builds a MapSource instance from this config. For configs that require env context, this will raise NotImplementedError."""
         raise NotImplementedError("build() must be implemented by subclasses of MapSourceConfig")
