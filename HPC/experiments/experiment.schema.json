@@ -499,16 +499,35 @@
         },
         "resampling": {
           "default": "cubic_spline",
+          "enum": [
+            "cubic_spline",
+            "average",
+            "sum",
+            "min",
+            "max",
+            "bilinear",
+            "cubic"
+          ],
           "title": "Resampling",
           "type": "string"
         },
         "rendering_normalization": {
           "default": "log",
+          "enum": [
+            "log",
+            "min_max",
+            "min-max"
+          ],
           "title": "Rendering Normalization",
           "type": "string"
         },
         "observation_normalization": {
           "default": "log",
+          "enum": [
+            "log",
+            "min_max",
+            "min-max"
+          ],
           "title": "Observation Normalization",
           "type": "string"
         }
@@ -520,6 +539,7 @@
       "type": "object"
     },
     "RandomMapSourceConfig": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "enum": [
@@ -574,6 +594,7 @@
       "type": "object"
     },
     "TiffMapSourceConfig": {
+      "additionalProperties": false,
       "properties": {
         "type": {
           "const": "tiff",
