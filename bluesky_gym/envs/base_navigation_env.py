@@ -441,8 +441,32 @@ class BaseNavigationEnv(gym.Env):
                            hdg=destination_hdg)
 
     def _generate_initial_position(self, np_random: np.random.Generator, options: dict) -> Position:
-        aircraft_lat = options.get("aircraft_lat", self.config.aircraft_lat_sampling.sample(np_random))
-        aircraft_lon = options.get("aircraft_lon", self.config.aircraft_lon_sampling.sample(np_random))
+        if "aircraft_lat" in options and "aircraft_lon" in options:
+            aircraft_lat = options["aircraft_lat"]
+            aircraft_lon = options["aircraft_lon"]
+            return bs_position(lat=aircraft_lat, lon=aircraft_lon)
+        elif "aircraft_lat" in options or "aircraft_lon" in options:
+            raise ValueError("Both aircraft_lat and aircraft_lon must be provided in options if one is provided.")
+
+        delta_lat = self.lat_max - self.lat_min
+        delta_lon = self.lon_max - self.lon_min
+
+        if isinstance(self.config.aircraft_lat_sampling, NormalSamplingConfig):
+            # For normal distribution, we want to ensure that the sampled position is within bounds.
+            while True:
+                aircraft_lat = self.config.aircraft_lat_sampling.sample(np_random)
+                if self.lat_min + (delta_lat * 0.1) <= aircraft_lat <= self.lat_max - (delta_lat * 0.1):  # Keep initial position away from edges
+                    break
+        else:
+            aircraft_lat = self.config.aircraft_lat_sampling.sample(np_random)
+
+        if isinstance(self.config.aircraft_lon_sampling, NormalSamplingConfig):
+            while True:
+                aircraft_lon = self.config.aircraft_lon_sampling.sample(np_random)
+                if self.lon_min + (delta_lon * 0.1) <= aircraft_lon <= self.lon_max - (delta_lon * 0.1):  # Keep initial position away from edges
+                    break
+        else:
+            aircraft_lon = self.config.aircraft_lon_sampling.sample(np_random)
 
         return bs_position(
             lat=aircraft_lat,
