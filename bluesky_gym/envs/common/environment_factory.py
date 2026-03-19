@@ -12,6 +12,29 @@ from bluesky_gym.wrappers.population import Population
 from bluesky_gym.wrappers.sin_cos_normalizer import SinCosNormalization
 from scripts.config import ExperimentConfig
 
+
+RESULTS_ROOT = Path("scripts/common/results")
+CONFIGS_BACKUP_ROOT = RESULTS_ROOT / "configs_backup"
+MODELS_BACKUP_ROOT = RESULTS_ROOT / "models_backup"
+
+
+def normalize_run_name(run_name: str) -> str:
+    """Normalize a run reference to the canonical '<env>/<timestamp>' format."""
+    input_path = Path(run_name).expanduser()
+    stripped_path = input_path.with_suffix("")
+
+    # Accept absolute/relative paths under backup roots.
+    for root in (CONFIGS_BACKUP_ROOT, MODELS_BACKUP_ROOT):
+        absolute_root = root.resolve()
+        for candidate in (stripped_path, (Path.cwd() / stripped_path)):
+            try:
+                return candidate.resolve().relative_to(absolute_root).as_posix()
+            except ValueError:
+                continue
+
+    # If no known prefix is present, assume canonical run id was provided.
+    return stripped_path.as_posix().lstrip("./")
+
 def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
     env = BaseNavigationEnv(config=experiment_config.navigation_config, render_mode=render_mode)
 
@@ -34,8 +57,9 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
     return env, env_name
 
 def load_env_and_model(run_name: str, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
-    experiment_config_path = Path("scripts/common/results/configs_backup").joinpath(run_name).with_suffix(".yaml")
-    model_path = Path("scripts/common/results/models_backup").joinpath(run_name).with_suffix(".zip")
+    normalized_run_name = normalize_run_name(run_name)
+    experiment_config_path = CONFIGS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".yaml")
+    model_path = MODELS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".zip")
     experiment_config = ExperimentConfig.load(experiment_config_path)
 
     # Override map source config if provided

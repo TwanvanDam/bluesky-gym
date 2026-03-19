@@ -1,8 +1,8 @@
 import bluesky
 from bluesky.tools.position import Position
 
-from bluesky_gym.envs.common.environment_factory import load_env_and_model
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
+from bluesky_gym.envs.common.environment_factory import load_env_and_model, normalize_run_name
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
@@ -27,8 +27,19 @@ def render_experiment(run_name: str, map_config: MapSourceConfigType | None = No
         print(f"Episode Length: {info['episode_length_seconds']/60:.2f} minutes")
 
 if __name__ == '__main__':
-    run_name = "PopulationWrapper-v0/2026-03-07_10_55_19"
-    validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
-    # validation_map = RandomMapSourceConfig(type="population_density", source_unit="people_per_km2")
+    import argparse
+    parser = argparse.ArgumentParser(description="Render a trained experiment by run name, with optional map override.")
+    parser.add_argument("run_name", type=str, help="Name of the run to render (e.g. 'PopulationWrapper-v0/2026-03-07_10_55_19.yaml'). Must match the config in results_backup.")
+    parser.add_argument("--runway", type=str, default="EHAM/RW18R", help="Runway to set as destination for rendering (default: EHAM/RW18R)")
+    parser.add_argument("--use_real_map", action="store_true",default=True, help="Whether to use the real population map for this example (overrides any map in the original config)")
+    args = parser.parse_args()
 
-    render_experiment(run_name, map_config=validation_map, runway="EHRD/RW24")
+    run_name = normalize_run_name(args.run_name)
+    
+    print(f"Rendering run: {run_name} with runway: {args.runway} and use_real_map: {args.use_real_map}")
+    if args.use_real_map:
+        validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
+    else:
+        validation_map = None
+
+    render_experiment(run_name, map_config=validation_map, runway=args.runway)
