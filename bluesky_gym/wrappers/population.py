@@ -59,11 +59,8 @@ class Population(gym.Wrapper):
         self.render_normalizer: Normalize | None = None
 
         assert isinstance(self.env.observation_space, spaces.Dict)
-        if len(self.observation_shape) > 1:
-            maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in
-                    enumerate(self.observation_shape)}
-        else:
-            maps = {"population_map": spaces.Box(low=0, high=np.inf, shape=self.observation_shape[0], dtype=np.float64)}
+        maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in
+                enumerate(self.observation_shape)}
 
         self.observation_space = spaces.Dict({
             **self.env.observation_space.spaces,
@@ -131,7 +128,7 @@ class Population(gym.Wrapper):
     def _update_population_observation(self) -> None:
         ac_pos = self.base_env.get_aircraft_position()
         ac_hdg = self.base_env.get_aircraft_heading()
-        observations = {f"population_map":
+        observations = {f"population_map_{i}":
             self.raster_sampler.get_observation_clipped(center_position=ac_pos, orientation=ac_hdg, out_shape=obs_shape,
                                                         out_meters=obs_range) for
             i, (obs_shape, obs_range) in enumerate(zip(self.observation_shape, self.observation_range))}
