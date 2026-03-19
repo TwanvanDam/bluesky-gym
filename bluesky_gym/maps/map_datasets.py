@@ -35,6 +35,7 @@ class TiffMapSourceConfig(MapSourceConfig):
 
 class RandomMapSourceConfig(MapSourceConfig):
     type: Literal["cities", "polygon", "population_density"]
+    map_shape: tuple[int, int]
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
     source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
 
@@ -74,17 +75,17 @@ class RandomMapSourceConfig(MapSourceConfig):
         if self.type == "cities":
             generator = generate_cities
             if self.kwargs:
-                generator = functools.partial(generate_cities, **self.kwargs)
+                generator = functools.partial(generate_cities, shape=self.map_shape, **self.kwargs)
             return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         elif self.type == "polygon":
             generator = generate_random_shapes_map
             if self.kwargs:
-                generator = functools.partial(generate_random_shapes_map, **self.kwargs)
+                generator = functools.partial(generate_random_shapes_map, shape=self.map_shape, **self.kwargs)
             return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         elif self.type == "population_density":
             generator = generate_population_density
             if self.kwargs:
-                generator = functools.partial(generate_population_density, **self.kwargs)
+                generator = functools.partial(generate_population_density, covariance_models=self.kwargs, shape=self.map_shape)
             return self.from_env_bounds(env, generator, source_unit=self.source_unit)
         raise ValueError(f"Unsupported random map source type: {self.type}")
 

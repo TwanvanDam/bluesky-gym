@@ -8,7 +8,7 @@ import pygame
 from affine import Affine
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, RandomMapSourceConfig
@@ -17,8 +17,9 @@ from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
 
 class PopulationConfig(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     noise_model_config: NoiseConfig = Field(default_factory=NoiseConfig)
-    map_source_config: MapSourceConfigType = Field(default_factory=lambda: RandomMapSourceConfig(type="cities"))
+    map_source_config: MapSourceConfigType
     observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
     observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
     fuel_to_noise_ratio: float = 0.5
@@ -28,7 +29,7 @@ class PopulationConfig(BaseModel):
 
 
 class Population(gym.Wrapper):
-    def __init__(self, env: gym.Env, config: PopulationConfig = PopulationConfig(), color_map: str = "Blues"):
+    def __init__(self, env: gym.Env, config: PopulationConfig, color_map: str = "Blues"):
         super().__init__(env)
         self.total_episode_noise_reward = None
         self.total_episode_noise = None
