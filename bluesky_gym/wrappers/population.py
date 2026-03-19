@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, List, Tuple
+from typing import Callable, List, Tuple, Literal
 
 import gymnasium as gym
 import matplotlib
@@ -11,7 +11,7 @@ from matplotlib.colors import Normalize, FuncNorm
 from pydantic import BaseModel, Field, ConfigDict
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, RandomMapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfigType
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
@@ -23,9 +23,9 @@ class PopulationConfig(BaseModel):
     observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
     observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
     fuel_to_noise_ratio: float = 0.5
-    resampling: str = "cubic_spline"
-    rendering_normalization: str = "log"  # "log" or "min-max"
-    observation_normalization: str = "log"
+    resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "cubic_spline"
+    rendering_normalization: Literal["log", "min_max", "min-max"] = "log"
+    observation_normalization: Literal["log", "min_max", "min-max"] = "log"
 
 
 class Population(gym.Wrapper):
