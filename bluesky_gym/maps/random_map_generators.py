@@ -79,6 +79,7 @@ def generate_population_density(covariance_models: dict[str, dict], shape: tuple
 
     sum_model = None
     for cov in covariance_models.values():
+        cov = cov.copy()  # Avoid mutating the original config
         cov_model = getattr(gs, cov.pop("cov_model"))
         model = cov_model(dim=2, **cov)
         sum_model = model if sum_model is None else sum_model + model
