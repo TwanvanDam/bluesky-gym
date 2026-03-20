@@ -31,7 +31,7 @@ class MapObservationNormalizer(gym.ObservationWrapper):
                 match self.mode:
                     case "log":
                         observation_copy[key] = np.clip(np.log1p(value) / np.log1p(self.env.map_source_max), 0, 1)
-                    case "min-max":
+                    case "min-max" | "min_max":
                         observation_copy[key] = np.clip(value / self.env.map_source_max, 0, 1)
                     case _:
                         msg = f"Normalization mode {self.mode} is not supported."
