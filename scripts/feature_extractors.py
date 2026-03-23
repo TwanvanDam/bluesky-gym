@@ -53,7 +53,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self.build_cnn(len(self.map_keys))
 
         map_shape = observation_space.spaces[self.map_keys[0]].shape
-        if not all(obs_space.shape == map_shape for obs_space in observation_space.spaces.values()):
+        if not all(observation_space.spaces[map_key].shape == map_shape for map_key in self.map_keys):
             raise NotImplementedError("Maps with varying sizes are not supported currently.")
 
         with torch.no_grad():
@@ -62,6 +62,13 @@ class CombinedExtractor(BaseFeaturesExtractor):
             cnn_flatten_dim = cnn_out.view(cnn_out.size(0), -1).shape[1]
 
         self._features_dim = cnn_flatten_dim + sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
+
+    def get_cnn_info(self):
+        print("CNN Architecture:")
+        print(self.cnn)
+        print(f"Total output features: {self._features_dim}")
+        print(f"Map keys: {self.map_keys}")
+        print(f"Vector keys: {self.vector_keys}")
 
     def build_cnn(self, number_of_maps: int) -> None:
         cnn_layers = []
@@ -121,3 +128,24 @@ class CombinedExtractor(BaseFeaturesExtractor):
             encoded.append(torch.flatten(vector, start_dim=1))
 
         return torch.cat(encoded, dim=1)
+
+if __name__ == '__main__':
+    import numpy as np
+    import argparse
+    from scripts.config import ExperimentConfig
+
+    parser = argparse.ArgumentParser(description="Test loading an experiment config with feature extractor")
+    parser.add_argument("config_path", type=str, help="Path to the experiment config YAML file to load and validate")
+    args = parser.parse_args()
+
+    config = ExperimentConfig.load(args.config_path)
+    assert config.feature_extractor is not None, "Feature extractor config should not be None"
+    print(f"Successfully loaded feature extractor config: {config.feature_extractor}")
+    extractor = CombinedExtractor(observation_space=gym.spaces.Dict({
+        "map_1": gym.spaces.Box(low=0.0, high=1.0, shape=(32, 32), dtype=np.float32),
+        "vector_1": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
+        "vector_2": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
+        "vector_3": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
+        "vector_4": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+    }), config=config.feature_extractor)
+    extractor.get_cnn_info()

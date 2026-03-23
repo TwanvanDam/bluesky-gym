@@ -22,10 +22,10 @@ class TrainingConfig(BaseModel):
 class ExperimentConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    navigation_config: NavigationConfig = Field(default_factory=NavigationConfig)
+    navigation_config: NavigationConfig
+    feature_extractor: FeatureExtractorConfig
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
-    feature_extractor: Optional[FeatureExtractorConfig] = None
     run_name: Optional[str] = None
 
     def save(self, path: Union[str, Path]) -> None:
