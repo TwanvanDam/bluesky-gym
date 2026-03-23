@@ -2,15 +2,15 @@
 #SBATCH --job-name=bluesky-rl-training
 #SBATCH --partition=general
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
 #SBATCH --time=04:00:00
-#SBATCH --output=HPC/logs/slurm-%j.out
-#SBATCH --error=HPC/logs/slurm-%j.err
+#SBATCH --output=HPC/logs/out/slurm-%j.out
+#SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
 # Slurm batch script for training on the DAIC (TU Delft).
-# Uses the Apptainer/Singularity container built from container.def.
+# Uses the Apptainer/Singularity container built from container.def into rl_env.sif.
 #
 # Usage:
 #   sbatch HPC/run_training.sbatch HPC/experiments/Test.yaml  # runs a single experiment
