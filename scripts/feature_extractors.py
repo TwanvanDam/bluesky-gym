@@ -1,34 +1,47 @@
-from typing import Optional, List
+from typing import Optional, List, Literal, Union, Annotated, Any
 
 import gymnasium as gym
 import torch
-from pydantic import BaseModel, Field
+from gymnasium.spaces import Dict
+from pydantic import BaseModel, Field, ConfigDict
 from torch import nn
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
+class LayerBaseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
 class ConvolutionLayerConfig(BaseModel):
+    type: Literal["conv"] = "conv"
     in_channels: Optional[int] = None
     out_channels: int
     kernel_size: int
     stride: int
     padding: int
 
-
-class PoolingLayerConfig(BaseModel):
-    type: str  # "max", "avg"
+class PoolingLayerConfig(LayerBaseConfig):
+    type: Literal["pooling"] = "pooling"
+    mode: Literal["max", "avg"]
     kernel_size: int
-    stride: int
-    padding: int
+    stride: int = 1
+    padding: int = 0
 
+class GlobalPoolingLayerConfig(LayerBaseConfig):
+    type: Literal["global_pooling"] = "global_pooling"
+    mode: Literal["max", "avg"]
 
-class LayerBlockConfig(BaseModel):
-    conv: Optional[ConvolutionLayerConfig] = None
-    pooling: Optional[PoolingLayerConfig] = None
-    activation: Optional[str] = None  # "ReLU", "Tanh", "Sigmoid"
+class LinearLayerConfig(LayerBaseConfig):
+    type: Literal["linear"] = "linear"
+    in_features: Optional[int] = None
+    out_features: int
 
+class ActivationLayerConfig(LayerBaseConfig):
+    type: Literal["ReLU", "Tanh", "Sigmoid"]
+
+LayerConfig = Annotated[Union[ConvolutionLayerConfig, GlobalPoolingLayerConfig, LinearLayerConfig,  PoolingLayerConfig, ActivationLayerConfig], Field(discriminator="type")]
 
 class FeatureExtractorConfig(BaseModel):
-    layers: List[LayerBlockConfig] = Field(default_factory=list)
+    cnn_layers: List[LayerConfig]
+    vector_layer_sizes: List[LinearLayerConfig]
 
 class CombinedExtractor(BaseFeaturesExtractor):
     """Expected observation_spaces:
@@ -43,6 +56,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self.vector_keys = []
 
         self.cnn: None | nn.Module = None
+        self.vector_network: None | nn.Module = None
+        self._features_dim = 0
 
         for key, subspace in observation_space.spaces.items():
             if len(subspace.shape) == 2:
@@ -50,8 +65,13 @@ class CombinedExtractor(BaseFeaturesExtractor):
             else:
                 self.vector_keys.append(key)
 
-        self.build_cnn(len(self.map_keys))
+        self.build_cnn()
+        self.build_vector_network(observation_space)
 
+        self._features_dim += self.get_cnn_output_dim(observation_space)
+        self._features_dim += self.get_vector_output_dim()
+
+    def get_cnn_output_dim(self, observation_space: Dict) -> int:
         map_shape = observation_space.spaces[self.map_keys[0]].shape
         if not all(observation_space.spaces[map_key].shape == map_shape for map_key in self.map_keys):
             raise NotImplementedError("Maps with varying sizes are not supported currently.")
@@ -60,51 +80,74 @@ class CombinedExtractor(BaseFeaturesExtractor):
             dummy_input = torch.zeros(1, len(self.map_keys), *map_shape)
             cnn_out = self.cnn(dummy_input)
             cnn_flatten_dim = cnn_out.view(cnn_out.size(0), -1).shape[1]
+        return cnn_flatten_dim
 
-        self._features_dim = cnn_flatten_dim + sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
+    def get_vector_output_dim(self) -> int:
+        if not self.vector_keys:
+            return 0
 
-    def get_cnn_info(self):
-        print("CNN Architecture:")
-        print(self.cnn)
-        print(f"Total output features: {self._features_dim}")
-        print(f"Map keys: {self.map_keys}")
-        print(f"Vector keys: {self.vector_keys}")
+        last_layer = self.config.vector_layer_sizes[-1]
+        return last_layer.out_features
 
-    def build_cnn(self, number_of_maps: int) -> None:
+    def build_vector_network(self, observation_space: Dict = None) -> None:
+        vector_layers = []
+        input_vector_dim = sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
+        for layer_config in self.config.vector_layer_sizes:
+            if not layer_config.in_features:
+                vector_layers.append(nn.Linear(in_features=input_vector_dim,  out_features=layer_config.out_features))
+            else:
+                vector_layers.append(nn.Linear(in_features=layer_config.in_features, out_features=layer_config.out_features))
+            vector_layers.append(nn.ReLU())
+
+        self.vector_network = nn.Sequential(*vector_layers)
+
+    def build_cnn(self) -> None:
         cnn_layers = []
-        self.config.layers[0].conv.in_channels = number_of_maps
+        number_of_maps = len(self.map_keys)
+        self.config.cnn_layers[0].in_channels = number_of_maps
 
-        for layer in self.config.layers:
-            if layer.conv:
-                cnn_layers.append(nn.Conv2d(in_channels=layer.conv.in_channels,
-                                            out_channels=layer.conv.out_channels,
-                                            kernel_size=layer.conv.kernel_size,
-                                            stride=layer.conv.stride,
-                                            padding=layer.conv.padding))
-            if layer.pooling:
-                match layer.pooling.type:
-                    case "max":
-                        pool = nn.MaxPool2d
-                    case "avg":
-                        pool = nn.AvgPool2d
-                    case _:
-                        msg = f"{layer.pooling.type} is not supported, please try 'max' or 'avg'"
-                        raise ValueError(msg)
-                cnn_layers.append(pool(kernel_size=layer.pooling.kernel_size,
-                                       stride=layer.pooling.stride,
-                                       padding=layer.pooling.padding))
+        for layer in self.config.cnn_layers:
+            match layer.type:
+                case "conv":
+                    cnn_layers.append(nn.Conv2d(in_channels=layer.in_channels,
+                                                out_channels=layer.out_channels,
+                                                kernel_size=layer.kernel_size,
+                                                stride=layer.stride,
+                                                padding=layer.padding))
+                case "pooling":
+                    match layer.mode:
+                        case "max":
+                            pool = nn.MaxPool2d
+                        case "avg":
+                            pool = nn.AvgPool2d
+                        case _:
+                            msg = f"{layer.mode} is not supported, please try 'max' or 'avg'"
+                            raise ValueError(msg)
+                    cnn_layers.append(pool(kernel_size=layer.kernel_size,
+                                           stride=layer.stride,
+                                           padding=layer.padding))
+                case "global_pooling":
+                    match layer.mode:
+                        case "max":
+                            pool = nn.AdaptiveMaxPool2d
+                        case "avg":
+                            pool = nn.AdaptiveAvgPool2d
+                        case _:
+                            msg = f"{layer.mode} is not supported, please try 'max' or 'avg'"
+                            raise ValueError(msg)
+                    cnn_layers.append(pool(1))
+                case "linear":
+                    cnn_layers.append(nn.Flatten())
+                    if not layer.in_features:
+                        cnn_layers.append(nn.LazyLinear(out_features=layer.out_features))
+                    else:
+                        cnn_layers.append(nn.Linear(in_features=layer.in_features, out_features=layer.out_features))
+                case "ReLU" | "Tanh" | "Sigmoid":
+                    cnn_layers.append(getattr(nn, layer.type)())
+                case _:
+                    msg = f"{_} is not supported"
+                    raise ValueError(msg)
 
-            if layer.activation:
-                match layer.activation:
-                    case "ReLU":
-                        cnn_layers.append(nn.ReLU())
-                    case "Tanh" :
-                        cnn_layers.append(nn.Tanh())
-                    case "Sigmoid":
-                        cnn_layers.append(nn.Sigmoid())
-                    case _:
-                        msg = f"{layer.activation} is not supported, please try 'ReLU', 'Tanh' or 'Sigmoid'"
-                        raise ValueError(msg)
         self.cnn = nn.Sequential(*cnn_layers)
 
     def forward(self, observations: dict) -> torch.Tensor:
@@ -121,12 +164,17 @@ class CombinedExtractor(BaseFeaturesExtractor):
             cnn_output = self.cnn(map_tensors)
             encoded.append(torch.flatten(cnn_output, start_dim=1))
 
-        for key in self.vector_keys:
-            vector = observations[key]
-            if vector.dim() == 1:
-                vector = vector.unsqueeze(0)
-            encoded.append(torch.flatten(vector, start_dim=1))
-
+        vector_tensors = [observations[key] for key in self.vector_keys]
+        if vector_tensors[0].dim() == 1:
+            vector_tensors = [tensor.unsqueeze(0) for tensor in vector_tensors]
+        elif vector_tensors[0].dim() == 2:
+            vector_tensors = [tensor if tensor.dim() == 2 else tensor.unsqueeze(0) for tensor in vector_tensors]
+        concatenated_vector = torch.cat(vector_tensors, dim=1)
+        if self.vector_network:
+            vector_output = self.vector_network(concatenated_vector)
+        else:
+            vector_output = concatenated_vector
+        encoded.append(vector_output)
         return torch.cat(encoded, dim=1)
 
 if __name__ == '__main__':
@@ -139,13 +187,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     config = ExperimentConfig.load(args.config_path)
-    assert config.feature_extractor is not None, "Feature extractor config should not be None"
-    print(f"Successfully loaded feature extractor config: {config.feature_extractor}")
+    assert config.agent_config.feature_extractor is not None, "Feature extractor config should not be None"
+    print(f"Successfully loaded feature extractor config: {config.agent_config.feature_extractor}")
     extractor = CombinedExtractor(observation_space=gym.spaces.Dict({
         "map_1": gym.spaces.Box(low=0.0, high=1.0, shape=(32, 32), dtype=np.float32),
         "vector_1": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
         "vector_2": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
         "vector_3": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
         "vector_4": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
-    }), config=config.feature_extractor)
+    }), config=config.agent_config.feature_extractor)
     extractor.get_cnn_info()

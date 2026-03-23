@@ -1,7 +1,32 @@
 {
   "$defs": {
+    "ActivationLayerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "ReLU",
+            "Tanh",
+            "Sigmoid"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ActivationLayerConfig",
+      "type": "object"
+    },
     "ConvolutionLayerConfig": {
       "properties": {
+        "type": {
+          "const": "conv",
+          "default": "conv",
+          "title": "Type",
+          "type": "string"
+        },
         "in_channels": {
           "anyOf": [
             {
@@ -42,14 +67,53 @@
     },
     "FeatureExtractorConfig": {
       "properties": {
-        "layers": {
+        "cnn_layers": {
           "items": {
-            "$ref": "#/$defs/LayerBlockConfig"
+            "discriminator": {
+              "mapping": {
+                "ReLU": "#/$defs/ActivationLayerConfig",
+                "Sigmoid": "#/$defs/ActivationLayerConfig",
+                "Tanh": "#/$defs/ActivationLayerConfig",
+                "conv": "#/$defs/ConvolutionLayerConfig",
+                "global_pooling": "#/$defs/GlobalPoolingLayerConfig",
+                "linear": "#/$defs/LinearLayerConfig",
+                "pooling": "#/$defs/PoolingLayerConfig"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ConvolutionLayerConfig"
+              },
+              {
+                "$ref": "#/$defs/GlobalPoolingLayerConfig"
+              },
+              {
+                "$ref": "#/$defs/LinearLayerConfig"
+              },
+              {
+                "$ref": "#/$defs/PoolingLayerConfig"
+              },
+              {
+                "$ref": "#/$defs/ActivationLayerConfig"
+              }
+            ]
           },
-          "title": "Layers",
+          "title": "Cnn Layers",
+          "type": "array"
+        },
+        "vector_layer_sizes": {
+          "items": {
+            "$ref": "#/$defs/LinearLayerConfig"
+          },
+          "title": "Vector Layer Sizes",
           "type": "array"
         }
       },
+      "required": [
+        "cnn_layers",
+        "vector_layer_sizes"
+      ],
       "title": "FeatureExtractorConfig",
       "type": "object"
     },
@@ -73,44 +137,60 @@
       "title": "FixedSamplingConfig",
       "type": "object"
     },
-    "LayerBlockConfig": {
+    "GlobalPoolingLayerConfig": {
+      "additionalProperties": false,
       "properties": {
-        "conv": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConvolutionLayerConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "type": {
+          "const": "global_pooling",
+          "default": "global_pooling",
+          "title": "Type",
+          "type": "string"
         },
-        "pooling": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PoolingLayerConfig"
-            },
-            {
-              "type": "null"
-            }
+        "mode": {
+          "enum": [
+            "max",
+            "avg"
           ],
-          "default": null
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "GlobalPoolingLayerConfig",
+      "type": "object"
+    },
+    "LinearLayerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "linear",
+          "default": "linear",
+          "title": "Type",
+          "type": "string"
         },
-        "activation": {
+        "in_features": {
           "anyOf": [
             {
-              "type": "string"
+              "type": "integer"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Activation"
+          "title": "In Features"
+        },
+        "out_features": {
+          "title": "Out Features",
+          "type": "integer"
         }
       },
-      "title": "LayerBlockConfig",
+      "required": [
+        "out_features"
+      ],
+      "title": "LinearLayerConfig",
       "type": "object"
     },
     "NavigationConfig": {
@@ -405,9 +485,20 @@
       "type": "object"
     },
     "PoolingLayerConfig": {
+      "additionalProperties": false,
       "properties": {
         "type": {
+          "const": "pooling",
+          "default": "pooling",
           "title": "Type",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "max",
+            "avg"
+          ],
+          "title": "Mode",
           "type": "string"
         },
         "kernel_size": {
@@ -415,19 +506,19 @@
           "type": "integer"
         },
         "stride": {
+          "default": 1,
           "title": "Stride",
           "type": "integer"
         },
         "padding": {
+          "default": 0,
           "title": "Padding",
           "type": "integer"
         }
       },
       "required": [
-        "type",
-        "kernel_size",
-        "stride",
-        "padding"
+        "mode",
+        "kernel_size"
       ],
       "title": "PoolingLayerConfig",
       "type": "object"
@@ -593,6 +684,58 @@
       "title": "RandomMapSourceConfig",
       "type": "object"
     },
+    "SB3ModelConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "SB3",
+          "default": "SB3",
+          "title": "Type",
+          "type": "string"
+        },
+        "algorithm": {
+          "const": "SAC",
+          "default": "SAC",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "policy": {
+          "default": "MultiInputPolicy",
+          "enum": [
+            "MultiInputPolicy",
+            "MlpPolicy",
+            "CnnPolicy"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "feature_extractor": {
+          "$ref": "#/$defs/FeatureExtractorConfig"
+        },
+        "network_arch": {
+          "additionalProperties": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "enum": [
+              "pi",
+              "qf"
+            ]
+          },
+          "title": "Network Arch",
+          "type": "object"
+        }
+      },
+      "required": [
+        "feature_extractor",
+        "network_arch"
+      ],
+      "title": "SB3ModelConfig",
+      "type": "object"
+    },
     "TiffMapSourceConfig": {
       "additionalProperties": false,
       "properties": {
@@ -623,17 +766,8 @@
       "type": "object"
     },
     "TrainingConfig": {
+      "additionalProperties": false,
       "properties": {
-        "algorithm": {
-          "default": "SAC",
-          "title": "Algorithm",
-          "type": "string"
-        },
-        "policy": {
-          "default": "MultiInputPolicy",
-          "title": "Policy",
-          "type": "string"
-        },
         "learning_rate": {
           "default": 0.0003,
           "title": "Learning Rate",
@@ -701,6 +835,9 @@
     "navigation_config": {
       "$ref": "#/$defs/NavigationConfig"
     },
+    "agent_config": {
+      "$ref": "#/$defs/SB3ModelConfig"
+    },
     "training_config": {
       "anyOf": [
         {
@@ -723,17 +860,6 @@
       ],
       "default": null
     },
-    "feature_extractor": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/FeatureExtractorConfig"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
     "run_name": {
       "anyOf": [
         {
@@ -747,6 +873,10 @@
       "title": "Run Name"
     }
   },
+  "required": [
+    "navigation_config",
+    "agent_config"
+  ],
   "title": "ExperimentConfig",
   "type": "object"
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ConfigDict
@@ -10,20 +10,30 @@ from bluesky_gym.wrappers.population import PopulationConfig
 from scripts.feature_extractors import FeatureExtractorConfig
 
 class TrainingConfig(BaseModel):
-    algorithm: str = "SAC"
-    policy: str = "MultiInputPolicy"
+    model_config = ConfigDict(extra='forbid')
+
     learning_rate: float = 3e-4
     batch_size: int = 256
     buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
     save_frequency: Optional[int] = 50_000
 
+class AgentConfig(BaseModel):
+    """Base class for agent configuration. Specific algorithms will extend this with their own parameters."""
+    model_config = ConfigDict(extra="forbid")
+
+class SB3ModelConfig(AgentConfig):
+    type: Literal["SB3"] = "SB3"
+    algorithm: Literal["SAC"] = "SAC"
+    policy: Literal["MultiInputPolicy", "MlpPolicy", "CnnPolicy"] = "MultiInputPolicy"
+    feature_extractor: FeatureExtractorConfig
+    network_arch: dict[Literal["pi", "qf"], list[int]]
 
 class ExperimentConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     navigation_config: NavigationConfig
-    feature_extractor: FeatureExtractorConfig
+    agent_config: SB3ModelConfig
     training_config: Optional[TrainingConfig] = None
     population_config: Optional[PopulationConfig] = None
     run_name: Optional[str] = None

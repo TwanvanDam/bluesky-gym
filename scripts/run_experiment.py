@@ -10,6 +10,33 @@ from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
 
+def initialize_agent(experiment_config: ExperimentConfig, env) -> SAC:
+    agent_config = experiment_config.agent_config
+    if not agent_config.feature_extractor:
+        raise ValueError("Feature extractor config must be provided in the experiment config.")
+
+    policy_kwargs = {
+        "features_extractor_class": CombinedExtractor,
+        "features_extractor_kwargs": {"config": agent_config.feature_extractor},
+        "net_arch" : agent_config.network_arch
+    }
+
+    if agent_config.algorithm == "SAC":
+        model = SAC(
+            agent_config.policy,
+            env,
+            verbose=1,
+            tensorboard_log=None,
+            device="cuda" if torch.cuda.is_available() else "auto",
+            policy_kwargs=policy_kwargs
+        )
+    else:
+        raise NotImplementedError(f"Algorithm {experiment_config.agent_config.algorithm.algorithm} is not implemented.")
+
+    print(f"Algorithm: {agent_config.algorithm}")
+    print(f"Policy: {agent_config.policy}")
+    print(f"Network Architecture: {model.policy}")
+    return model
 
 def train_model(experiment_config_path: Path):
     experiment_config = ExperimentConfig.load(experiment_config_path)
@@ -30,45 +57,22 @@ def train_model(experiment_config_path: Path):
     checkpoints_dir = base_results_dir / "checkpoints" / env_name / experiment_config.run_name
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Model
-    if not experiment_config.feature_extractor:
-        raise ValueError("Feature extractor config must be provided in the experiment config.")
-    policy_kwargs = {
-        "features_extractor_class": CombinedExtractor,
-        "features_extractor_kwargs": {"config": experiment_config.feature_extractor}
-    }
+    model = initialize_agent(experiment_config, env)
 
-    if training_config.algorithm == "SAC":
-        model = SAC(
-            training_config.policy,
-            env,
-            verbose=1,
-            tensorboard_log=log_dir,
-            device="cuda" if torch.cuda.is_available() else "auto",
-            policy_kwargs=policy_kwargs
-        )
-    else:
-        raise NotImplementedError
-
-    print(f"Model summary:")
     print(f"Environment: {env_name}")
-    print(f"Algorithm: {training_config.algorithm}")
-    print(f"Policy: {training_config.policy}")
-    dummy_feature_extractor = policy_kwargs['features_extractor_class'](env.observation_space, **policy_kwargs['features_extractor_kwargs'])
-    print(f"Feature Extractor: {dummy_feature_extractor.get_cnn_info()}")
     print(f"Training timesteps: {training_config.total_timesteps}")
 
-    # model.learn(
-    #     total_timesteps=training_config.total_timesteps,
-    #     callback=TensorboardCallback(
-    #         experiment_config=experiment_config,
-    #         validation_env=env,
-    #         save_frequency=experiment_config.training_config.save_frequency,
-    #         save_dir=str(checkpoints_dir),
-    #     ),
-    #     tb_log_name=experiment_config.run_name,
-    # )
-    # model.save(run_dir)
+    model.learn(
+        total_timesteps=training_config.total_timesteps,
+        callback=TensorboardCallback(
+            experiment_config=experiment_config,
+            validation_env=env,
+            save_frequency=experiment_config.training_config.save_frequency,
+            save_dir=str(checkpoints_dir),
+        ),
+        tb_log_name=experiment_config.run_name,
+    )
+    model.save(run_dir)
 
 
 if __name__ == '__main__':
