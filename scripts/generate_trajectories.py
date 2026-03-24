@@ -14,6 +14,7 @@ from bluesky_gym.envs.common import functions
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
 from bluesky_gym.maps.map_datasets import TiffMapSourceConfig
+from bluesky.tools.aero import nm
 
 
 def remove_maps_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
@@ -70,15 +71,14 @@ if __name__ == '__main__':
         'runway' : "EHAM/RW18R",
         'map_path' : "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff",
         'map_in_observation' : True,
-        'start_distance' : 100,
+        'start_distance' : 150 * nm / 1000,
     }
-
-    trajectory_folder = Path("scripts/results/trajectories").joinpath(trajectory_details["run_name"])
+    trajectory_folder = Path("scripts/common/results/trajectories").joinpath(trajectory_details["run_name"])
     trajectory_folder.mkdir(parents=True, exist_ok=True)
     with open(trajectory_folder.joinpath("details.pkl"), "wb") as f:
         pickle.dump(trajectory_details, f)
 
     validation_map = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
     env, model = load_env_and_model(trajectory_details["run_name"], render_mode=None, map_config=validation_map)
-    trajectories = simulate_trajectories(env, model, angle_interval=45, distance=trajectory_details["start_distance"], seed=42, map_in_observation=trajectory_details["map_in_observation"], runway=trajectory_details["runway"])
+    trajectories = simulate_trajectories(env, model, angle_interval=10, distance=trajectory_details["start_distance"], seed=42, map_in_observation=trajectory_details["map_in_observation"], runway=trajectory_details["runway"])
     trajectories.to_csv(trajectory_folder.joinpath("trajectories.csv"), index=False)
