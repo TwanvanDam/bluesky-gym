@@ -10,7 +10,7 @@ from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
 
-def initialize_agent(experiment_config: ExperimentConfig, env) -> SAC:
+def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | str) -> SAC:
     agent_config = experiment_config.agent_config
     if not agent_config.feature_extractor:
         raise ValueError("Feature extractor config must be provided in the experiment config.")
@@ -26,7 +26,7 @@ def initialize_agent(experiment_config: ExperimentConfig, env) -> SAC:
             agent_config.policy,
             env,
             verbose=1,
-            tensorboard_log=None,
+            tensorboard_log=log_dir,
             device="cuda" if torch.cuda.is_available() else "auto",
             policy_kwargs=policy_kwargs
         )
@@ -57,7 +57,7 @@ def train_model(experiment_config_path: Path):
     checkpoints_dir = base_results_dir / "checkpoints" / env_name / experiment_config.run_name
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    model = initialize_agent(experiment_config, env)
+    model = initialize_agent(experiment_config, env, log_dir)
 
     print(f"Environment: {env_name}")
     print(f"Training timesteps: {training_config.total_timesteps}")
