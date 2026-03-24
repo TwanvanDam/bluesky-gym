@@ -103,16 +103,23 @@
           "type": "array"
         },
         "vector_layer_sizes": {
-          "items": {
-            "$ref": "#/$defs/LinearLayerConfig"
-          },
-          "title": "Vector Layer Sizes",
-          "type": "array"
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LinearLayerConfig"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vector Layer Sizes"
         }
       },
       "required": [
-        "cnn_layers",
-        "vector_layer_sizes"
+        "cnn_layers"
       ],
       "title": "FeatureExtractorConfig",
       "type": "object"

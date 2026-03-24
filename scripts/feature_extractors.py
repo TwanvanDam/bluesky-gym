@@ -41,7 +41,7 @@ LayerConfig = Annotated[Union[ConvolutionLayerConfig, GlobalPoolingLayerConfig, 
 
 class FeatureExtractorConfig(BaseModel):
     cnn_layers: List[LayerConfig]
-    vector_layer_sizes: List[LinearLayerConfig]
+    vector_layer_sizes: Optional[List[LinearLayerConfig]] = None
 
 class CombinedExtractor(BaseFeaturesExtractor):
     """Expected observation_spaces:
@@ -69,7 +69,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self.build_vector_network(observation_space)
 
         self._features_dim += self.get_cnn_output_dim(observation_space)
-        self._features_dim += self.get_vector_output_dim()
+        self._features_dim += self.get_vector_output_dim(observation_space)
 
     def get_cnn_output_dim(self, observation_space: Dict) -> int:
         map_shape = observation_space.spaces[self.map_keys[0]].shape
@@ -82,14 +82,17 @@ class CombinedExtractor(BaseFeaturesExtractor):
             cnn_flatten_dim = cnn_out.view(cnn_out.size(0), -1).shape[1]
         return cnn_flatten_dim
 
-    def get_vector_output_dim(self) -> int:
+    def get_vector_output_dim(self, observation_space: Dict) -> int:
         if not self.vector_keys:
             return 0
-
+        if not self.config.vector_layer_sizes:
+            return sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
         last_layer = self.config.vector_layer_sizes[-1]
         return last_layer.out_features
 
     def build_vector_network(self, observation_space: Dict = None) -> None:
+        if not self.config.vector_layer_sizes:
+            return
         vector_layers = []
         input_vector_dim = sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
         for layer_config in self.config.vector_layer_sizes:
