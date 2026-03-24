@@ -1,8 +1,7 @@
 from __future__ import annotations
-import functools
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Callable, Optional, Dict, Any, Literal, Annotated
+from typing import Optional, Dict, Any, Literal, Annotated
 
 import gymnasium
 import numpy as np
@@ -12,6 +11,9 @@ from pydantic import BaseModel, Field, ConfigDict
 from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from affine import Affine
+
+from bluesky_gym.maps.random_map_generators import GeneratorBase
+
 
 class MapSourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -36,59 +38,46 @@ class TiffMapSourceConfig(MapSourceConfig):
 
 class RandomMapSourceConfig(MapSourceConfig):
     type: Literal["cities", "polygon", "population_density"]
-    map_shape: tuple[int, int]
+    resolution_m: float = 1000
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
     source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
 
-    @staticmethod
-    def from_env_bounds(
-        env: gymnasium.Env,
-        random_map_generator: Callable,
-        source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel",
-    ):
-        """Derive Affine transform + CRS from the env's geographic bounds.
+    def get_map_details_from_env_bounds(self, env: gymnasium.Env) -> tuple[Affine, tuple[int, int], tuple[float, float]]:
+        """Derive Affine transform and map shape from the env's geographic bounds.
 
-        Uses env.pygame_crs as the target CRS (same space that rendering
-        and observations live in), and computes the transform so the
+        Computes the transform so the
         random raster covers exactly env.(lon_min,lat_min)→(lon_max,lat_max).
-        If no array size is provided, the env.window_size is used.
         """
         assert hasattr(env, "x_min") and hasattr(env, "y_min") and hasattr(env, "x_max") and hasattr(env, "y_max"), \
             "Environment must have x_min, y_min, x_max, y_max attributes to use RandomMapSourceConfig.from_env_bounds"
 
-        assert hasattr(env, "pygame_crs") , "Environment must have pygame_crs attribute."
-        map_crs = env.pygame_crs
-
         x_min, y_min = env.x_min, env.y_min
         x_max, y_max = env.x_max, env.y_max
 
-        rows, cols = random_map_generator()[0].shape
+        rows, cols = int((y_max - y_min) / self.resolution_m),int((x_max - x_min) / self.resolution_m)
         transform = from_bounds(x_min, y_min, x_max, y_max, cols, rows)
 
-        return RandomMapSource(
-            map_crs=map_crs,  # synthetic data lives in pygame_crs
-            map_transform=transform,
-            random_map_generator=random_map_generator,
-        )
+        return transform, (rows, cols), (x_max - x_min, y_max - y_min)
+
 
     def build_for_env(self, env) -> RandomMapSource:
-        from bluesky_gym.maps.random_map_generators import generate_cities, generate_random_shapes_map, generate_population_density
-        if self.type == "cities":
-            generator = generate_cities
-            if self.kwargs:
-                generator = functools.partial(generate_cities, shape=self.map_shape, **self.kwargs)
-            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
-        elif self.type == "polygon":
-            generator = generate_random_shapes_map
-            if self.kwargs:
-                generator = functools.partial(generate_random_shapes_map, shape=self.map_shape, **self.kwargs)
-            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
-        elif self.type == "population_density":
-            generator = generate_population_density
-            if self.kwargs:
-                generator = functools.partial(generate_population_density, covariance_models=self.kwargs, shape=self.map_shape)
-            return self.from_env_bounds(env, generator, source_unit=self.source_unit)
-        raise ValueError(f"Unsupported random map source type: {self.type}")
+        from bluesky_gym.maps.random_map_generators import PolygonGenerator, CitiesGenerator, PopulationDensityGenerator
+
+        assert hasattr(env, "pygame_crs") , "Environment must have pygame_crs attribute."
+        map_crs = env.pygame_crs
+        map_transform, map_shape, map_range = self.get_map_details_from_env_bounds(env)
+
+        match self.type:
+            case "cities":
+                generator = CitiesGenerator
+            case "polygon":
+                generator = PolygonGenerator
+            case "population_density":
+                generator = PopulationDensityGenerator
+            case _:
+                raise ValueError(f"Unsupported random map source type: {self.type}")
+        random_map_generator = generator(map_shape=map_shape, map_range=map_range, **self.kwargs)
+        return RandomMapSource(map_crs=map_crs, map_transform=map_transform, random_map_generator=random_map_generator)
 
     def build(self) -> RandomMapSource:
         raise NotImplementedError("RandomMapSourceConfig requires env context to build")
@@ -195,7 +184,7 @@ class TiffMapSource(MapSource):
 class RandomMapSource(MapSource):
     """Generates a random synthetic population map, re-randomized on each reset."""
 
-    def __init__(self, map_crs: str, map_transform: Affine, random_map_generator: Callable):
+    def __init__(self, map_crs: str, map_transform: Affine, random_map_generator: GeneratorBase):
         self._crs = map_crs
         self._transform = map_transform
         self._memfile: MemoryFile | None = None
@@ -222,7 +211,7 @@ class RandomMapSource(MapSource):
                 self._dataset.close()
             self._memfile.close()
 
-        raw_map, source_unit = self._random_map_generator(rng=rng)
+        raw_map, source_unit = self._random_map_generator.regenerate(rng=rng)
         self._source_unit = source_unit
         h, w = raw_map.shape
 
