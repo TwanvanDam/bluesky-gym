@@ -68,7 +68,7 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
 
     env, _ = load_env_from_config(experiment_config=experiment_config, render_mode=render_mode)
 
-    if experiment_config.training_config.algorithm == "SAC":
+    if experiment_config.agent_config.algorithm == "SAC":
         model = SAC.load(model_path, env=env, device='auto')
     else:
         raise NotImplementedError
