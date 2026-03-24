@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Render a trained experiment by run name, with optional map override.")
     parser.add_argument("run_name", type=str, help="Name of the run to render (e.g. 'PopulationWrapper-v0/2026-03-07_10_55_19.yaml'). Must match the config in results_backup.")
     parser.add_argument("--runway", type=str, default="EHAM/RW18R", help="Runway to set as destination for rendering (default: EHAM/RW18R)")
-    parser.add_argument("--use_real_map", action="store_true",default=True, help="Whether to use the real population map for this example (overrides any map in the original config)")
+    parser.add_argument("--use_real_map", action="store_true",default=False, help="Whether to use the real population map for this example (overrides any map in the original config)")
     args = parser.parse_args()
 
     run_name = normalize_run_name(args.run_name)
