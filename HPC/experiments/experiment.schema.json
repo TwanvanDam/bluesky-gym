@@ -648,19 +648,10 @@
           "title": "Type",
           "type": "string"
         },
-        "map_shape": {
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "integer"
-            }
-          ],
-          "title": "Map Shape",
-          "type": "array"
+        "resolution_m": {
+          "default": 1000,
+          "title": "Resolution M",
+          "type": "number"
         },
         "kwargs": {
           "anyOf": [
@@ -685,8 +676,7 @@
         }
       },
       "required": [
-        "type",
-        "map_shape"
+        "type"
       ],
       "title": "RandomMapSourceConfig",
       "type": "object"
