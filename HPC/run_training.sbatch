@@ -1,12 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-training
 #SBATCH --partition=general
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 #SBATCH --time=04:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --qos=medium
 
 # ── Description ──────────────────────────────────────────────
 # Slurm batch script for training on the DAIC (TU Delft).
@@ -41,7 +43,7 @@ fi
 # Pass an experiment config path as argument
 
 echo "Running single experiment: $1"
-apptainer exec --nv \
+srun apptainer exec --nv \
     --bind "${PROJECT_DIR}:/workspace" \
     --pwd /workspace \
     "$CONTAINER" \
