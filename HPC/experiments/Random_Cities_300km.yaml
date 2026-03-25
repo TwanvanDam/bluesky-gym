@@ -36,13 +36,13 @@ navigation_config:
   pygame_crs: EPSG:3035
   sim_dt: 5
   successful_approach_reward: 5.0
-  total_dense_rewards: 0.25
+  total_dense_rewards: 0.5
   use_sin_cos_obs: true
 population_config:
-  fuel_to_noise_ratio: 0.5
+  fuel_weight: 0.125
   map_source_config:
     type: population_density
-    resolution_m: 2000
+    resolution_m: 4000
     source_unit: people_per_pixel
     kwargs:
       covariance_models:
@@ -65,17 +65,16 @@ population_config:
     noise_cutoff_dba: 55.0
     noise_resolution_m: 1000
     w_0: 1.0E-12
-    reward_scaling_factor: 5.0
     base_distance: 304.8
-  observation_normalization: min_max
+  observation_normalization: log
   observation_range:
-  - - 200000
-    - 200000
+  - - 300000
+    - 300000
   observation_shape:
   - - 32
     - 32
   rendering_normalization: min_max
-  resampling: bilinear
+  resampling: cubic_spline
 run_name: null
 agent_config:
   policy: MultiInputPolicy
@@ -110,14 +109,14 @@ agent_config:
       - type: conv
         in_channels: 32
         kernel_size: 3
-        out_channels: 64
+        out_channels: 128
         padding: 1
         stride: 1
       - type: ReLU
       - type: conv
-        in_channels: 64
+        in_channels: 128
         kernel_size: 3
-        out_channels: 64
+        out_channels: 128
         padding: 1
         stride: 1
       - type: ReLU
@@ -126,9 +125,9 @@ agent_config:
         kernel_size: 2
         stride: 2
       - type: conv
-        in_channels: 64
+        in_channels: 128
         kernel_size: 3
-        out_channels: 64
+        out_channels: 128
         padding: 1
         stride: 1
       - type: ReLU
