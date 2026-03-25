@@ -10,6 +10,29 @@ from scripts.common.logger import TensorboardCallback
 from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
 
+
+def _run_name_exists(env_name: str, run_name: str) -> bool:
+    return any(
+        [
+            (base_results_dir / "configs_backup" / env_name / f"{run_name}.yaml").exists(),
+            (models_dir / env_name / f"{run_name}.zip").exists(),
+            (base_results_dir / "checkpoints" / env_name / run_name).exists(),
+        ]
+    )
+
+
+def _generate_unique_run_name(experiment_config_path: Path, env_name: str) -> str:
+    # Include config stem and microseconds to keep names readable and unique in batch runs.
+    base_name = f"{experiment_config_path.stem}_{datetime.datetime.now().strftime('%Y-%m-%d_%H_%M_%S_%f')}"
+    run_name = base_name
+    suffix = 1
+
+    while _run_name_exists(env_name, run_name):
+        run_name = f"{base_name}_{suffix:02d}"
+        suffix += 1
+
+    return run_name
+
 def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | str) -> SAC:
     agent_config = experiment_config.agent_config
     if not agent_config.feature_extractor:
@@ -40,9 +63,9 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
 
 def train_model(experiment_config_path: Path):
     experiment_config = ExperimentConfig.load(experiment_config_path)
-    experiment_config.run_name = str(datetime.datetime.now().strftime('%Y-%m-%d_%H_%M_%S'))
 
     env, env_name = load_env_from_config(experiment_config=experiment_config)
+    experiment_config.run_name = _generate_unique_run_name(experiment_config_path, env_name)
 
     training_config = experiment_config.training_config
     log_dir = logs_dir.joinpath(env_name)
