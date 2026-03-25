@@ -135,7 +135,7 @@ class BaseNavigationEnv(gym.Env):
 
         self.action_space = spaces.Box(low=-180, high=180, shape=(1,), dtype=np.float64)
 
-        self.fuel_to_noise_ratio = 1
+        self.fuel_weight = 1
 
         self._reward_components: list[Callable] = [
             self._fuel_reward,
@@ -351,13 +351,13 @@ class BaseNavigationEnv(gym.Env):
 
     def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
         fuel_flow = self._get_fuel_flow()
-        fuel_used = fuel_flow * self.sim_dt
-        normalized_fuel_usage = fuel_used / self.mean_fuel_flow
-        self.total_episode_fuel_used += fuel_used
-        self.total_episode_fuel_reward += - self.fuel_to_noise_ratio * (
-                    normalized_fuel_usage * self.dense_reward_scaling)
-        return - self.fuel_to_noise_ratio * (normalized_fuel_usage * (
-            self.dense_reward_scaling)), False, TerminationReason.NONE
+        step_fuel_used = fuel_flow * self.sim_dt
+        normalized_fuel_usage = step_fuel_used / self.mean_fuel_flow
+
+        self.total_episode_fuel_used += step_fuel_used
+        step_fuel_reward = - self.fuel_weight * (normalized_fuel_usage * self.dense_reward_scaling)
+        self.total_episode_fuel_reward += step_fuel_reward
+        return step_fuel_reward, False, TerminationReason.NONE
 
     def _boundary_reward(self) -> tuple[float, bool, TerminationReason]:
         if self._check_out_of_bounds():

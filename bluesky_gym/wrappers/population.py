@@ -22,7 +22,10 @@ class PopulationConfig(BaseModel):
     map_source_config: MapSourceConfigType
     observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
     observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
-    fuel_to_noise_ratio: float = 0.5
+
+    # Fuel weight determines how much the noise penalty should factor into the overall reward, with 1.0 meaning only fuel consumption matters and 0.0 meaning only noise matters.
+    # This allows for easy tuning of the reward function to find the right balance between fuel efficiency and noise reduction.
+    fuel_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "cubic_spline"
     rendering_normalization: Literal["log", "min_max", "min-max"] = "log"
     observation_normalization: Literal["log", "min_max", "min-max"] = "log"
@@ -67,7 +70,7 @@ class Population(gym.Wrapper):
             **maps
         })
 
-        self.base_env.fuel_to_noise_ratio = config.fuel_to_noise_ratio
+        self.base_env.fuel_weight = config.fuel_weight
         self.base_env.add_reward_component(self._get_noise_reward)
 
     @property
@@ -173,7 +176,7 @@ class Population(gym.Wrapper):
                                                                        mean_reference_noise=self.mean_reference_noise,
                                                                        sim_dt=sim_dt)
         noise_penalty = - (
-                    1 - self.base_env.fuel_to_noise_ratio) * step_normalized_noise * self.base_env.dense_reward_scaling
+                    1 - self.base_env.fuel_weight) * step_normalized_noise * self.base_env.dense_reward_scaling
 
         self.total_episode_noise += step_normalized_noise
         self.total_episode_noise_reward += noise_penalty
