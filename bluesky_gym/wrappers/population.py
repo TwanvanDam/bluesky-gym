@@ -45,7 +45,7 @@ class Population(gym.Wrapper):
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
                                             destination_crs=self.base_env.pygame_crs)
         self.map_source_max: float = np.nan
-        self.mean_step_noise: float = np.nan
+        self.mean_reference_noise: float = np.nan
 
         self.window = None
         self.observation_shape = config.observation_shape
@@ -90,9 +90,10 @@ class Population(gym.Wrapper):
         # Reset noise tracking variables
         self.total_episode_noise = 0.0
         self.total_episode_noise_reward = 0.0
-        self.mean_step_noise = self.noise_model.calculate_mean_step_noise(population_map=self.background_map,
-                                                                          altitude=self.base_env.get_aircraft_altitude(),
-                                                                          sim_dt=self.base_env.sim_dt)
+        self.mean_reference_noise = self.noise_model.calculate_mean_reference_noise(
+            population_map=self.background_map,
+            altitude=self.base_env.get_aircraft_altitude(),
+        )
 
         if self.render_mode is not None:
             self.background_max = np.nanmax(self.background_map)
@@ -169,7 +170,7 @@ class Population(gym.Wrapper):
 
         step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
                                                                        altitude=ac_alt,
-                                                                       mean_step_noise=self.mean_step_noise,
+                                                                       mean_reference_noise=self.mean_reference_noise,
                                                                        sim_dt=sim_dt)
         noise_penalty = - (
                     1 - self.base_env.fuel_to_noise_ratio) * step_normalized_noise * self.base_env.dense_reward_scaling

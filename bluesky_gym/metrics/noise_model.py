@@ -12,7 +12,6 @@ class NoiseConfig(BaseModel):
     noise_cutoff_dba: float = 55  # Minimum noise level
     noise_resolution_m: float = 1000  # Noise resolution in meters
     w_0: float = 1e-12  # Reference sound power in watts (0 dBA corresponds to 1e-12 W)
-    reward_scaling_factor: float = 2.0  # Scaling factor for noise reward
     base_distance: float = 1000 * ft_to_m # Reference distance in meters for noise calculation
 
     @model_validator(mode="after")
@@ -65,23 +64,32 @@ class NoiseModel:
         noise_power = np.clip(noise_power, self.cutoff_noise_power, None)
         return noise_power
 
-    def calculate_mean_step_noise(self, population_map: np.ndarray, altitude: float, sim_dt: float) -> float:
+    def calculate_mean_reference_noise(self, population_map: np.ndarray, altitude: float) -> float:
+        """Calculate the mean reference noise power across the entire population map at a given altitude."""
+        population_map = np.where(np.isnan(population_map), 0, population_map)  # Treat NaNs as zero population
         population_map = np.clip(population_map, 0, None)  # Ensure no negative population values
-        mean_population_density = float(np.nanmean(population_map))
-        mean_step_noise_power = self.step_total_noise(mean_population_density, altitude, sim_dt)
-        return mean_step_noise_power
+
+        mean_population_density = float(np.mean(population_map))
+        noise_power_kernel = self.get_noise_power_kernel(altitude)
+
+        mean_noise_power = float(np.sum(mean_population_density * noise_power_kernel))
+        return mean_noise_power
 
     def step_total_noise(self, population_map_extract: np.ndarray | float, altitude: float, sim_dt: float) -> float:
+        """Calculate the total noise power for a given population map extract and altitude, scaled by the simulation time step."""
         noise_power_kernel = self.get_noise_power_kernel(altitude)
         assert isinstance(population_map_extract, float) or population_map_extract.shape == noise_power_kernel.shape, f"Population map extract {population_map_extract.shape} and noise kernel {noise_power_kernel.shape} must have the same shape"
         total_noise_power = np.sum(population_map_extract * noise_power_kernel)
         return total_noise_power * sim_dt
 
-    def step_normalized_noise(self, population_map_extract: np.ndarray, altitude: float, mean_step_noise: float, sim_dt: float) -> float:
+    def step_normalized_noise(self, population_map_extract: np.ndarray, altitude: float, mean_reference_noise: float, sim_dt: float) -> float:
+        """
+        Calculate the normalized noise for a given population map extract and altitude,
+        scaled by the simulation time step and normalized by the mean reference noise.
+        """
         step_total_noise = self.step_total_noise(population_map_extract, altitude, sim_dt)
 
-        # Multiply by 2 to have the right magnitude compared to fuel consumption.
-        normalized_noise = self.config.reward_scaling_factor * step_total_noise / mean_step_noise if mean_step_noise > 0 else 0
+        normalized_noise = step_total_noise / mean_reference_noise if mean_reference_noise > 0 else 0
         return normalized_noise
 
 

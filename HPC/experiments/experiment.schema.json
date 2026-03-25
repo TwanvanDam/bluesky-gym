@@ -452,11 +452,6 @@
           "title": "W 0",
           "type": "number"
         },
-        "reward_scaling_factor": {
-          "default": 2.0,
-          "title": "Reward Scaling Factor",
-          "type": "number"
-        },
         "base_distance": {
           "default": 304.8,
           "title": "Base Distance",
