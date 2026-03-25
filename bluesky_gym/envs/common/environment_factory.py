@@ -60,6 +60,8 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
     normalized_run_name = normalize_run_name(run_name)
     experiment_config_path = CONFIGS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".yaml")
     model_path = MODELS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".zip")
+    model_checkpoint_path = RESULTS_ROOT.joinpath("checkpoints", normalized_run_name)
+
     experiment_config = ExperimentConfig.load(experiment_config_path)
 
     # Override map source config if provided
@@ -69,7 +71,19 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
     env, _ = load_env_from_config(experiment_config=experiment_config, render_mode=render_mode)
 
     if experiment_config.agent_config.algorithm == "SAC":
-        model = SAC.load(model_path, env=env, device='auto')
+        try:
+            model = SAC.load(model_path, env=env, device='auto')
+        except FileNotFoundError:
+            # If the exact model file isn't found, try loading the latest checkpoint
+            if model_checkpoint_path.exists():
+                checkpoint_files = sorted(model_checkpoint_path.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if checkpoint_files:
+                    print(f"Exact model file not found. Loading latest checkpoint: {checkpoint_files[0]}")
+                    model = SAC.load(checkpoint_files[0], env=env, device='auto')
+                else:
+                    raise FileNotFoundError(f"No checkpoints found in {model_checkpoint_path} for run {normalized_run_name}")
+            else:
+                raise FileNotFoundError(f"Model file not found at {model_path} and no checkpoints directory at {model_checkpoint_path} for run {normalized_run_name}")
     else:
         raise NotImplementedError
 
