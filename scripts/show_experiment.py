@@ -1,8 +1,9 @@
 import bluesky
+import numpy as np
 from bluesky.tools.position import Position
 
 from bluesky_gym.envs.common.environment_factory import load_env_and_model, normalize_run_name
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
+from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
 
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
@@ -35,10 +36,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     run_name = normalize_run_name(args.run_name)
-    
+    use_zero_map = True
     print(f"Rendering run: {run_name} with runway: {args.runway} and use_real_map: {args.use_real_map}")
     if args.use_real_map:
         validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
+    elif use_zero_map:
+        validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
     else:
         validation_map = None
 

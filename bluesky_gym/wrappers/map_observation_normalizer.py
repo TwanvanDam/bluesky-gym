@@ -27,13 +27,14 @@ class MapObservationNormalizer(gym.ObservationWrapper):
         observation_copy = observation.copy()
         for key in list(observation_copy.keys()):
             if "map" in key:
-                value = observation_copy.pop(key)
-                match self.mode:
-                    case "log":
-                        observation_copy[key] = np.clip(np.log1p(value) / np.log1p(self.env.map_source_max), 0, 1)
-                    case "min-max" | "min_max":
-                        observation_copy[key] = np.clip(value / self.env.map_source_max, 0, 1)
-                    case _:
-                        msg = f"Normalization mode {self.mode} is not supported."
-                        raise NotImplementedError(msg)
+                value = observation_copy[key]
+                if not np.min(value) == np.max(value):  # Avoid normalizing if all values are the same (e.g., all zeros)
+                    match self.mode:
+                        case "log":
+                            observation_copy[key] = np.clip(np.log1p(value) / np.log1p(self.env.map_source_max), 0, 1)
+                        case "min-max" | "min_max":
+                            observation_copy[key] = np.clip(value / self.env.map_source_max, 0, 1)
+                        case _:
+                            msg = f"Normalization mode {self.mode} is not supported."
+                            raise NotImplementedError(msg)
         return observation_copy

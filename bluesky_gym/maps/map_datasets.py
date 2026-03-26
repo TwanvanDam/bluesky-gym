@@ -12,7 +12,7 @@ from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from affine import Affine
 
-from bluesky_gym.maps.random_map_generators import GeneratorBase
+from bluesky_gym.maps.random_map_generators import GeneratorBase, ZeroPopulationGenerator
 
 
 class MapSourceConfig(BaseModel):
@@ -37,7 +37,7 @@ class TiffMapSourceConfig(MapSourceConfig):
         return self.build()
 
 class RandomMapSourceConfig(MapSourceConfig):
-    type: Literal["cities", "polygon", "population_density"]
+    type: Literal["cities", "polygon", "population_density", "zero"]
     resolution_m: float = 1000
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
     source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
@@ -74,6 +74,8 @@ class RandomMapSourceConfig(MapSourceConfig):
                 generator = PolygonGenerator
             case "population_density":
                 generator = PopulationDensityGenerator
+            case "zero":
+                generator = ZeroPopulationGenerator
             case _:
                 raise ValueError(f"Unsupported random map source type: {self.type}")
         random_map_generator = generator(map_shape=map_shape, map_range=map_range, **self.kwargs)
