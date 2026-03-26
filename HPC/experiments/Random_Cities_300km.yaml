@@ -44,6 +44,7 @@ population_config:
     type: population_density
     resolution_m: 4000
     source_unit: people_per_pixel
+    pool_size: 100
     kwargs:
       covariance_models:
         cov_1:

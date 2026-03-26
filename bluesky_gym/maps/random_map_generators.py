@@ -122,6 +122,25 @@ class PopulationDensityGenerator(GeneratorBase):
         synthetic_masked = np.where(ocean < np.percentile(ocean, 10), -9999, synthetic)
         return synthetic_masked, "people_per_km2"
 
+class MapPool:
+    """Pre-generates a pool of maps at init time and samples from them on regenerate().
+
+    Wraps any GeneratorBase to eliminate per-reset gstools overhead during training.
+    """
+    def __init__(self, generator: GeneratorBase, pool_size: int):
+        self.pool: list[tuple[np.ndarray, str]] = []
+        print(f"MapPool: pre-generating {pool_size} maps of size {generator.map_shape}...")
+        for i in range(pool_size):
+            rng = np.random.default_rng(i)
+            self.pool.append(generator.regenerate(rng=rng))
+        print(f"MapPool: ready ({pool_size} maps cached)")
+
+    def regenerate(self, rng: np.random.Generator = None):
+        rng = rng or np.random.default_rng()
+        idx = rng.integers(0, len(self.pool))
+        return self.pool[idx]
+
+
 class ZeroPopulationGenerator(GeneratorBase):
     def regenerate(self, rng: np.random.Generator = None):
         return np.zeros(self.map_shape), "people_per_pixel"

@@ -12,7 +12,7 @@ from rasterio.io import MemoryFile
 from rasterio.transform import from_bounds
 from affine import Affine
 
-from bluesky_gym.maps.random_map_generators import GeneratorBase, ZeroPopulationGenerator
+from bluesky_gym.maps.random_map_generators import GeneratorBase, ZeroPopulationGenerator, MapPool
 
 
 class MapSourceConfig(BaseModel):
@@ -41,6 +41,7 @@ class RandomMapSourceConfig(MapSourceConfig):
     resolution_m: float = 1000
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
     source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
+    pool_size: Optional[int] = None
 
     def get_map_details_from_env_bounds(self, env: gymnasium.Env) -> tuple[Affine, tuple[int, int], tuple[float, float]]:
         """Derive Affine transform and map shape from the env's geographic bounds.
@@ -79,6 +80,8 @@ class RandomMapSourceConfig(MapSourceConfig):
             case _:
                 raise ValueError(f"Unsupported random map source type: {self.type}")
         random_map_generator = generator(map_shape=map_shape, map_range=map_range, **self.kwargs)
+        if self.pool_size is not None:
+            random_map_generator = MapPool(generator=random_map_generator, pool_size=self.pool_size)
         return RandomMapSource(map_crs=map_crs, map_transform=map_transform, random_map_generator=random_map_generator)
 
     def build(self) -> RandomMapSource:
@@ -208,27 +211,34 @@ class RandomMapSource(MapSource):
         return self._dataset
 
     def regenerate(self, rng: np.random.Generator | None = None):
-        if self._memfile is not None:
-            if self._dataset is not None:
-                self._dataset.close()
-            self._memfile.close()
-
         raw_map, source_unit = self._random_map_generator.regenerate(rng=rng)
         self._source_unit = source_unit
         h, w = raw_map.shape
 
-        self._memfile = MemoryFile()
-        self._dataset = self._memfile.open(
-            driver="GTiff",
-            height=h,
-            width=w,
-            count=1,
-            dtype=raw_map.dtype,
-            crs=self._crs,
-            transform=self._transform,
-        )
-        self._dataset.write(raw_map, 1)
-        self.refresh_conversion_factor()
+        # Reuse existing MemoryFile when shape and dtype haven't changed
+        if (self._dataset is not None
+                and self._dataset.height == h
+                and self._dataset.width == w
+                and self._dataset.dtypes[0] == raw_map.dtype.name):
+            self._dataset.write(raw_map, 1)
+        else:
+            if self._memfile is not None:
+                if self._dataset is not None:
+                    self._dataset.close()
+                self._memfile.close()
+
+            self._memfile = MemoryFile()
+            self._dataset = self._memfile.open(
+                driver="GTiff",
+                height=h,
+                width=w,
+                count=1,
+                dtype=raw_map.dtype,
+                crs=self._crs,
+                transform=self._transform,
+            )
+            self._dataset.write(raw_map, 1)
+            self.refresh_conversion_factor()
 
     def close(self):
         if self._dataset is not None:
