@@ -13,7 +13,7 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.envs.common import functions
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
-from bluesky_gym.maps.map_datasets import TiffMapSourceConfig
+from bluesky_gym.maps.map_datasets import TiffMapSourceConfig, RandomMapSourceConfig
 from bluesky.tools.aero import nm
 
 
@@ -51,8 +51,6 @@ def simulate_trajectories(
         }
         obs, info = env.reset(options=options, seed=seed)
         while not done:
-            if not map_in_observation:
-                obs = remove_maps_from_observation(obs)
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
@@ -78,7 +76,10 @@ if __name__ == '__main__':
     with open(trajectory_folder.joinpath("details.pkl"), "wb") as f:
         pickle.dump(trajectory_details, f)
 
-    validation_map = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
+    if trajectory_details["map_in_observation"]:
+        validation_map = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
+    else:
+        validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
     env, model = load_env_and_model(trajectory_details["run_name"], render_mode=None, map_config=validation_map)
     trajectories = simulate_trajectories(env, model, angle_interval=10, distance=trajectory_details["start_distance"], seed=42, map_in_observation=trajectory_details["map_in_observation"], runway=trajectory_details["runway"])
     trajectories.to_csv(trajectory_folder.joinpath("trajectories.csv"), index=False)

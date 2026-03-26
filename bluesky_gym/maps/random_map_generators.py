@@ -122,6 +122,10 @@ class PopulationDensityGenerator(GeneratorBase):
         synthetic_masked = np.where(ocean < np.percentile(ocean, 10), -9999, synthetic)
         return synthetic_masked, "people_per_km2"
 
+class ZeroPopulationGenerator(GeneratorBase):
+    def regenerate(self, rng: np.random.Generator = None):
+        return np.zeros(self.map_shape), "people_per_pixel"
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     rng = np.random.default_rng(42)
