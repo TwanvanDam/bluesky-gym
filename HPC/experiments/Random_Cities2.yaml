@@ -36,34 +36,52 @@ navigation_config:
   pygame_crs: EPSG:3035
   sim_dt: 5
   successful_approach_reward: 5.0
-  total_dense_rewards: 1.0
+  total_dense_rewards: 0.5
   use_sin_cos_obs: true
 population_config:
   fuel_weight: 0.125
   map_source_config:
-    type: tiff
-    file_path: scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff
+    type: population_density
+    resolution_m: 4000
+    source_unit: people_per_pixel
+    pool_size: 100
+    kwargs:
+      covariance_models:
+        cov_1:
+          cov_model: Gaussian
+          var: 0.625
+          len_scale: 60.3
+        cov_2:
+          cov_model: Gaussian
+          var: 0.815
+          len_scale: 263
+        cov_3:
+          cov_model: Integral
+          var: 1.83
+          len_scale: 37.0
+          nu: 0.233
+      target_mean: 361.60
   noise_model_config:
     noise_base_dba: 85.0
     noise_cutoff_dba: 55.0
     noise_resolution_m: 1000
     w_0: 1.0E-12
     base_distance: 304.8
-  observation_normalization: min_max
+  observation_normalization: log
   # Two-scale 64x64 observations: higher resolution than the baseline
-  # (200km/64px ≈ 3.1 km/px wide, 70km/64px ≈ 1.1 km/px close).
+  # (300km/64px ≈ 4.7 km/px wide, 100km/64px ≈ 1.6 km/px close).
   observation_range:
-  - - 200000
-    - 200000
-  - - 70000
-    - 70000
+  - - 300000
+    - 300000
+  - - 100000
+    - 100000
   observation_shape:
   - - 64
     - 64
   - - 64
     - 64
   rendering_normalization: min_max
-  resampling: bilinear
+  resampling: cubic_spline
 run_name: null
 agent_config:
   policy: MultiInputPolicy

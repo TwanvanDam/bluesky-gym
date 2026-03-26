@@ -36,7 +36,7 @@ navigation_config:
   pygame_crs: EPSG:3035
   sim_dt: 5
   successful_approach_reward: 5.0
-  total_dense_rewards: 1.0
+  total_dense_rewards: 0.5
   use_sin_cos_obs: true
 population_config:
   fuel_weight: 0.125
