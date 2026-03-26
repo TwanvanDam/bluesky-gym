@@ -3,11 +3,11 @@
 #SBATCH --partition=general
 #SBATCH --qos=medium
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1             # 1 Physical GPU shared by all tasks
+#SBATCH --gres=gpu               # 1 Physical GPU shared by all tasks
 #SBATCH --ntasks=4               # Max number of tasks running SIMULTANEOUSLY
 #SBATCH --cpus-per-task=2        # CPUs per task (total CPUs = 4 * 2 = 8)
 #SBATCH --mem=16G                # Total memory for the job (e.g., 4 tasks * 4GB)
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
