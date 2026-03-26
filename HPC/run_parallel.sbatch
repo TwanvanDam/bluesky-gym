@@ -58,10 +58,9 @@ for CONFIG in "$@"; do
     echo "Launching experiment: $BASENAME"
     echo "Logs -> HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out"
 
-    # --exclusive ensures each task gets its own dedicated 2 CPUs
     # --output and --error redirect this specific task's logs
     # The '&' sends it to the background
-    srun --exclusive --ntasks=1 --cpus-per-task=2 --mem=4G \
+    srun --ntasks=1 --cpus-per-task=2 --mem=4G \
         --output="HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
         --error="HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" \
         apptainer exec --nv \
