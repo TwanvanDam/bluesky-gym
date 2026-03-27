@@ -1,18 +1,18 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-parallel
 #SBATCH --partition=general
-#SBATCH --qos=short
+#SBATCH --qos=medium
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1             # 1 GPU (any type) shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4        # Total CPUs shared by all experiments
-#SBATCH --mem=32G                # Total memory (~16G per experiment)
-#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=8        # Total CPUs shared by all experiments (2 cpus per experiment if running 4 in parallel)
+#SBATCH --mem=24G                # Total memory (~6G per experiment)
+#SBATCH --time=06:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
-# Runs 2 reinforcement learning experiments in parallel on a single
+# Runs 4 reinforcement learning experiments in parallel on a single
 # GPU using shell backgrounding (no srun sub-steps).
 #
 # Usage:
@@ -33,7 +33,7 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-if [ "$#" -gt 2 ]; then
+if [ "$#" -gt 4 ]; then
     echo "WARNING: More than 2 configs provided ($#). Only the first 2 will be run."
 fi
 
@@ -50,7 +50,7 @@ mkdir -p HPC/logs/out HPC/logs/err
 
 # ── Run ──────────────────────────────────────────────────────
 # Loop over all arguments passed via the command line ("$@")
-for CONFIG in "${@:1:2}"; do
+for CONFIG in "${@:1:4}"; do
     # Extract the filename without the path and extension for clean log names
     # e.g., "HPC/experiments/test1.yaml" becomes "test1"
     BASENAME=$(basename "$CONFIG" .yaml)
