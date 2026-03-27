@@ -537,7 +537,8 @@
               "cities": "#/$defs/RandomMapSourceConfig",
               "polygon": "#/$defs/RandomMapSourceConfig",
               "population_density": "#/$defs/RandomMapSourceConfig",
-              "tiff": "#/$defs/TiffMapSourceConfig"
+              "tiff": "#/$defs/TiffMapSourceConfig",
+              "zero": "#/$defs/RandomMapSourceConfig"
             },
             "propertyName": "type"
           },
@@ -587,7 +588,6 @@
         },
         "fuel_weight": {
           "default": 0.5,
-          "description": "Weight for fuel consumption in the reward function, between 0.0 and 1.0. A value of 1.0 means only fuel consumption matters, while 0.0 means only noise matters.",
           "maximum": 1.0,
           "minimum": 0.0,
           "title": "Fuel Weight",
@@ -641,7 +641,8 @@
           "enum": [
             "cities",
             "polygon",
-            "population_density"
+            "population_density",
+            "zero"
           ],
           "title": "Type",
           "type": "string"
@@ -671,6 +672,18 @@
           ],
           "title": "Source Unit",
           "type": "string"
+        },
+        "pool_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pool Size"
         }
       },
       "required": [
