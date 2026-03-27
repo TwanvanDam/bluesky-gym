@@ -1,26 +1,22 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-parallel
 #SBATCH --partition=general
-#SBATCH --qos=medium
+#SBATCH --qos=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu               # 1 Physical GPU shared by all processes
+#SBATCH --gres=gpu:1             # 1 GPU (any type) shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8        # Total CPUs shared by all experiments
-#SBATCH --mem=16G                # Total memory shared by all experiments
-#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=4        # Total CPUs shared by all experiments
+#SBATCH --mem=32G                # Total memory (~16G per experiment)
+#SBATCH --time=04:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
-# Runs multiple reinforcement learning experiments in parallel
-# on a single GPU using shell backgrounding (no srun sub-steps).
+# Runs 2 reinforcement learning experiments in parallel on a single
+# GPU using shell backgrounding (no srun sub-steps).
 #
 # Usage:
-#   1. Run specific files:
-#      sbatch HPC/run_parallel.sbatch HPC/experiments/exp1.yaml HPC/experiments/exp2.yaml
-#
-#   2. Run ALL yaml files in a folder at once using a wildcard (*):
-#      sbatch HPC/run_parallel.sbatch HPC/experiments/*.yaml
+#   sbatch HPC/run_parallel.sbatch HPC/experiments/exp1.yaml HPC/experiments/exp2.yaml
 # ─────────────────────────────────────────────────────────────
 
 echo "=========================================="
@@ -37,8 +33,8 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-if [ "$#" -gt 4 ]; then
-    echo "WARNING: More than 4 configs provided ($#). Only the first 4 will be run."
+if [ "$#" -gt 2 ]; then
+    echo "WARNING: More than 2 configs provided ($#). Only the first 2 will be run."
 fi
 
 PROJECT_DIR=$(pwd)
@@ -54,7 +50,7 @@ mkdir -p HPC/logs/out HPC/logs/err
 
 # ── Run ──────────────────────────────────────────────────────
 # Loop over all arguments passed via the command line ("$@")
-for CONFIG in "${@:1:4}"; do
+for CONFIG in "${@:1:2}"; do
     # Extract the filename without the path and extension for clean log names
     # e.g., "HPC/experiments/test1.yaml" becomes "test1"
     BASENAME=$(basename "$CONFIG" .yaml)
