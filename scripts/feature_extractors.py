@@ -10,7 +10,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 class LayerBaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-class ConvolutionLayerConfig(BaseModel):
+class ConvolutionLayerConfig(LayerBaseConfig):
     type: Literal["conv"] = "conv"
     in_channels: Optional[int] = None
     out_channels: int
@@ -37,11 +37,16 @@ class LinearLayerConfig(LayerBaseConfig):
 class ActivationLayerConfig(LayerBaseConfig):
     type: Literal["ReLU", "Tanh", "Sigmoid"]
 
-LayerConfig = Annotated[Union[ConvolutionLayerConfig, GlobalPoolingLayerConfig, LinearLayerConfig,  PoolingLayerConfig, ActivationLayerConfig], Field(discriminator="type")]
+class DropoutLayerConfig(LayerBaseConfig):
+    type: Literal["dropout"] = "dropout"
+    p: float
+
+CNN_LayerConfig = Annotated[Union[ConvolutionLayerConfig, GlobalPoolingLayerConfig, LinearLayerConfig,  PoolingLayerConfig, ActivationLayerConfig, DropoutLayerConfig], Field(discriminator="type")]
+Vector_LayerConfig = Annotated[Union[LinearLayerConfig, ActivationLayerConfig, DropoutLayerConfig], Field(discriminator="type")]
 
 class FeatureExtractorConfig(BaseModel):
-    cnn_layers: List[LayerConfig]
-    vector_layer_sizes: Optional[List[LinearLayerConfig]] = None
+    cnn_layers: List[CNN_LayerConfig]
+    vector_layer_sizes: Optional[List[Vector_LayerConfig]] = None
 
 class CombinedExtractor(BaseFeaturesExtractor):
     """Expected observation_spaces:
@@ -96,12 +101,19 @@ class CombinedExtractor(BaseFeaturesExtractor):
         vector_layers = []
         input_vector_dim = sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
         for layer_config in self.config.vector_layer_sizes:
-            if not layer_config.in_features:
-                vector_layers.append(nn.Linear(in_features=input_vector_dim,  out_features=layer_config.out_features))
-            else:
-                vector_layers.append(nn.Linear(in_features=layer_config.in_features, out_features=layer_config.out_features))
-            vector_layers.append(nn.ReLU())
-
+            match layer_config.type:
+                case "linear":
+                    if not layer_config.in_features:
+                        vector_layers.append(nn.Linear(in_features=input_vector_dim,  out_features=layer_config.out_features))
+                    else:
+                        vector_layers.append(nn.Linear(in_features=layer_config.in_features, out_features=layer_config.out_features))
+                case "dropout":
+                    vector_layers.append(nn.Dropout(p=layer_config.p))
+                case "ReLU" | "Tanh" | "Sigmoid":
+                        vector_layers.append(getattr(nn, layer_config.type)())
+                case _:
+                    msg = f"{layer_config.type} is not supported in vector layers"
+                    raise ValueError(msg)
         self.vector_network = nn.Sequential(*vector_layers)
 
     def build_cnn(self) -> None:
@@ -147,8 +159,10 @@ class CombinedExtractor(BaseFeaturesExtractor):
                         cnn_layers.append(nn.Linear(in_features=layer.in_features, out_features=layer.out_features))
                 case "ReLU" | "Tanh" | "Sigmoid":
                     cnn_layers.append(getattr(nn, layer.type)())
+                case "dropout":
+                    cnn_layers.append(nn.Dropout(p=layer.p))
                 case _:
-                    msg = f"{_} is not supported"
+                    msg = f"{layer.type} is not supported"
                     raise ValueError(msg)
 
         self.cnn = nn.Sequential(*cnn_layers)
@@ -171,7 +185,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
         if vector_tensors[0].dim() == 1:
             vector_tensors = [tensor.unsqueeze(0) for tensor in vector_tensors]
         elif vector_tensors[0].dim() == 2:
-            vector_tensors = [tensor if tensor.dim() == 2 else tensor.unsqueeze(0) for tensor in vector_tensors]
+            pass
         concatenated_vector = torch.cat(vector_tensors, dim=1)
         if self.vector_network:
             vector_output = self.vector_network(concatenated_vector)
@@ -199,4 +213,3 @@ if __name__ == '__main__':
         "vector_3": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
         "vector_4": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
     }), config=config.agent_config.feature_extractor)
-    extractor.get_cnn_info()
