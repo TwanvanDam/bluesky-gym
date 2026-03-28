@@ -36,7 +36,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     run_name = normalize_run_name(args.run_name)
-    use_zero_map = True
+    use_zero_map = False
     print(f"Rendering run: {run_name} with runway: {args.runway} and use_real_map: {args.use_real_map}")
     if args.use_real_map:
         validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
