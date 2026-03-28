@@ -157,7 +157,7 @@ if __name__ == "__main__":
 
     generator = PopulationDensityGenerator(covariance_models=covariance_models,
                                            map_shape=(128,128),
-                                           map_range=(512,512),
+                                           map_range=(512_000,512_000),
                                            target_mean=361.60)
 
 
