@@ -92,8 +92,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
             return 0
         if not self.config.vector_layer_sizes:
             return sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
-        last_layer = self.config.vector_layer_sizes[-1]
-        return last_layer.out_features
+        last_linear = next(l for l in reversed(self.config.vector_layer_sizes) if isinstance(l, LinearLayerConfig))
+        return last_linear.out_features
 
     def build_vector_network(self, observation_space: Dict = None) -> None:
         if not self.config.vector_layer_sizes:

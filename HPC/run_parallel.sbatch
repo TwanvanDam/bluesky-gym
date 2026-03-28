@@ -5,15 +5,15 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1             # 1 GPU (any type) shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8        # Total CPUs shared by all experiments (2 cpus per experiment if running 4 in parallel)
-#SBATCH --mem=24G                # Total memory (~6G per experiment)
-#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=7        # Total CPUs shared by all experiments (1 cpus per experiment if running 6 in parallel) + overhead for container and logging
+#SBATCH --mem=40G                # Total memory (~6G per experiment)
+#SBATCH --time=24:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
-# Runs 4 reinforcement learning experiments in parallel on a single
-# GPU using shell backgrounding (no srun sub-steps).
+# Runs 6 reinforcement learning experiments in parallel on a single
+# GPU using shell backgrounding
 #
 # Usage:
 #   sbatch HPC/run_parallel.sbatch HPC/experiments/exp1.yaml HPC/experiments/exp2.yaml
@@ -33,8 +33,8 @@ if [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-if [ "$#" -gt 4 ]; then
-    echo "WARNING: More than 2 configs provided ($#). Only the first 2 will be run."
+if [ "$#" -gt 6 ]; then
+    echo "WARNING: More than 6 configs provided ($#). Only the first 6 will be run."
 fi
 
 PROJECT_DIR=$(pwd)
@@ -50,7 +50,7 @@ mkdir -p HPC/logs/out HPC/logs/err
 
 # ── Run ──────────────────────────────────────────────────────
 # Loop over all arguments passed via the command line ("$@")
-for CONFIG in "${@:1:4}"; do
+for CONFIG in "${@:1:6}"; do
     # Extract the filename without the path and extension for clean log names
     # e.g., "HPC/experiments/test1.yaml" becomes "test1"
     BASENAME=$(basename "$CONFIG" .yaml)
