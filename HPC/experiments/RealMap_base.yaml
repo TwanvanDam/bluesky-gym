@@ -131,6 +131,7 @@ agent_config:
       - type: linear
         in_features: null
         out_features: 32
+      - type: ReLU
 training_config:
   batch_size: 256
   buffer_size: 1000000
