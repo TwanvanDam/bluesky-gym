@@ -36,7 +36,7 @@ navigation_config:
   pygame_crs: EPSG:3035
   sim_dt: 5
   successful_approach_reward: 5.0
-  total_dense_rewards: 0.5
+  total_dense_rewards: 0.75
   use_sin_cos_obs: true
 population_config:
   fuel_weight: 0.125
@@ -70,8 +70,6 @@ agent_config:
       - 256
       - 256
   feature_extractor:
-    # Input: 16x16.
-    # Four blocks of a convolutional layers and a maxpool layer, separated by ReLU
     cnn_layers:
       - type: conv
         in_channels: null

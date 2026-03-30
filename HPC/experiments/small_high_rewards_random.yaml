@@ -36,13 +36,21 @@ navigation_config:
   pygame_crs: EPSG:3035
   sim_dt: 5
   successful_approach_reward: 5.0
-  total_dense_rewards: 0.25
+  total_dense_rewards: 0.5
   use_sin_cos_obs: true
 population_config:
   fuel_weight: 0.125
   map_source_config:
-    type: tiff
-    file_path: scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff
+    type: population_density
+    resolution_m: 1000
+    source_unit: people_per_km2
+    pool_size: 50
+    kwargs:
+      covariance_models:
+        cov_1: {cov_model: Gaussian, var: 0.625, len_scale: 60.3}
+        cov_2: {cov_model: Gaussian, var: 0.815, len_scale: 263.0}
+        cov_3: {cov_model: Integral, var: 1.83, len_scale: 37.0, nu: 0.233}
+      target_mean: 361.60
   noise_model_config:
     noise_base_dba: 85.0
     noise_cutoff_dba: 55.0
@@ -70,8 +78,6 @@ agent_config:
       - 256
       - 256
   feature_extractor:
-    # Input: 16x16.
-    # Four blocks of a convolutional layers and a maxpool layer, separated by ReLU
     cnn_layers:
       - type: conv
         in_channels: null
