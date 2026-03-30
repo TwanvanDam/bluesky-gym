@@ -22,7 +22,6 @@ def plot_trajectories(
     has_map: bool = False,
     save_path: Path | None = None,
 ):
-    bs.init()
     map_source = TiffMapSourceConfig(file_path=map_config.file_path).build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
     destination = Position(name=runway, reflat=0, reflon=0)
@@ -84,14 +83,16 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
 
 
 def present_for_run(run_paths: RunPaths) -> None:
-    """Plot all trajectory subdirectories for a run."""
+    """Plot all trajectory subdirectories for a run (searches recursively)."""
     if not run_paths.trajectories_dir.exists():
         print(f"No trajectories found for {run_paths.run_id}")
         return
 
-    subdirs = sorted(d for d in run_paths.trajectories_dir.iterdir() if d.is_dir())
-    for traj_dir in subdirs:
-        plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id)
+    # Find all directories containing a trajectories.csv + details.pkl pair
+    for csv_path in sorted(run_paths.trajectories_dir.rglob("trajectories.csv")):
+        traj_dir = csv_path.parent
+        if (traj_dir / "details.pkl").exists():
+            plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id)
 
 
 def collect_runs(args) -> list[RunPaths]:
@@ -122,6 +123,7 @@ if __name__ == '__main__':
             print("No matching runs found.")
             raise SystemExit(1)
 
+        bs.init()
         for run_paths in tqdm(runs, desc="Runs"):
             print(f"\nPlotting trajectories for: {run_paths.run_id}")
             present_for_run(run_paths)

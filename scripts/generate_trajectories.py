@@ -92,7 +92,11 @@ def generate_for_run(run_paths: RunPaths) -> None:
         trajectory_details['run_name'] = run_paths.run_id
         name = f"{trajectory_details['runway']}_{('map' if trajectory_details['map_in_observation'] else 'no_map')}"
         trajectory_folder = run_paths.trajectory_subdir(name)
-        trajectory_folder.mkdir(parents=True, exist_ok=True)
+        try:
+            trajectory_folder.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            print(f"Trajectory folder already exists, skipping: {trajectory_folder}")
+            continue
         with open(trajectory_folder / "details.pkl", "wb") as f:
             pickle.dump(trajectory_details, f)
 
