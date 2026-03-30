@@ -12,6 +12,7 @@ from bluesky_gym.wrappers.population import Population
 from bluesky_gym.wrappers.sin_cos_normalizer import SinCosNormalization
 from scripts.common.run_paths import RunPaths, resolve_run
 from scripts.config import ExperimentConfig
+from scripts.feature_extractors import CombinedExtractor
 
 
 def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
@@ -37,7 +38,7 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
 
 def load_env_and_model(run: str | RunPaths, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
     run_paths = resolve_run(run) if isinstance(run, str) else run
-
+    print(run_paths)
     experiment_config = ExperimentConfig.load(run_paths.config)
 
     # Override map source config if provided
@@ -46,14 +47,24 @@ def load_env_and_model(run: str | RunPaths, render_mode: str | None = "human", m
 
     env, _ = load_env_from_config(experiment_config=experiment_config, render_mode=render_mode)
 
+    # Build policy_kwargs from config so the architecture matches the config
+    # (not the potentially stale kwargs baked into the checkpoint).
+    agent_config = experiment_config.agent_config
+    policy_kwargs = {
+        "features_extractor_class": CombinedExtractor,
+        "features_extractor_kwargs": {"config": agent_config.feature_extractor},
+        "net_arch": agent_config.network_arch,
+    }
+    custom_objects = {"policy_kwargs": policy_kwargs}
+
     if experiment_config.agent_config.algorithm == "SAC":
         try:
-            model = SAC.load(run_paths.model, env=env, device='auto')
+            model = SAC.load(run_paths.model, env=env, device='auto', custom_objects=custom_objects)
         except FileNotFoundError:
             latest = run_paths.latest_checkpoint()
             if latest:
                 print(f"Final model not found. Loading latest checkpoint: {latest}")
-                model = SAC.load(latest, env=env, device='auto')
+                model = SAC.load(latest, env=env, device='auto', custom_objects=custom_objects)
             else:
                 raise FileNotFoundError(
                     f"No model or checkpoints found for run {run_paths.run_id}"
