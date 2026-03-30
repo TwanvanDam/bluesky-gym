@@ -18,7 +18,14 @@ from scripts.config import ExperimentConfig
 from scripts.run_experiment import load_env_from_config
 import bluesky as bs
 
-def plot_trajectories(trajectories: pd.DataFrame, map_config: MapSourceConfigType, runway: str = "EHAM/RW27"):
+def plot_trajectories(
+    trajectories: pd.DataFrame,
+    map_config: MapSourceConfigType,
+    runway: str = "EHAM/RW27",
+    run_name: str = "",
+    has_map: bool = False,
+    save_path: Path | None = None,
+):
     bs.init()
     map_source = TiffMapSourceConfig(file_path=map_config.file_path).build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
@@ -45,9 +52,13 @@ def plot_trajectories(trajectories: pd.DataFrame, map_config: MapSourceConfigTyp
 
     for start_angle, group in trajectories.groupby("start_angle"):
         plt.plot(group["x"], group["y"], color="black")
-    plt.title("Trajectories on Map")
+    map_label = "with map" if has_map else "no map"
+    plt.title(f"{run_name} | runway: {runway} | {map_label}")
     plt.xlabel("X Coordinate (meters)")
     plt.ylabel("Y Coordinate (meters)")
+    if save_path is not None:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"Figure saved to: {save_path}")
     plt.show()
 
 
@@ -58,7 +69,18 @@ if __name__ == '__main__':
     parser.add_argument("trajectories_csv", type=str, help="Path to CSV file containing trajectory data")
     args = parser.parse_args()
     df = pd.read_csv(args.trajectories_csv)
-    with open(Path(args.trajectories_csv).parent.joinpath("details.pkl"), "rb") as f:
+    trajectories_dir = Path(args.trajectories_csv).parent
+    with open(trajectories_dir / "details.pkl", "rb") as f:
         trajectory_details = pickle.load(f)
+
+    run_name = trajectory_details.get("run_name", "unknown_run")
+    runway = trajectory_details.get("runway", "EHAM/RW27")
+    has_map = trajectory_details.get("map_in_observation", False)
     map_config = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
-    plot_trajectories(df, map_config)
+
+    safe_run_name = run_name.replace("/", "_").replace(":", "-")
+    safe_runway = runway.replace("/", "_")
+    map_label = "with_map" if has_map else "no_map"
+    save_path = trajectories_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
+
+    plot_trajectories(df, map_config, runway=runway, run_name=run_name, has_map=has_map, save_path=save_path)
