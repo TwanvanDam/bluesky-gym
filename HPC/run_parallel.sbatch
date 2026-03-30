@@ -64,6 +64,9 @@ for CONFIG in "${@:1:6}"; do
         --pwd /workspace \
         "$CONTAINER" \
         python -m scripts.run_experiment "$CONFIG" \
+            --slurm-job-id "$SLURM_JOB_ID" \
+            --slurm-log-out "HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
+            --slurm-log-err "HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" \
         >"HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
         2>"HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" &
 

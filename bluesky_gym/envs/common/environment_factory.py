@@ -10,30 +10,9 @@ from bluesky_gym.wrappers.distance_normalizer import DistanceNormalization
 from bluesky_gym.wrappers.map_observation_normalizer import MapObservationNormalizer
 from bluesky_gym.wrappers.population import Population
 from bluesky_gym.wrappers.sin_cos_normalizer import SinCosNormalization
+from scripts.common.run_paths import RunPaths, resolve_run
 from scripts.config import ExperimentConfig
 
-
-RESULTS_ROOT = Path("scripts/common/results")
-CONFIGS_BACKUP_ROOT = RESULTS_ROOT / "configs_backup"
-MODELS_BACKUP_ROOT = RESULTS_ROOT / "models_backup"
-
-
-def normalize_run_name(run_name: str) -> str:
-    """Normalize a run reference to the canonical '<env>/<timestamp>' format."""
-    input_path = Path(run_name).expanduser()
-    stripped_path = input_path.with_suffix("")
-
-    # Accept absolute/relative paths under backup roots.
-    for root in (CONFIGS_BACKUP_ROOT, MODELS_BACKUP_ROOT):
-        absolute_root = root.resolve()
-        for candidate in (stripped_path, (Path.cwd() / stripped_path)):
-            try:
-                return candidate.resolve().relative_to(absolute_root).as_posix()
-            except ValueError:
-                continue
-
-    # If no known prefix is present, assume canonical run id was provided.
-    return stripped_path.as_posix().lstrip("./")
 
 def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
     env = BaseNavigationEnv(config=experiment_config.navigation_config, render_mode=render_mode)
@@ -56,13 +35,10 @@ def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str |
 
     return env, env_name
 
-def load_env_and_model(run_name: str, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
-    normalized_run_name = normalize_run_name(run_name)
-    experiment_config_path = CONFIGS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".yaml")
-    model_path = MODELS_BACKUP_ROOT.joinpath(normalized_run_name).with_suffix(".zip")
-    model_checkpoint_path = RESULTS_ROOT.joinpath("checkpoints", normalized_run_name)
+def load_env_and_model(run: str | RunPaths, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
+    run_paths = resolve_run(run) if isinstance(run, str) else run
 
-    experiment_config = ExperimentConfig.load(experiment_config_path)
+    experiment_config = ExperimentConfig.load(run_paths.config)
 
     # Override map source config if provided
     if map_config and experiment_config.population_config:
@@ -72,18 +48,16 @@ def load_env_and_model(run_name: str, render_mode: str | None = "human", map_con
 
     if experiment_config.agent_config.algorithm == "SAC":
         try:
-            model = SAC.load(model_path, env=env, device='auto')
+            model = SAC.load(run_paths.model, env=env, device='auto')
         except FileNotFoundError:
-            # If the exact model file isn't found, try loading the latest checkpoint
-            if model_checkpoint_path.exists():
-                checkpoint_files = sorted(model_checkpoint_path.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
-                if checkpoint_files:
-                    print(f"Exact model file not found. Loading latest checkpoint: {checkpoint_files[0]}")
-                    model = SAC.load(checkpoint_files[0], env=env, device='auto')
-                else:
-                    raise FileNotFoundError(f"No checkpoints found in {model_checkpoint_path} for run {normalized_run_name}")
+            latest = run_paths.latest_checkpoint()
+            if latest:
+                print(f"Final model not found. Loading latest checkpoint: {latest}")
+                model = SAC.load(latest, env=env, device='auto')
             else:
-                raise FileNotFoundError(f"Model file not found at {model_path} and no checkpoints directory at {model_checkpoint_path} for run {normalized_run_name}")
+                raise FileNotFoundError(
+                    f"No model or checkpoints found for run {run_paths.run_id}"
+                )
     else:
         raise NotImplementedError
 

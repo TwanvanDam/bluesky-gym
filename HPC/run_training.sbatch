@@ -47,7 +47,10 @@ srun apptainer exec --nv \
     --bind "${PROJECT_DIR}:/workspace" \
     --pwd /workspace \
     "$CONTAINER" \
-    python -m scripts.run_experiment "$1"
+    python -m scripts.run_experiment "$1" \
+            --slurm-job-id "$SLURM_JOB_ID" \
+            --slurm-log-out "HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
+            --slurm-log-err "HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" \
 
 echo "=========================================="
 echo "End time     : $(date)"

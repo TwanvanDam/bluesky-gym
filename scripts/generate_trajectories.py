@@ -13,10 +13,11 @@ from tqdm import tqdm
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.envs.common import functions
-from bluesky_gym.envs.common.environment_factory import load_env_and_model, normalize_run_name
+from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
 from bluesky_gym.maps.map_datasets import TiffMapSourceConfig, RandomMapSourceConfig
 from bluesky.tools.aero import nm
+from scripts.common.run_paths import resolve_run, iter_runs, find_runs, RunPaths
 
 
 def remove_maps_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
@@ -65,14 +66,7 @@ def simulate_trajectories(
     return pd.DataFrame(trajectories)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Generate trajectories for a trained run.")
-    parser.add_argument("run_name", type=str, help="Name of the run (e.g. 'PopulationWrapper-v0/2026-03-27_...')")
-    args = parser.parse_args()
-    run_name = normalize_run_name(args.run_name)
-
-    bluesky.init()
-
+def generate_for_run(run_paths: RunPaths) -> None:
     trajectory_configs = [
         {
             'runway': "EHAM/RW27",
@@ -94,10 +88,10 @@ if __name__ == '__main__':
         },
     ]
 
-    for trajectory_details in tqdm(trajectory_configs, desc="Trajectory configs"):
-        trajectory_details['run_name'] = run_name
-        name = f"{trajectory_details['runway']}_{'map' if trajectory_details['map_in_observation'] else 'no_map'}"
-        trajectory_folder = Path("scripts/common/results/trajectories") / run_name / name
+    for trajectory_details in tqdm(trajectory_configs, desc=f"Configs [{run_paths.run_name}]"):
+        trajectory_details['run_name'] = run_paths.run_id
+        name = f"{trajectory_details['runway']}_{('map' if trajectory_details['map_in_observation'] else 'no_map')}"
+        trajectory_folder = run_paths.trajectory_subdir(name)
         trajectory_folder.mkdir(parents=True, exist_ok=True)
         with open(trajectory_folder / "details.pkl", "wb") as f:
             pickle.dump(trajectory_details, f)
@@ -107,7 +101,7 @@ if __name__ == '__main__':
         else:
             validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
 
-        env, model = load_env_and_model(run_name, render_mode=None, map_config=validation_map)
+        env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map)
         trajectories = simulate_trajectories(
             env, model,
             angle_interval=10,
@@ -117,3 +111,34 @@ if __name__ == '__main__':
             name=name
         )
         trajectories.to_csv(trajectory_folder / "trajectories.csv", index=False)
+
+
+def collect_runs(args) -> list[RunPaths]:
+    """Resolve CLI arguments to a list of RunPaths."""
+    if args.env:
+        return list(iter_runs(env_name=args.env))
+    if args.pattern:
+        return find_runs(pattern=args.pattern, env_name=None)
+    return [resolve_run(r) for r in args.run_refs]
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Generate trajectories for trained run(s).")
+    parser.add_argument("run_refs", nargs="*", help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
+    parser.add_argument("--env", default=None, help="Generate for all runs of this env name.")
+    parser.add_argument("--pattern", default=None, help="Glob pattern to match run names.")
+    args = parser.parse_args()
+
+    if not args.run_refs and not args.env and not args.pattern:
+        parser.error("Provide run reference(s), --env, or --pattern.")
+
+    runs = collect_runs(args)
+    if not runs:
+        print("No matching runs found.")
+        raise SystemExit(1)
+
+    bluesky.init()
+
+    for run_paths in tqdm(runs, desc="Runs"):
+        print(f"\nGenerating trajectories for: {run_paths.run_id}")
+        generate_for_run(run_paths)

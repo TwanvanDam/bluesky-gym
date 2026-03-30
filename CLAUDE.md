@@ -26,19 +26,27 @@ pip install -e .
 python -m scripts.run_experiment HPC/experiments/Test.yaml
 ```
 
-**Batch training (all YAMLs in `HPC/experiments/`):**
-```bash
-python -m scripts.run_experiment
-```
-
 **Replay a trained run:**
 ```bash
-python -m scripts.show_experiment "PopulationWrapper-v0/2026-03-07_10_55_19"
+python -m scripts.show_experiment "PopulationWrapper-v0/RealMap_base_2026-03-27_14_41_59_984163"
 ```
 
 **Validate config schema:**
 ```bash
 python scripts/config.py <config.yaml>
+```
+
+**Generate trajectories (single or batch):**
+```bash
+python -m scripts.generate_trajectories "PopulationWrapper-v0/RealMap_base_2026-..."
+python -m scripts.generate_trajectories --env PopulationWrapper-v0
+python -m scripts.generate_trajectories --pattern "RealMap_small_*"
+```
+
+**Plot trajectories (single or batch):**
+```bash
+python -m scripts.present_trajectories "PopulationWrapper-v0/RealMap_base_2026-..."
+python -m scripts.present_trajectories --env PopulationWrapper-v0
 ```
 
 **HPC (SLURM + Apptainer):**
@@ -47,18 +55,30 @@ apptainer build HPC/rl_env.sif HPC/container.def
 sbatch HPC/run_training.sbatch HPC/experiments/Test.yaml
 ```
 
+**Migrate old results to unified layout:**
+```bash
+bash scripts/migrate_to_runs.sh              # dry-run
+bash scripts/migrate_to_runs.sh --execute    # copy files
+```
+
+**Move SLURM logs into a run directory:**
+```bash
+bash scripts/move_slurm_logs.sh runs/PopulationWrapper-v0/RealMap_base_2026-... 12345678
+```
+
 There is no automated test suite. Validate changes with short smoke runs via the training and replay scripts above.
 
 ## Architecture
 
 ### Big-picture (read in this order)
 
-1. `scripts/config.py` — Pydantic config contract (`ExperimentConfig`, `NavigationConfig`, etc.). Uses `extra='forbid'`; unknown YAML keys fail fast.
-2. `bluesky_gym/envs/base_navigation_env.py` — canonical navigation env: BlueSky sim lifecycle, observation/action/reward components, rendering.
-3. `bluesky_gym/wrappers/population.py` — adds 2D population density map observation + noise reward; owns rendering when wrapped.
-4. `bluesky_gym/maps/map_datasets.py`, `bluesky_gym/maps/random_map_generators.py` — map source boundary (real GeoTIFF vs. Gaussian random field generated maps).
-5. `scripts/run_experiment.py` — env assembly and SAC training entrypoint.
-6. `scripts/show_experiment.py` — model replay and trajectory visualization.
+1. `scripts/common/run_paths.py` — Central path resolution (`RunPaths`, `resolve_run`, `iter_runs`). All scripts import from here; no script constructs result paths on its own.
+2. `scripts/config.py` — Pydantic config contract (`ExperimentConfig`, `NavigationConfig`, etc.). Uses `extra='forbid'`; unknown YAML keys fail fast.
+3. `bluesky_gym/envs/base_navigation_env.py` — canonical navigation env: BlueSky sim lifecycle, observation/action/reward components, rendering.
+4. `bluesky_gym/wrappers/population.py` — adds 2D population density map observation + noise reward; owns rendering when wrapped.
+5. `bluesky_gym/maps/map_datasets.py`, `bluesky_gym/maps/random_map_generators.py` — map source boundary (real GeoTIFF vs. Gaussian random field generated maps).
+6. `scripts/run_experiment.py` — env assembly and SAC training entrypoint. Creates unified run directory.
+7. `scripts/show_experiment.py` — model replay and trajectory visualization.
 
 ### Runtime data flow
 
@@ -80,13 +100,22 @@ HPC/experiments/*.yaml
 
 ### Results directory structure
 
+All artifacts for a single run live together in one directory under `runs/`:
+
 ```
-scripts/common/results/
-├── logs_backup/<env_name>/
-├── models_backup/<env_name>/<run_name>.zip
-├── configs_backup/<env_name>/<run_name>.yaml
-└── checkpoints/<env_name>/<run_name>/<step_N>.zip
+runs/
+└── {env_name}/
+    └── {run_name}/
+        ├── config.yaml           # Experiment config snapshot
+        ├── model.zip             # Final trained model
+        ├── metadata.json         # Run metadata (slurm_job_id, status, timestamps)
+        ├── tensorboard/          # TensorBoard event files
+        ├── checkpoints/          # Periodic model checkpoints
+        ├── trajectories/         # Evaluation trajectory data (one subdir per config)
+        └── slurm/                # Copied SLURM stdout/stderr logs
 ```
+
+Path resolution is centralized in `scripts/common/run_paths.py`. All scripts accept flexible run references: full path, `env_name/run_name`, or bare `run_name`. Downstream scripts (`generate_trajectories`, `present_trajectories`, `process_trajectories`) support batch mode via `--env` and `--pattern` flags.
 
 ## Conventions
 

@@ -8,6 +8,7 @@ models/
 dist/
 /scripts/common/results/
 /scripts/common/results_old/
+/runs/
 /.idea/
 /HPC/rl_env.sif
 /uv.lock

@@ -2,21 +2,17 @@ import argparse
 import pickle
 from pathlib import Path
 
-import bluesky
 import numpy as np
 import pandas as pd
 import pyproj
 from bluesky.tools.position import Position
 from matplotlib import pyplot as plt
 from rasterio.plot import plotting_extent
-from stable_baselines3 import SAC
-import gymnasium as gym
-from bluesky_gym.envs.common import functions
+import bluesky as bs
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
-from scripts.config import ExperimentConfig
-from scripts.run_experiment import load_env_from_config
-import bluesky as bs
+from scripts.common.run_paths import resolve_run, iter_runs, find_runs, RunPaths
+from tqdm import tqdm
 
 def plot_trajectories(
     trajectories: pd.DataFrame,
@@ -62,18 +58,19 @@ def plot_trajectories(
     plt.show()
 
 
+def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
+    """Plot a single trajectory subdirectory (contains trajectories.csv + details.pkl)."""
+    csv_path = traj_dir / "trajectories.csv"
+    details_path = traj_dir / "details.pkl"
+    if not csv_path.exists() or not details_path.exists():
+        print(f"Skipping {traj_dir} — missing trajectories.csv or details.pkl")
+        return
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Plot trajectories on map")
-    parser.add_argument("trajectories_csv", type=str, help="Path to CSV file containing trajectory data")
-    args = parser.parse_args()
-    df = pd.read_csv(args.trajectories_csv)
-    trajectories_dir = Path(args.trajectories_csv).parent
-    with open(trajectories_dir / "details.pkl", "rb") as f:
+    df = pd.read_csv(csv_path)
+    with open(details_path, "rb") as f:
         trajectory_details = pickle.load(f)
 
-    run_name = trajectory_details.get("run_name", "unknown_run")
+    run_name = trajectory_details.get("run_name", run_name)
     runway = trajectory_details.get("runway", "EHAM/RW27")
     has_map = trajectory_details.get("map_in_observation", False)
     map_config = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
@@ -81,6 +78,50 @@ if __name__ == '__main__':
     safe_run_name = run_name.replace("/", "_").replace(":", "-")
     safe_runway = runway.replace("/", "_")
     map_label = "with_map" if has_map else "no_map"
-    save_path = trajectories_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
+    save_path = traj_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
 
     plot_trajectories(df, map_config, runway=runway, run_name=run_name, has_map=has_map, save_path=save_path)
+
+
+def present_for_run(run_paths: RunPaths) -> None:
+    """Plot all trajectory subdirectories for a run."""
+    if not run_paths.trajectories_dir.exists():
+        print(f"No trajectories found for {run_paths.run_id}")
+        return
+
+    subdirs = sorted(d for d in run_paths.trajectories_dir.iterdir() if d.is_dir())
+    for traj_dir in subdirs:
+        plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id)
+
+
+def collect_runs(args) -> list[RunPaths]:
+    if args.env:
+        return list(iter_runs(env_name=args.env))
+    if args.pattern:
+        return find_runs(pattern=args.pattern, env_name=None)
+    return [resolve_run(r) for r in args.run_refs]
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s).")
+    parser.add_argument("run_refs", nargs="*", help="Run reference(s) or path to a trajectories.csv")
+    parser.add_argument("--env", default=None, help="Plot for all runs of this env name.")
+    parser.add_argument("--pattern", default=None, help="Glob pattern to match run names.")
+    args = parser.parse_args()
+
+    if not args.run_refs and not args.env and not args.pattern:
+        parser.error("Provide run reference(s), --env, or --pattern.")
+
+    # Legacy: if a single arg is a CSV file, plot that directly
+    if len(args.run_refs) == 1 and args.run_refs[0].endswith(".csv"):
+        csv_path = Path(args.run_refs[0])
+        plot_trajectory_subdir(csv_path.parent)
+    else:
+        runs = collect_runs(args)
+        if not runs:
+            print("No matching runs found.")
+            raise SystemExit(1)
+
+        for run_paths in tqdm(runs, desc="Runs"):
+            print(f"\nPlotting trajectories for: {run_paths.run_id}")
+            present_for_run(run_paths)
