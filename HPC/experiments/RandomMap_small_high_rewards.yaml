@@ -42,7 +42,7 @@ population_config:
   fuel_weight: 0.125
   map_source_config:
     type: population_density
-    resolution_m: 1000
+    resolution_m: 2000
     source_unit: people_per_km2
     pool_size: 50
     kwargs:
