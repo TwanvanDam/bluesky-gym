@@ -54,7 +54,7 @@ def plot_trajectories(
     if save_path is not None:
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Figure saved to: {save_path}")
-    plt.show()
+    plt.close()
 
 
 def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
@@ -78,6 +78,10 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     safe_runway = runway.replace("/", "_")
     map_label = "with_map" if has_map else "no_map"
     save_path = traj_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
+
+    if save_path.exists():
+        print(f"Plot already exists, skipping: {save_path}")
+        return
 
     plot_trajectories(df, map_config, runway=runway, run_name=run_name, has_map=has_map, save_path=save_path)
 
