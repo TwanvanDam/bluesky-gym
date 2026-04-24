@@ -92,7 +92,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
             return 0
         if not self.config.vector_layer_sizes:
             return sum(observation_space.spaces[key].shape[0] for key in self.vector_keys)
-        last_linear = next(l for l in reversed(self.config.vector_layer_sizes) if isinstance(l, LinearLayerConfig))
+        last_linear = next(l for l in reversed(self.config.vector_layer_sizes) if l.type == "linear")
         return last_linear.out_features
 
     def build_vector_network(self, observation_space: Dict = None) -> None:
@@ -103,10 +103,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
         for layer_config in self.config.vector_layer_sizes:
             match layer_config.type:
                 case "linear":
-                    if not layer_config.in_features:
-                        vector_layers.append(nn.Linear(in_features=input_vector_dim,  out_features=layer_config.out_features))
-                    else:
-                        vector_layers.append(nn.Linear(in_features=layer_config.in_features, out_features=layer_config.out_features))
+                    in_features = layer_config.in_features or input_vector_dim
+                    vector_layers.append(nn.Linear(in_features=in_features, out_features=layer_config.out_features))
+                    input_vector_dim = layer_config.out_features
                 case "dropout":
                     vector_layers.append(nn.Dropout(p=layer_config.p))
                 case "ReLU" | "Tanh" | "Sigmoid":
