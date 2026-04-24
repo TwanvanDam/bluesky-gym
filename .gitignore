@@ -14,3 +14,4 @@ dist/
 /uv.lock
 /scripts/population_maps/
 /AGENTS.md
+*.png
