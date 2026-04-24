@@ -34,11 +34,18 @@ def simulate_trajectories(
         distance: int,
         seed: int,
         runway: str = "EHAM/RW18R",
+        latlon: tuple[float, float] | None = None,
         name: str = ""
 ) -> pd.DataFrame:
     navigation_env = find_env_layer(env, BaseNavigationEnv)
     navigation_env.save_trajectory = True
     destination = Position(name=runway, reflat=0, reflon=0)
+
+    # override destination lat/lon if provided to ensure fair comparison between new and legacy model
+    if latlon:
+        destination.lat = latlon[0]
+        destination.lon = latlon[1]
+
     trajectories = []
 
     angles = np.arange(0, 360, angle_interval)
@@ -70,6 +77,7 @@ def generate_for_run(run_paths: RunPaths) -> None:
     trajectory_configs = [
         {
             'runway': "EHAM/RW27",
+            'latlon' : (52.3322, 4.75),
             'map_path': "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff",
             'map_in_observation': True,
             'start_distance': 150 * nm / 1000,
@@ -82,6 +90,7 @@ def generate_for_run(run_paths: RunPaths) -> None:
         },
         {
             'runway': "EHAM/RW27",
+            'latlon' : (52.3322, 4.75),
             'map_path': "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff",
             'map_in_observation': False,
             'start_distance': 150 * nm / 1000,
@@ -112,6 +121,7 @@ def generate_for_run(run_paths: RunPaths) -> None:
             distance=trajectory_details["start_distance"],
             seed=42,
             runway=trajectory_details["runway"],
+            latlon=trajectory_details.get("latlon", None),
             name=name
         )
         trajectories.to_csv(trajectory_folder / "trajectories.csv", index=False)
