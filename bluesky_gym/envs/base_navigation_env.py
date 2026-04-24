@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, ConfigDict
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.utils.sampling_config import SamplingConfig, UniformSamplingConfig, NormalSamplingConfig
+from bluesky_gym.utils.sampling_config import SamplingConfig
 
 
 class InitialConditionsSamplingConfig(BaseModel):
@@ -100,8 +100,6 @@ class BaseNavigationEnv(gym.Env):
             always_xy=True
         )
 
-
-
         self.observation_space = spaces.Dict(
             {
                 # Ground distance to the destination in meters [0, inf]
@@ -163,7 +161,7 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
-    def set_simulation_bounds_meters(self) -> None:
+    def _set_simulation_bounds_meters(self) -> None:
         corners_xy = [
             self.coordinate_transformer.transform(self.lon_min, self.lat_min),
             self.coordinate_transformer.transform(self.lon_min, self.lat_max),
@@ -211,7 +209,7 @@ class BaseNavigationEnv(gym.Env):
 
         self.destination = self._generate_airport(self.np_random, options)
         self._update_simulation_bounds(self.destination)
-        self.set_simulation_bounds_meters()
+        self._set_simulation_bounds_meters()
         self._set_terminal_condition()
 
         for _ in range(100):

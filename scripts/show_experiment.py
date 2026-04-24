@@ -33,7 +33,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Render a trained experiment by run name, with optional map override.")
     parser.add_argument("run_name", type=str, help="Run reference (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
-    parser.add_argument("--runway", type=str, default="EHAM/RW18R", help="Runway to set as destination for rendering (default: EHAM/RW18R)")
+    parser.add_argument("--runway", type=str, help="Runway to set as destination for rendering (e.g.: EHAM/RW18R)")
     parser.add_argument("--map_type", type=str, default="original", help="Whether to use the real population map for this example (overrides any map in the original config)")
     args = parser.parse_args()
 

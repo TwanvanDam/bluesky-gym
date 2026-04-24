@@ -24,17 +24,21 @@ class MapObservationNormalizer(gym.ObservationWrapper):
         self.observation_space = spaces.Dict(observation_space)
 
     def observation(self, observation) -> dict:
+        divisor = self.env.map_source_max
+        if not (np.isfinite(divisor) and divisor > 0):
+            raise ValueError(
+                f"map_source_max must be a finite positive number for normalization, got {divisor}. "
+                "Check normalization_percentile — it must be in the range (0, 100]."
+            )
         observation_copy = observation.copy()
         for key in list(observation_copy.keys()):
             if "map" in key:
-                value = observation_copy[key]
-                if not np.min(value) == np.max(value):  # Avoid normalizing if all values are the same (e.g., all zeros)
-                    match self.mode:
-                        case "log":
-                            observation_copy[key] = np.clip(np.log1p(value) / np.log1p(self.env.map_source_max), 0, 1)
-                        case "min-max" | "min_max":
-                            observation_copy[key] = np.clip(value / self.env.map_source_max, 0, 1)
-                        case _:
-                            msg = f"Normalization mode {self.mode} is not supported."
-                            raise NotImplementedError(msg)
+                value = np.nan_to_num(observation_copy[key], nan=0.0)
+                match self.mode:
+                    case "log":
+                        observation_copy[key] = np.clip(np.log1p(value) / np.log1p(divisor), 0, 1)
+                    case "min-max" | "min_max":
+                        observation_copy[key] = np.clip(value / divisor, 0, 1)
+                    case _:
+                        raise NotImplementedError(f"Normalization mode {self.mode} is not supported.")
         return observation_copy

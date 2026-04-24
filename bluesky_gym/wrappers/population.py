@@ -8,7 +8,7 @@ import pygame
 from affine import Affine
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
 from bluesky_gym.maps.map_datasets import MapSourceConfigType
@@ -43,7 +43,6 @@ class Population(gym.Wrapper):
         self.config = config
         self.noise_model = NoiseModel(config.noise_model_config)
 
-        # class to handle all reading and creating of population maps
         self.map_source = config.map_source_config.build_for_env(self.base_env)
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
                                             destination_crs=self.base_env.map_projection_crs)
@@ -58,7 +57,6 @@ class Population(gym.Wrapper):
         # cache the map used as background since it does not change often.
         self.background_map: None | np.ndarray = None
         self.color_map: str = color_map
-        self.background_max = None
         self.render_normalizer: Normalize | None = None
 
         assert isinstance(self.env.observation_space, spaces.Dict)
@@ -82,7 +80,6 @@ class Population(gym.Wrapper):
         current_seed = seed
         while True:
             observation, info = self.env.reset(seed=current_seed, options=options)
-            current_seed = None  # only seed once; subsequent retries use the advanced RNG state
             self.map_source.regenerate(rng=self.base_env.np_random)
             if self.raster_sampler.coordinate_on_land(self.base_env.destination):
                 break
@@ -140,7 +137,6 @@ class Population(gym.Wrapper):
                                                         out_meters=obs_range) for
             i, (obs_shape, obs_range) in enumerate(zip(self.observation_shape, self.observation_range))}
         self.population_observation = observations
-        return
 
     def get_background(self):
         """Returns the background population map for the entire environment bounds, used for rendering the full map as the background."""

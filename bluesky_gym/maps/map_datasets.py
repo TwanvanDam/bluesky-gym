@@ -151,6 +151,10 @@ class MapSource(ABC):
         print(f"MapSource conversion factor (people_per_pixel -> people_per_km2): {conversion:.2f}")
         return conversion
 
+    def _filter_valid_data(self, data: np.ndarray) -> np.ndarray:
+        nodata = self.dataset.nodata
+        return data[data != nodata] if nodata is not None else data
+
     @abstractmethod
     def get_normalization_value(self, percentile: float) -> float:
         """Return the map value at the given percentile (0–100), in post-conversion units (people/km²).
@@ -188,9 +192,7 @@ class TiffMapSource(MapSource):
     def get_normalization_value(self, percentile: float) -> float:
         if percentile not in self._norm_cache:
             data = self._dataset.read(1).astype(np.float64)
-            nodata = self._dataset.nodata
-            valid = data[data != nodata] if nodata is not None else data
-            self._norm_cache[percentile] = float(np.percentile(valid, percentile)) * self.conversion_factor
+            self._norm_cache[percentile] = float(np.percentile(self._filter_valid_data(data), percentile)) * self.conversion_factor
         return self._norm_cache[percentile]
 
     def regenerate(self, rng: np.random.Generator | None = None):
@@ -225,9 +227,7 @@ class RandomMapSource(MapSource):
 
     def get_normalization_value(self, percentile: float) -> float:
         data = self._dataset.read(1).astype(np.float64)
-        nodata = self._dataset.nodata
-        valid = data[data != nodata] if nodata is not None else data
-        return float(np.percentile(valid, percentile)) * self.conversion_factor
+        return float(np.percentile(self._filter_valid_data(data), percentile)) * self.conversion_factor
 
     def regenerate(self, rng: np.random.Generator | None = None):
         raw_map, source_unit = self._random_map_generator.regenerate(rng=rng)
