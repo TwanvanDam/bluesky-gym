@@ -4,16 +4,20 @@ from bluesky.tools.position import Position
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
 
-def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
+def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str | None = None):
     bluesky.init()
-    destination = Position(name=runway, reflat=0, reflon=0)
-    options = {
-        "destination_lat": destination.lat,
-        "destination_lon": destination.lon,
-        "destination_hdg": destination.refhdg
-    }
+
+    options = {}
+    if runway:
+        destination = Position(name=runway, reflat=0, reflon=0)
+        options.update({
+            "destination_lat": destination.lat,
+            "destination_lon": destination.lon,
+            "destination_hdg": destination.refhdg
+        })
 
     env, model = load_env_and_model(run_name, render_mode="human", map_config=map_config)
+
     while True:
         obs, info = env.reset(options=options)
         done = False
@@ -30,7 +34,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Render a trained experiment by run name, with optional map override.")
     parser.add_argument("run_name", type=str, help="Run reference (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     parser.add_argument("--runway", type=str, default="EHAM/RW18R", help="Runway to set as destination for rendering (default: EHAM/RW18R)")
-    parser.add_argument("--map_type", type=str,default="original", help="Whether to use the real population map for this example (overrides any map in the original config)")
+    parser.add_argument("--map_type", type=str, default="original", help="Whether to use the real population map for this example (overrides any map in the original config)")
     args = parser.parse_args()
 
     run_ref = args.run_name

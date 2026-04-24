@@ -27,7 +27,7 @@ class UniformSamplingConfig(SamplingConfigBase):
 
 class NormalSamplingConfig(SamplingConfigBase):
     distribution: Literal["normal"] = "normal"
-    mean: float
+    mean: float = 0
     std: float
 
     def sample(self, rng: np.random.Generator) -> float:

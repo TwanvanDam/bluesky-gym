@@ -213,109 +213,21 @@
       "title": "GlobalPoolingLayerConfig",
       "type": "object"
     },
-    "LinearLayerConfig": {
+    "InitialConditionsSamplingConfig": {
       "additionalProperties": false,
       "properties": {
-        "type": {
-          "const": "linear",
-          "default": "linear",
-          "title": "Type",
-          "type": "string"
-        },
-        "in_features": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
+        "simulation_bounds_mode": {
+          "default": "degrees",
+          "enum": [
+            "degrees",
+            "meters"
           ],
-          "default": null,
-          "title": "In Features"
-        },
-        "out_features": {
-          "title": "Out Features",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "out_features"
-      ],
-      "title": "LinearLayerConfig",
-      "type": "object"
-    },
-    "NavigationConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "ac_name": {
-          "default": "KL001",
-          "title": "Ac Name",
+          "title": "Simulation Bounds Mode",
           "type": "string"
         },
-        "ac_type": {
-          "default": "a320",
-          "title": "Ac Type",
-          "type": "string"
-        },
-        "ac_initial_spd": {
-          "default": 200,
-          "title": "Ac Initial Spd",
-          "type": "number"
-        },
-        "ac_initial_alt": {
-          "default": 3000,
-          "title": "Ac Initial Alt",
-          "type": "number"
-        },
-        "lon_min": {
-          "default": 3.0,
-          "title": "Lon Min",
-          "type": "number"
-        },
-        "lon_max": {
-          "default": 7.5,
-          "title": "Lon Max",
-          "type": "number"
-        },
-        "lat_min": {
-          "default": 50.5,
-          "title": "Lat Min",
-          "type": "number"
-        },
-        "lat_max": {
-          "default": 54.0,
-          "title": "Lat Max",
-          "type": "number"
-        },
-        "max_steps": {
-          "default": 250,
-          "title": "Max Steps",
-          "type": "integer"
-        },
-        "sim_dt": {
-          "default": 3,
-          "title": "Sim Dt",
-          "type": "integer"
-        },
-        "action_time": {
-          "default": 60,
-          "title": "Action Time",
-          "type": "integer"
-        },
-        "faf_distance": {
-          "default": 25,
-          "title": "Faf Distance",
-          "type": "number"
-        },
-        "iaf_angle": {
-          "default": 60,
-          "title": "Iaf Angle",
-          "type": "number"
-        },
-        "iaf_distance": {
-          "default": 30,
-          "title": "Iaf Distance",
+        "simulation_bounds_size": {
+          "default": 5.0,
+          "title": "Simulation Bounds Size",
           "type": "number"
         },
         "destination_lat_sampling": {
@@ -384,6 +296,15 @@
           ],
           "title": "Destination Hdg Sampling"
         },
+        "aircraft_position_mode": {
+          "default": "relative",
+          "enum": [
+            "absolute",
+            "relative"
+          ],
+          "title": "Aircraft Position Mode",
+          "type": "string"
+        },
         "aircraft_lat_sampling": {
           "discriminator": {
             "mapping": {
@@ -427,10 +348,109 @@
             }
           ],
           "title": "Aircraft Lon Sampling"
+        }
+      },
+      "required": [
+        "destination_lat_sampling",
+        "destination_lon_sampling",
+        "destination_hdg_sampling",
+        "aircraft_lat_sampling",
+        "aircraft_lon_sampling"
+      ],
+      "title": "InitialConditionsSamplingConfig",
+      "type": "object"
+    },
+    "LinearLayerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "linear",
+          "default": "linear",
+          "title": "Type",
+          "type": "string"
         },
-        "pygame_crs": {
+        "in_features": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Features"
+        },
+        "out_features": {
+          "title": "Out Features",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "out_features"
+      ],
+      "title": "LinearLayerConfig",
+      "type": "object"
+    },
+    "NavigationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "ac_name": {
+          "default": "KL001",
+          "title": "Ac Name",
+          "type": "string"
+        },
+        "ac_type": {
+          "default": "a320",
+          "title": "Ac Type",
+          "type": "string"
+        },
+        "ac_initial_spd": {
+          "default": 200,
+          "title": "Ac Initial Spd",
+          "type": "number"
+        },
+        "ac_initial_alt": {
+          "default": 3000,
+          "title": "Ac Initial Alt",
+          "type": "number"
+        },
+        "map_sampling_config": {
+          "$ref": "#/$defs/InitialConditionsSamplingConfig"
+        },
+        "max_steps": {
+          "default": 250,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "sim_dt": {
+          "default": 3,
+          "title": "Sim Dt",
+          "type": "integer"
+        },
+        "action_time": {
+          "default": 60,
+          "title": "Action Time",
+          "type": "integer"
+        },
+        "faf_distance": {
+          "default": 25,
+          "title": "Faf Distance",
+          "type": "number"
+        },
+        "iaf_angle": {
+          "default": 60,
+          "title": "Iaf Angle",
+          "type": "number"
+        },
+        "iaf_distance": {
+          "default": 30,
+          "title": "Iaf Distance",
+          "type": "number"
+        },
+        "map_projection_crs": {
           "default": "EPSG:3035",
-          "title": "Pygame Crs",
+          "title": "Map Projection Crs",
           "type": "string"
         },
         "use_sin_cos_obs": {
@@ -464,13 +484,11 @@
           "default": 1200,
           "title": "Mean Episode Length",
           "type": "number"
-        },
-        "total_dense_rewards": {
-          "default": 0.25,
-          "title": "Total Dense Rewards",
-          "type": "number"
         }
       },
+      "required": [
+        "map_sampling_config"
+      ],
       "title": "NavigationConfig",
       "type": "object"
     },
@@ -516,6 +534,7 @@
           "type": "string"
         },
         "mean": {
+          "default": 0,
           "title": "Mean",
           "type": "number"
         },
@@ -525,7 +544,6 @@
         }
       },
       "required": [
-        "mean",
         "std"
       ],
       "title": "NormalSamplingConfig",
@@ -650,16 +668,6 @@
             "cubic"
           ],
           "title": "Resampling",
-          "type": "string"
-        },
-        "rendering_normalization": {
-          "default": "log",
-          "enum": [
-            "log",
-            "min_max",
-            "min-max"
-          ],
-          "title": "Rendering Normalization",
           "type": "string"
         },
         "observation_normalization": {

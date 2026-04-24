@@ -64,8 +64,8 @@ class RandomMapSourceConfig(MapSourceConfig):
     def build_for_env(self, env) -> RandomMapSource:
         from bluesky_gym.maps.random_map_generators import PolygonGenerator, CitiesGenerator, PopulationDensityGenerator
 
-        assert hasattr(env, "pygame_crs") , "Environment must have pygame_crs attribute."
-        map_crs = env.pygame_crs
+        assert hasattr(env, "map_projection_crs") , "Environment must have map_projection_crs attribute."
+        map_crs = env.map_projection_crs
         map_transform, map_shape, map_range = self.get_map_details_from_env_bounds(env)
 
         match self.type:
@@ -151,10 +151,14 @@ class MapSource(ABC):
         print(f"MapSource conversion factor (people_per_pixel -> people_per_km2): {conversion:.2f}")
         return conversion
 
-    @property
-    def max(self) -> float:
-        """Returns the maximum population density value in the map."""
-        return self.dataset.read(1).max()
+    @abstractmethod
+    def get_normalization_value(self, percentile: float) -> float:
+        """Return the map value at the given percentile (0–100), in post-conversion units (people/km²).
+
+        Used as the normalization divisor for the policy observation. Values above this
+        threshold are clipped to 1.0 by MapObservationNormalizer.
+        """
+        ...
 
     @abstractmethod
     def close(self):
@@ -167,6 +171,7 @@ class TiffMapSource(MapSource):
         super().__init__(source_unit=source_unit)
         self._dataset = rasterio.open(filepath)
         self.refresh_conversion_factor()
+        self._norm_cache: dict[float, float] = {}
 
     @property
     def crs(self):
@@ -179,6 +184,14 @@ class TiffMapSource(MapSource):
     @property
     def dataset(self):
         return self._dataset
+
+    def get_normalization_value(self, percentile: float) -> float:
+        if percentile not in self._norm_cache:
+            data = self._dataset.read(1).astype(np.float64)
+            nodata = self._dataset.nodata
+            valid = data[data != nodata] if nodata is not None else data
+            self._norm_cache[percentile] = float(np.percentile(valid, percentile)) * self.conversion_factor
+        return self._norm_cache[percentile]
 
     def regenerate(self, rng: np.random.Generator | None = None):
         pass  # Static map, nothing to regenerate
@@ -209,6 +222,12 @@ class RandomMapSource(MapSource):
     @property
     def dataset(self):
         return self._dataset
+
+    def get_normalization_value(self, percentile: float) -> float:
+        data = self._dataset.read(1).astype(np.float64)
+        nodata = self._dataset.nodata
+        valid = data[data != nodata] if nodata is not None else data
+        return float(np.percentile(valid, percentile)) * self.conversion_factor
 
     def regenerate(self, rng: np.random.Generator | None = None):
         raw_map, source_unit = self._random_map_generator.regenerate(rng=rng)

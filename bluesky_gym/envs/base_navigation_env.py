@@ -1,6 +1,6 @@
 import itertools
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable, Optional, Literal
 
 import bluesky as bs
 import gymnasium as gym
@@ -15,8 +15,22 @@ from pydantic import BaseModel, Field, ConfigDict
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.utils.sampling_config import SamplingConfig, UniformSamplingConfig, FixedSamplingConfig, \
-    NormalSamplingConfig
+from bluesky_gym.utils.sampling_config import SamplingConfig, UniformSamplingConfig, NormalSamplingConfig
+
+
+class InitialConditionsSamplingConfig(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+
+    simulation_bounds_mode: Literal["degrees", "meters"] = "degrees"
+    simulation_bounds_size: float = 5.0
+
+    destination_lat_sampling: SamplingConfig
+    destination_lon_sampling: SamplingConfig
+    destination_hdg_sampling: SamplingConfig
+
+    aircraft_position_mode: Literal["absolute", "relative"] = "relative"
+    aircraft_lat_sampling: SamplingConfig
+    aircraft_lon_sampling: SamplingConfig
 
 
 class NavigationConfig(BaseModel):
@@ -26,11 +40,7 @@ class NavigationConfig(BaseModel):
     ac_initial_spd: float = 200  # [ m / s ]
     ac_initial_alt: float = 3_000  # [ m ]
 
-    # All coordinates in degrees (WGS84)
-    lon_min: float = 3.0
-    lon_max: float = 7.5
-    lat_min: float = 50.5
-    lat_max: float = 54.0
+    map_sampling_config: InitialConditionsSamplingConfig
 
     max_steps: int = 250
     sim_dt: int = 3  # [ s ]
@@ -39,25 +49,12 @@ class NavigationConfig(BaseModel):
     iaf_angle: float = 60  # [ degrees ]
     iaf_distance: float = 30  # [ km ]
 
-    # Nested sampling configs with default factories
-    destination_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: FixedSamplingConfig(value=52.31))
-    destination_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: FixedSamplingConfig(value=4.7))
-    destination_hdg_sampling: SamplingConfig = Field(
-        default_factory=lambda: UniformSamplingConfig(low=0, high=360))
-    aircraft_lat_sampling: SamplingConfig = Field(
-        default_factory=lambda: NormalSamplingConfig(mean=52.31, std=1))
-    aircraft_lon_sampling: SamplingConfig = Field(
-        default_factory=lambda: NormalSamplingConfig(mean=4.7, std=1))
-
-    pygame_crs: str = "EPSG:3035"
+    map_projection_crs: str = "EPSG:3035"
     use_sin_cos_obs: bool = False
     normalize_distance_obs: Optional[float] = None
     constraint_violation_reward: float = -1.0
     successful_approach_reward: float = 50.0
     mean_episode_length: float = 20 * 60  # [ s ]
-    total_dense_rewards: float = 0.25  # Summed dense reward on average
 
 
 class TerminationReason(Enum):
@@ -78,9 +75,10 @@ def bs_position(lat: float, lon: float, hdg: float | None = None) -> Position:
 class BaseNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode: str | None = None, window_size: tuple[int, int] = (512, 512),
+    def __init__(self, config: NavigationConfig, render_mode: str | None = None,
+                 window_size: tuple[int, int] = (512, 512),
                  save_trajectory: bool = False,
-                 config: NavigationConfig = NavigationConfig()) -> None:
+                 ) -> None:
         self.total_episode_fuel_reward = None
         self.episode_length_seconds = None
         self.mean_fuel_flow = None
@@ -95,30 +93,14 @@ class BaseNavigationEnv(gym.Env):
         self._telemetry_history = []
 
         self.bluesky_crs = "WGS84"
-        self.pygame_crs = config.pygame_crs
+        self.map_projection_crs = config.map_projection_crs
         self.coordinate_transformer = pyproj.Transformer.from_crs(
             self.bluesky_crs,
-            self.pygame_crs,
+            self.map_projection_crs,
             always_xy=True
         )
 
-        self.lon_min, self.lon_max = config.lon_min, config.lon_max
-        self.lat_min, self.lat_max = config.lat_min, config.lat_max
 
-        self.lon_center = (self.lon_max + self.lon_min) / 2
-        self.lat_center = (self.lat_max + self.lat_min) / 2
-
-        # Use all bbox corners because projected CRS extents are not guaranteed
-        # to align with transformed diagonal corners only.
-        corners_xy = [
-            self.coordinate_transformer.transform(self.lon_min, self.lat_min),
-            self.coordinate_transformer.transform(self.lon_min, self.lat_max),
-            self.coordinate_transformer.transform(self.lon_max, self.lat_min),
-            self.coordinate_transformer.transform(self.lon_max, self.lat_max),
-        ]
-        xs, ys = zip(*corners_xy)
-        self.x_min, self.x_max = min(xs), max(xs)
-        self.y_min, self.y_max = min(ys), max(ys)
 
         self.observation_space = spaces.Dict(
             {
@@ -181,6 +163,31 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
+    def set_simulation_bounds_meters(self) -> None:
+        corners_xy = [
+            self.coordinate_transformer.transform(self.lon_min, self.lat_min),
+            self.coordinate_transformer.transform(self.lon_min, self.lat_max),
+            self.coordinate_transformer.transform(self.lon_max, self.lat_min),
+            self.coordinate_transformer.transform(self.lon_max, self.lat_max),
+        ]
+        xs, ys = zip(*corners_xy)
+        self.x_min = min(xs)
+        self.y_min = min(ys)
+        self.x_max = max(xs)
+        self.y_max = max(ys)
+
+    def _update_simulation_bounds(self, destination: Position) -> None:
+        map_size = self.config.map_sampling_config.simulation_bounds_size
+        match self.config.map_sampling_config.simulation_bounds_mode:
+            case "degrees":
+                self.lon_min, self.lon_max = destination.lon - map_size, destination.lon + map_size
+                self.lat_min, self.lat_max = destination.lat - map_size, destination.lat + map_size
+            case "meters":
+                self.lon_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 180)[0]
+                self.lon_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 0)[0]
+                self.lat_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 270)[1]
+                self.lat_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 90)[1]
+
     def reset(self, seed=None, options: None | dict[str, float] = None):
         """Reset the environment to an initial state.
 
@@ -203,9 +210,16 @@ class BaseNavigationEnv(gym.Env):
         self._telemetry_history = []
 
         self.destination = self._generate_airport(self.np_random, options)
+        self._update_simulation_bounds(self.destination)
+        self.set_simulation_bounds_meters()
         self._set_terminal_condition()
 
-        aircraft_initial_position = self._generate_initial_position(self.np_random, options)
+        for _ in range(100):
+            aircraft_initial_position = self._generate_initial_position(self.np_random, options)
+            if self.check_inside_bounds(aircraft_initial_position):
+                break
+        else:
+            raise RuntimeError("Could not sample an aircraft position within bounds after 100 attempts. Check SamplingConfig.")
         self.aircraft_positions = [aircraft_initial_position]
 
         aircraft_initial_hdg = options.get("aircraft_hdg", None)
@@ -347,7 +361,7 @@ class BaseNavigationEnv(gym.Env):
 
     @property
     def dense_reward_scaling(self) -> float:
-        return self.config.total_dense_rewards / self.config.mean_episode_length
+        return 1 / self.config.mean_episode_length
 
     def _fuel_reward(self) -> tuple[float, bool, TerminationReason]:
         fuel_flow = self._get_fuel_flow()
@@ -426,52 +440,48 @@ class BaseNavigationEnv(gym.Env):
         return reward, terminated, reason
 
     def _check_out_of_bounds(self) -> bool:
-        aircraft_position = self.get_aircraft_position()
-        aircraft_inside_bounds = (self.lat_min <= aircraft_position.lat <= self.lat_max) and (
-                self.lon_min <= aircraft_position.lon <= self.lon_max)
-        return not aircraft_inside_bounds
+        return not self.check_inside_bounds(self.get_aircraft_position(), margin=0.0)
 
     def _generate_airport(self, np_random: np.random.Generator, options: dict) -> Position:
-        destination_lat = options.get("destination_lat", self.config.destination_lat_sampling.sample(np_random))
-        destination_lon = options.get("destination_lon", self.config.destination_lon_sampling.sample(np_random))
-        destination_hdg = options.get("destination_hdg", self.config.destination_hdg_sampling.sample(np_random))
+        map_sampling_config = self.config.map_sampling_config
+
+        destination_lat = options.get("destination_lat", map_sampling_config.destination_lat_sampling.sample(np_random))
+        destination_lon = options.get("destination_lon", map_sampling_config.destination_lon_sampling.sample(np_random))
+        destination_hdg = options.get("destination_hdg", map_sampling_config.destination_hdg_sampling.sample(np_random))
 
         return bs_position(lat=destination_lat,
                            lon=destination_lon,
                            hdg=destination_hdg)
 
     def _generate_initial_position(self, np_random: np.random.Generator, options: dict) -> Position:
+        map_sampling_config = self.config.map_sampling_config
+
         if "aircraft_lat" in options and "aircraft_lon" in options:
-            aircraft_lat = options["aircraft_lat"]
-            aircraft_lon = options["aircraft_lon"]
-            return bs_position(lat=aircraft_lat, lon=aircraft_lon)
+            return bs_position(lat=options["aircraft_lat"], lon=options["aircraft_lon"])
         elif "aircraft_lat" in options or "aircraft_lon" in options:
             raise ValueError("Both aircraft_lat and aircraft_lon must be provided in options if one is provided.")
 
-        delta_lat = self.lat_max - self.lat_min
-        delta_lon = self.lon_max - self.lon_min
-
-        if isinstance(self.config.aircraft_lat_sampling, NormalSamplingConfig):
-            # For normal distribution, we want to ensure that the sampled position is within bounds.
-            while True:
-                aircraft_lat = self.config.aircraft_lat_sampling.sample(np_random)
-                if self.lat_min + (delta_lat * 0.1) <= aircraft_lat <= self.lat_max - (delta_lat * 0.1):  # Keep initial position away from edges
-                    break
-        else:
-            aircraft_lat = self.config.aircraft_lat_sampling.sample(np_random)
-
-        if isinstance(self.config.aircraft_lon_sampling, NormalSamplingConfig):
-            while True:
-                aircraft_lon = self.config.aircraft_lon_sampling.sample(np_random)
-                if self.lon_min + (delta_lon * 0.1) <= aircraft_lon <= self.lon_max - (delta_lon * 0.1):  # Keep initial position away from edges
-                    break
-        else:
-            aircraft_lon = self.config.aircraft_lon_sampling.sample(np_random)
+        match map_sampling_config.aircraft_position_mode:
+            case "relative":
+                aircraft_lat = self.destination.lat + map_sampling_config.aircraft_lat_sampling.sample(np_random)
+                aircraft_lon = self.destination.lon + map_sampling_config.aircraft_lon_sampling.sample(np_random)
+            case "absolute":
+                aircraft_lat = map_sampling_config.aircraft_lat_sampling.sample(np_random)
+                aircraft_lon = map_sampling_config.aircraft_lon_sampling.sample(np_random)
+            case _:
+                raise ValueError("Unrecognized aircraft position mode")
 
         return bs_position(
             lat=aircraft_lat,
             lon=aircraft_lon
         )
+
+    def check_inside_bounds(self, pos: Position, margin: float = 0.1) -> bool:
+        delta_lat = self.lat_max - self.lat_min
+        delta_lon = self.lon_max - self.lon_min
+        lat_in_bounds = self.lat_min + (delta_lat * margin) <= pos.lat <= self.lat_max - (delta_lat * margin)
+        lon_in_bounds = self.lon_min + (delta_lon * margin) <= pos.lon <= self.lon_max - (delta_lon * margin)
+        return lat_in_bounds and lon_in_bounds
 
     def _save_telemetry(self) -> None:
         ac_alt = self.get_aircraft_altitude()

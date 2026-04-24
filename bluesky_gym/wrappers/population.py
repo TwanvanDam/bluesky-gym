@@ -27,7 +27,7 @@ class PopulationConfig(BaseModel):
     # This allows for easy tuning of the reward function to find the right balance between fuel efficiency and noise reduction.
     fuel_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "cubic_spline"
-    rendering_normalization: Literal["log", "min_max", "min-max"] = "log"
+    normalization_percentile: float = Field(default=99.9, ge=0.0, le=100.0)
     observation_normalization: Literal["log", "min_max", "min-max"] = "log"
 
 
@@ -46,7 +46,7 @@ class Population(gym.Wrapper):
         # class to handle all reading and creating of population maps
         self.map_source = config.map_source_config.build_for_env(self.base_env)
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
-                                            destination_crs=self.base_env.pygame_crs)
+                                            destination_crs=self.base_env.map_projection_crs)
         self.map_source_max: float = np.nan
         self.mean_reference_noise: float = np.nan
 
@@ -79,12 +79,16 @@ class Population(gym.Wrapper):
             self.base_env.window_size[1]
 
     def reset(self, seed=None, options=None):
-        # Reset the base env first so that np_random is seeded
-        observation, info = self.env.reset(seed=seed, options=options)
+        current_seed = seed
+        while True:
+            observation, info = self.env.reset(seed=current_seed, options=options)
+            current_seed = None  # only seed once; subsequent retries use the advanced RNG state
+            self.map_source.regenerate(rng=self.base_env.np_random)
+            if self.raster_sampler.coordinate_on_land(self.base_env.destination):
+                break
 
-        # Now regenerate the map using the seeded random generator
-        self.map_source.regenerate(rng=self.base_env.np_random)
-        self.map_source_max = self.map_source.max # Cache the max value for the map normalization wrapper
+        self.map_source_max = self.map_source.get_normalization_value(self.config.normalization_percentile)
+
         self._update_population_observation()
         observation = self._inject_population_observation(observation)
 
@@ -99,8 +103,7 @@ class Population(gym.Wrapper):
         )
 
         if self.render_mode is not None:
-            self.background_max = np.nanmax(self.background_map)
-            self.render_normalizer = self._get_normalization(self.background_map)
+            self.render_normalizer = self._get_normalization()
 
         if self.render_mode == "human":
             self.render()
@@ -221,17 +224,17 @@ class Population(gym.Wrapper):
         return [partial(self._render_array, render_size=size,array=observation) for size, observation in
                 zip(self._get_panel_sizes(), self.population_observation.values())]
 
-    def _get_normalization(self, heatmap: np.ndarray) -> Normalize:
+    def _get_normalization(self) -> Normalize:
         """Get the appropriate matplotlib Normalize instance based on config."""
-        v_min = np.nanmin(heatmap)
-        v_max = np.nanpercentile(heatmap, 99)  # Use 99th percentile to avoid outliers dominating the color scale
+        v_min = 0
+        v_max = self.map_source_max
 
         if v_min == v_max:
-            return Normalize(vmin=0, vmax=v_max)
-
-        if self.config.rendering_normalization == "log":
+            return Normalize(vmin=0, vmax=1)
+        normalization_mode = self.config.observation_normalization
+        if normalization_mode == "log":
             return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max)
-        elif self.config.rendering_normalization in ["min_max", "min-max"]:
+        elif normalization_mode in ["min_max", "min-max"]:
             return Normalize(vmin=v_min, vmax=v_max)
         else:  # "none" or default
             return Normalize(vmin=0, vmax=1)

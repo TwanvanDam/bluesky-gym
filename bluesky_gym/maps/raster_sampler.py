@@ -89,3 +89,10 @@ class RasterSampler:
         map_extract = np.where(map_extract < -100, np.nan, map_extract)
         map_extract = np.clip(map_extract, 0, None)
         return map_extract
+
+    def get_value_at_coordinate(self, coordinate: Position) -> float:
+        xy = self.wgs84_to_dest.transform(coordinate.lon, coordinate.lat)
+        return next(self.map_source.dataset.sample([xy]))
+
+    def coordinate_on_land(self, coordinate: Position) -> bool:
+        return self.get_value_at_coordinate(coordinate) >= 0
