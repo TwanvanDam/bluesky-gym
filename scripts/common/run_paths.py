@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 
 RUNS_ROOT = Path("runs")
@@ -163,34 +162,6 @@ def resolve_run(run_ref: str) -> RunPaths:
         )
 
     raise ValueError(f"Cannot resolve run reference: {run_ref}")
-
-
-def iter_runs(env_name: str | None = None) -> Iterator[RunPaths]:
-    """Yield RunPaths for all runs, optionally filtered by env_name."""
-    if not RUNS_ROOT.exists():
-        return
-
-    env_dirs = (
-        [RUNS_ROOT / env_name]
-        if env_name
-        else sorted(d for d in RUNS_ROOT.iterdir() if d.is_dir())
-    )
-
-    for env_dir in env_dirs:
-        if not env_dir.is_dir():
-            continue
-        for run_dir in sorted(env_dir.iterdir()):
-            if run_dir.is_dir() and (run_dir / "config.yaml").exists():
-                yield RunPaths.from_run_dir(run_dir)
-
-
-def find_runs(pattern: str = "*", env_name: str | None = None) -> list[RunPaths]:
-    """Find runs whose names match a glob pattern."""
-    results = []
-    for run_paths in iter_runs(env_name=env_name):
-        if Path(run_paths.run_name).match(pattern):
-            results.append(run_paths)
-    return results
 
 
 # ── Metadata helpers ─────────────────────────────────────────

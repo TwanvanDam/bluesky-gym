@@ -1,11 +1,8 @@
 import bluesky
-import numpy as np
 from bluesky.tools.position import Position
 
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
-from scripts.common.run_paths import resolve_run
-
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str = "18R"):
     bluesky.init()
@@ -33,17 +30,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Render a trained experiment by run name, with optional map override.")
     parser.add_argument("run_name", type=str, help="Run reference (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     parser.add_argument("--runway", type=str, default="EHAM/RW18R", help="Runway to set as destination for rendering (default: EHAM/RW18R)")
-    parser.add_argument("--use_real_map", action="store_true",default=False, help="Whether to use the real population map for this example (overrides any map in the original config)")
+    parser.add_argument("--map_type", type=str,default="original", help="Whether to use the real population map for this example (overrides any map in the original config)")
     args = parser.parse_args()
 
     run_ref = args.run_name
-    use_zero_map = False
-    print(f"Rendering run: {run_ref} with runway: {args.runway} and use_real_map: {args.use_real_map}")
-    if args.use_real_map:
-        validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
-    elif use_zero_map:
-        validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
-    else:
-        validation_map = None
+    map_type = args.map_type.lower()
+    print(f"Rendering run: {run_ref} with runway: {args.runway} and use_real_map: {args.map_type}")
+    match map_type:
+        case "original":
+            validation_map = None  # Use the map from the original config (if any)
+        case "real":
+            validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff", source_unit="people_per_pixel")
+        case "zero":
+            validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
+        case "random":
+            covariance_models = {"cov_1" : {"cov_model" : "Gaussian", 'var':0.625, 'len_scale':60.3},
+                         "cov_2" : {"cov_model" : "Gaussian", 'var':0.815, 'len_scale':2.63e2},
+                         "cov_3" : {"cov_model" : "Integral", 'var':1.83, 'len_scale':37.0, 'nu': 0.233}}
 
+            validation_map = RandomMapSourceConfig(type="population_density", resolution_m=4000, source_unit="people_per_km2", kwargs=dict(covariance_models=covariance_models, target_mean=361.60))
+        case _:
+            raise ValueError(f"Unsupported map type: {map_type}. Choose from 'original', 'real', 'zero', or 'random'.")
     render_experiment(run_ref, map_config=validation_map, runway=args.runway)

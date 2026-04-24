@@ -11,7 +11,7 @@ from rasterio.plot import plotting_extent
 import bluesky as bs
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
-from scripts.common.run_paths import resolve_run, iter_runs, find_runs, RunPaths
+from scripts.common.run_paths import resolve_run, RunPaths
 from tqdm import tqdm
 
 def plot_trajectories(
@@ -47,6 +47,7 @@ def plot_trajectories(
 
     for start_angle, group in trajectories.groupby("start_angle"):
         plt.plot(group["x"], group["y"], color="black")
+        plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green", label="Start" if start_angle == trajectories["start_angle"].min() else "")
     map_label = "with map" if has_map else "no map"
     plt.title(f"{run_name} | runway: {runway} | {map_label}")
     plt.xlabel("X Coordinate (meters)")
@@ -99,34 +100,17 @@ def present_for_run(run_paths: RunPaths) -> None:
             plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id)
 
 
-def collect_runs(args) -> list[RunPaths]:
-    if args.env:
-        return list(iter_runs(env_name=args.env))
-    if args.pattern:
-        return find_runs(pattern=args.pattern, env_name=None)
-    return [resolve_run(r) for r in args.run_refs]
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s).")
-    parser.add_argument("run_refs", nargs="*", help="Run reference(s) or path to a trajectories.csv")
-    parser.add_argument("--env", default=None, help="Plot for all runs of this env name.")
-    parser.add_argument("--pattern", default=None, help="Glob pattern to match run names.")
+    parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
     args = parser.parse_args()
-
-    if not args.run_refs and not args.env and not args.pattern:
-        parser.error("Provide run reference(s), --env, or --pattern.")
 
     # Legacy: if a single arg is a CSV file, plot that directly
     if len(args.run_refs) == 1 and args.run_refs[0].endswith(".csv"):
         csv_path = Path(args.run_refs[0])
         plot_trajectory_subdir(csv_path.parent)
     else:
-        runs = collect_runs(args)
-        if not runs:
-            print("No matching runs found.")
-            raise SystemExit(1)
-
+        runs = [resolve_run(r) for r in args.run_refs]
         bs.init()
         for run_paths in tqdm(runs, desc="Runs"):
             print(f"\nPlotting trajectories for: {run_paths.run_id}")

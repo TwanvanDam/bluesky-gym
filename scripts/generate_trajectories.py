@@ -17,7 +17,7 @@ from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
 from bluesky_gym.maps.map_datasets import TiffMapSourceConfig, RandomMapSourceConfig
 from bluesky.tools.aero import nm
-from scripts.common.run_paths import resolve_run, iter_runs, find_runs, RunPaths
+from scripts.common.run_paths import resolve_run, RunPaths
 
 
 def remove_maps_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
@@ -127,26 +127,12 @@ def generate_for_run(run_paths: RunPaths) -> None:
         trajectories.to_csv(trajectory_folder / "trajectories.csv", index=False)
 
 
-def collect_runs(args) -> list[RunPaths]:
-    """Resolve CLI arguments to a list of RunPaths."""
-    if args.env:
-        return list(iter_runs(env_name=args.env))
-    if args.pattern:
-        return find_runs(pattern=args.pattern, env_name=None)
-    return [resolve_run(r) for r in args.run_refs]
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Generate trajectories for trained run(s).")
-    parser.add_argument("run_refs", nargs="*", help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
-    parser.add_argument("--env", default=None, help="Generate for all runs of this env name.")
-    parser.add_argument("--pattern", default=None, help="Glob pattern to match run names.")
+    parser.add_argument("run_refs", nargs="+", help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     args = parser.parse_args()
 
-    if not args.run_refs and not args.env and not args.pattern:
-        parser.error("Provide run reference(s), --env, or --pattern.")
-
-    runs = collect_runs(args)
+    runs = [resolve_run(r) for r in args.run_refs]
     if not runs:
         print("No matching runs found.")
         raise SystemExit(1)
