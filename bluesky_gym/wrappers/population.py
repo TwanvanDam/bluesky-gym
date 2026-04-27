@@ -11,7 +11,7 @@ from matplotlib.colors import Normalize, FuncNorm
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
-from bluesky_gym.maps.map_datasets import MapSourceConfigType
+from bluesky_gym.maps.map_sources import MapSourceConfigType
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
@@ -43,7 +43,7 @@ class Population(gym.Wrapper):
         self.config = config
         self.noise_model = NoiseModel(config.noise_model_config)
 
-        self.map_source = config.map_source_config.build_for_env(self.base_env)
+        self.map_source = config.map_source_config.build(self.base_env)
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
                                             destination_crs=self.base_env.map_projection_crs)
         self.map_source_max: float = np.nan

@@ -2,7 +2,7 @@ import bluesky
 from bluesky.tools.position import Position
 
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
+from bluesky_gym.maps.map_sources import MapSourceConfigType, TiffMapSourceConfig, RandomMapSourceConfig
 
 def render_experiment(run_name: str, map_config: MapSourceConfigType | None = None, runway: str | None = None):
     bluesky.init()

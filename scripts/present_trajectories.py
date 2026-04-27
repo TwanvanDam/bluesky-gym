@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from rasterio.plot import plotting_extent
 from tqdm import tqdm
 
-from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
+from bluesky_gym.maps.map_sources import MapSourceConfigType, TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from scripts.common.run_paths import resolve_run, RunPaths
 

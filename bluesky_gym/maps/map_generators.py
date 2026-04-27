@@ -1,3 +1,4 @@
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ import shapely
 from gstools import CovModel, SumModel
 from matplotlib import colors
 import gstools as gs
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class GeneratorBase(ABC):
@@ -155,13 +158,13 @@ class MapPool:
 
     def _fill_pool(self, key: tuple) -> None:
         shape = self.generator.map_shape
-        print(f"MapPool: pre-generating {self.pool_size} maps of size {shape}...")
+        logger.info("MapPool: pre-generating %d maps of size %s...", self.pool_size, shape)
         pool = []
         for i in range(self.pool_size):
             rng = np.random.default_rng(i)
             pool.append(self.generator.regenerate(rng=rng))
         self._pools[key] = pool
-        print(f"MapPool: ready ({self.pool_size} maps cached for shape {shape})")
+        logger.info("MapPool: ready (%d maps cached for shape %s)", self.pool_size, shape)
 
     def regenerate(self, rng: np.random.Generator = None):
         rng = rng or np.random.default_rng()

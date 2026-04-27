@@ -5,7 +5,7 @@ from gymnasium.wrappers import RescaleAction
 from stable_baselines3 import SAC
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
-from bluesky_gym.maps.map_datasets import MapSourceConfigType
+from bluesky_gym.maps.map_sources import MapSourceConfigType
 from bluesky_gym.wrappers.distance_normalizer import DistanceNormalization
 from bluesky_gym.wrappers.map_observation_normalizer import MapObservationNormalizer
 from bluesky_gym.wrappers.population import Population
@@ -17,6 +17,7 @@ from scripts.feature_extractors import CombinedExtractor
 
 def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
     env = BaseNavigationEnv(config=experiment_config.navigation_config, render_mode=render_mode)
+    # TODO add random seed so training runs have a consistent starting point and training is deterministic.
 
     if experiment_config.navigation_config.use_sin_cos_obs:
         env = SinCosNormalization(env)

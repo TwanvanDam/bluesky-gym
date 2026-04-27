@@ -300,7 +300,7 @@ def sample_and_save(model, output_path: str = None, size: int = 512, seed: int =
     print(f"\n=== Sampling {size}x{size} map from model ===")
     field = sample_from_model(model, size=size, seed=seed)
 
-    # Standardise to zero-mean, unit-variance — matching _generate_grf in random_map_generators.py
+    # Standardise to zero-mean, unit-variance — matching _generate_grf in map_generators.py
     field = (field - field.mean()) / (field.std() + 1e-8)
 
     # Mirror the manual GRF post-processing exactly
@@ -356,7 +356,7 @@ def compare_models(fitted_model, size: int = 512, seed: int = 42):
     from scipy import stats
 
     # Import the manual generator
-    from random_map_generators import generate_population_density
+    from bluesky_gym.maps.map_generators import generate_population_density
 
     print("\n" + "="*80)
     print("COMPARING FITTED MODEL vs MANUAL GRF GENERATOR")

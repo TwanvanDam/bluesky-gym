@@ -17,7 +17,7 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.envs.common import functions
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
-from bluesky_gym.maps.map_datasets import TiffMapSourceConfig, RandomMapSourceConfig
+from bluesky_gym.maps.map_sources import TiffMapSourceConfig, RandomMapSourceConfig
 from scripts.common.run_paths import resolve_run, RunPaths
 
 

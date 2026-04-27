@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 from bluesky.tools.position import Position
 
-from bluesky_gym.maps.map_datasets import TiffMapSourceConfig
+from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from bluesky_gym.metrics.noise_model import NoiseConfig
 from bluesky_gym.metrics.fuel_model import FuelModel

@@ -9,7 +9,7 @@ from rasterio.transform import from_bounds
 from rasterio.warp import reproject
 
 from bluesky.tools.position import Position
-from bluesky_gym.maps.map_datasets import MapSource
+from bluesky_gym.maps.map_sources import MapSource
 
 @dataclass
 class RasterSampler:
