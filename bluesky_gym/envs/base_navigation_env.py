@@ -181,10 +181,11 @@ class BaseNavigationEnv(gym.Env):
                 self.lon_min, self.lon_max = destination.lon - map_size, destination.lon + map_size
                 self.lat_min, self.lat_max = destination.lat - map_size, destination.lat + map_size
             case "meters":
-                self.lon_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 180)[0]
-                self.lon_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 0)[0]
-                self.lat_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 270)[1]
-                self.lat_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size, 90)[1]
+                # get_point_at_distance -> (lat, lon)
+                self.lat_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 180)[0]
+                self.lat_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 0)[0]
+                self.lon_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 270)[1]
+                self.lon_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 90)[1]
 
     def reset(self, seed=None, options: None | dict[str, float] = None):
         """Reset the environment to an initial state.
