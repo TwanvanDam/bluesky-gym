@@ -20,13 +20,6 @@ from bluesky.tools.aero import nm
 from scripts.common.run_paths import resolve_run, RunPaths
 
 
-def remove_maps_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
-    for key, value in observation.items():
-        if "map" in key:
-            observation[key] = np.zeros_like(value)
-    return observation
-
-
 def simulate_trajectories(
         env: gym.Env,
         model: SAC,
