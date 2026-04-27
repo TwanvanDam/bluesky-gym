@@ -183,8 +183,6 @@ class CombinedExtractor(BaseFeaturesExtractor):
         vector_tensors = [observations[key] for key in self.vector_keys]
         if vector_tensors[0].dim() == 1:
             vector_tensors = [tensor.unsqueeze(0) for tensor in vector_tensors]
-        elif vector_tensors[0].dim() == 2:
-            pass
         concatenated_vector = torch.cat(vector_tensors, dim=1)
         if self.vector_network:
             vector_output = self.vector_network(concatenated_vector)
