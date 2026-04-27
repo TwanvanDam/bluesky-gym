@@ -15,6 +15,10 @@ class GeneratorBase(ABC):
     map_shape: tuple[int, int]
     map_range: tuple[float, float]
 
+    def update_layout(self, map_shape: tuple[int, int], map_range: tuple[float, float]) -> None:
+        self.map_shape = map_shape
+        self.map_range = map_range
+
     @abstractmethod
     def regenerate(self, rng: np.random.Generator = None):
         ...
@@ -94,8 +98,17 @@ class PopulationDensityGenerator(GeneratorBase):
         self.ocean_model: SumModel = gs.Exponential(dim=2, len_scale=300, var=0.5) + gs.Gaussian(dim=2, len_scale=500, var=1)
         self.sum_srf = gs.SRF(self.sum_model)
         self.ocean_srf = gs.SRF(self.ocean_model)
+        self._rebuild_grids()
+
+    def _rebuild_grids(self) -> None:
         self.grid_x = np.linspace(0, self.map_range[0] / 1000, self.map_shape[0] + 1)
         self.grid_y = np.linspace(0, self.map_range[1] / 1000, self.map_shape[1] + 1)
+
+    def update_layout(self, map_shape: tuple[int, int], map_range: tuple[float, float]) -> None:
+        if map_shape != self.map_shape or map_range != self.map_range:
+            self.map_shape = map_shape
+            self.map_range = map_range
+            self._rebuild_grids()
 
     def sample_points_from_map(self, srf: gs.SRF, mean:float, rng: np.random.Generator = None) -> np.ndarray:
         return srf.structured((self.grid_x, self.grid_y), seed=rng.integers(0, 1e9) if rng else None)
@@ -123,22 +136,41 @@ class PopulationDensityGenerator(GeneratorBase):
         return synthetic_masked, "people_per_km2"
 
 class MapPool:
-    """Pre-generates a pool of maps at init time and samples from them on regenerate().
+    """Wraps any GeneratorBase and caches pools of pre-generated maps per (shape, range) key.
 
-    Wraps any GeneratorBase to eliminate per-reset gstools overhead during training.
+    The first regenerate() at a given shape/range triggers a one-time fill of pool_size maps.
+    Subsequent resets at the same shape are O(1). With variable env bounds, only a small number
+    of distinct shapes are expected (latitude-dependent cell-count variation), so memory use is bounded.
     """
     def __init__(self, generator: GeneratorBase, pool_size: int):
-        self.pool: list[tuple[np.ndarray, str]] = []
-        print(f"MapPool: pre-generating {pool_size} maps of size {generator.map_shape}...")
-        for i in range(pool_size):
+        self.generator = generator
+        self.pool_size = pool_size
+        self._pools: dict[tuple, list[tuple[np.ndarray, str]]] = {}
+
+    def update_layout(self, map_shape: tuple[int, int], map_range: tuple[float, float]) -> None:
+        self.generator.update_layout(map_shape, map_range)
+
+    def _pool_key(self) -> tuple:
+        return (self.generator.map_shape, self.generator.map_range)
+
+    def _fill_pool(self, key: tuple) -> None:
+        shape = self.generator.map_shape
+        print(f"MapPool: pre-generating {self.pool_size} maps of size {shape}...")
+        pool = []
+        for i in range(self.pool_size):
             rng = np.random.default_rng(i)
-            self.pool.append(generator.regenerate(rng=rng))
-        print(f"MapPool: ready ({pool_size} maps cached)")
+            pool.append(self.generator.regenerate(rng=rng))
+        self._pools[key] = pool
+        print(f"MapPool: ready ({self.pool_size} maps cached for shape {shape})")
 
     def regenerate(self, rng: np.random.Generator = None):
         rng = rng or np.random.default_rng()
-        idx = rng.integers(0, len(self.pool))
-        return self.pool[idx]
+        key = self._pool_key()
+        if key not in self._pools:
+            self._fill_pool(key)
+        pool = self._pools[key]
+        idx = rng.integers(0, len(pool))
+        return pool[idx]
 
 
 class ZeroPopulationGenerator(GeneratorBase):
