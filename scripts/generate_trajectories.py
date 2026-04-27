@@ -120,7 +120,7 @@ if __name__ == '__main__':
                         help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     args = parser.parse_args()
 
-    maps_base_path = Path(__file__).parent.parent / "population_maps"
+    maps_base_path = Path(__file__).parent / "population_maps"
     real_map_path = maps_base_path / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
     eval_configs = [

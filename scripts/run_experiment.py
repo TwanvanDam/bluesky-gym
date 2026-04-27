@@ -14,7 +14,7 @@ from scripts.feature_extractors import CombinedExtractor
 
 
 def _generate_unique_run_name(experiment_config_path: Path, env_name: str) -> str:
-    base_name = f"{experiment_config_path.stem}_{datetime.datetime.now().strftime('%Y-%m-%d_%H_%M_%S_%f')}"
+    base_name = experiment_config_path.stem
     run_name = base_name
     suffix = 1
 

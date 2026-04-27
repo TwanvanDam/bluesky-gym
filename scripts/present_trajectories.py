@@ -85,10 +85,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     background_map_path = eval_details["map_path"] or DEFAULT_BACKGROUND_MAP_PATH
     map_config = TiffMapSourceConfig(file_path=background_map_path)
 
-    safe_run_name = run_name.replace("/", "_").replace(":", "-")
-    safe_runway = runway.replace("/", "_")
-    map_label = "with_map" if agent_used_map else "no_map"
-    save_path = traj_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
+    save_path = traj_dir / f"plot.png"
 
     if save_path.exists():
         print(f"Plot already exists, skipping: {save_path}")
