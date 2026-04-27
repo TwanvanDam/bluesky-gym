@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 from stable_baselines3 import SAC
 
-from bluesky_gym.envs.common.environment_factory import load_env_from_config
+from bluesky_gym.envs.common.environment_factory import build_env
 from scripts.common.logger import TensorboardCallback
 from scripts.common.run_paths import RunPaths, write_metadata, update_metadata
 from scripts.config import ExperimentConfig
@@ -57,7 +57,7 @@ def train_model(experiment_config_path: Path, slurm_job_id: str | None = None,
                 slurm_log_out: str | None = None, slurm_log_err: str | None = None):
     experiment_config = ExperimentConfig.load(experiment_config_path)
 
-    env, env_name = load_env_from_config(experiment_config=experiment_config)
+    env, env_name = build_env(experiment_config)
     run_name = _generate_unique_run_name(experiment_config_path, env_name)
     experiment_config.run_name = run_name
 

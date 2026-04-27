@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import gymnasium as gym
 from gymnasium.wrappers import RescaleAction
 from stable_baselines3 import SAC
@@ -15,62 +13,65 @@ from scripts.config import ExperimentConfig
 from scripts.feature_extractors import CombinedExtractor
 
 
-def load_env_from_config(experiment_config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
-    env = BaseNavigationEnv(config=experiment_config.navigation_config, render_mode=render_mode)
-    # TODO add random seed so training runs have a consistent starting point and training is deterministic.
-
-    if experiment_config.navigation_config.use_sin_cos_obs:
+def _apply_wrappers(env: gym.Env, config: ExperimentConfig) -> tuple[gym.Env, str]:
+    """Apply the full wrapper stack in order. Returns (wrapped_env, env_name)."""
+    if config.navigation_config.use_sin_cos_obs:
         env = SinCosNormalization(env)
-
-    if experiment_config.navigation_config.normalize_distance_obs:
-        env = DistanceNormalization(env, normalization_factor=experiment_config.navigation_config.normalize_distance_obs)
-
+    if config.navigation_config.normalize_distance_obs:
+        env = DistanceNormalization(env, normalization_factor=config.navigation_config.normalize_distance_obs)
     env = RescaleAction(env, min_action=-1.0, max_action=1.0)
+    if config.population_config:
+        env = Population(env, config=config.population_config)
+        if config.population_config.observation_normalization:
+            env = MapObservationNormalizer(env, mode=config.population_config.observation_normalization)
+        return env, "PopulationWrapper-v0"
+    return env, "BaseNavigationEnv-v0"
 
-    if experiment_config.population_config:
-        env = Population(env, config=experiment_config.population_config)
-        if experiment_config.population_config.observation_normalization:
-            env = MapObservationNormalizer(env, mode=experiment_config.population_config.observation_normalization)
-        env_name = "PopulationWrapper-v0"
-    else:
-        env_name = "BaseNavigationEnv-v0"
 
-    return env, env_name
+def build_env(config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
+    """Build and wrap the environment from an ExperimentConfig."""
+    env = BaseNavigationEnv(config=config.navigation_config, render_mode=render_mode)
+    return _apply_wrappers(env, config)
 
-def load_env_and_model(run: str | RunPaths, render_mode: str | None = "human", map_config: MapSourceConfigType | None = None) -> tuple[gym.Env, SAC]:
-    run_paths = resolve_run(run) if isinstance(run, str) else run
-    print(run_paths)
-    experiment_config = ExperimentConfig.load(run_paths.config)
 
-    # Override map source config if provided
-    if map_config and experiment_config.population_config:
-        experiment_config.population_config.map_source_config = map_config
-
-    env, _ = load_env_from_config(experiment_config=experiment_config, render_mode=render_mode)
-
-    # Build policy_kwargs from config so the architecture matches the config
-    # (not the potentially stale kwargs baked into the checkpoint).
-    agent_config = experiment_config.agent_config
+def _load_model(run_paths: RunPaths, env: gym.Env, config: ExperimentConfig) -> SAC:
+    """Load a SAC model from a run directory, falling back to the latest checkpoint."""
+    if config.agent_config.algorithm != "SAC":
+        raise NotImplementedError(f"Algorithm {config.agent_config.algorithm!r} is not supported.")
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "features_extractor_kwargs": {"config": agent_config.feature_extractor},
-        "net_arch": agent_config.network_arch,
+        "features_extractor_kwargs": {"config": config.agent_config.feature_extractor},
+        "net_arch": config.agent_config.network_arch,
     }
     custom_objects = {"policy_kwargs": policy_kwargs}
+    try:
+        return SAC.load(run_paths.model, env=env, device='auto', custom_objects=custom_objects)
+    except FileNotFoundError:
+        latest = run_paths.latest_checkpoint()
+        if latest:
+            print(f"Final model not found. Loading latest checkpoint: {latest}")
+            return SAC.load(latest, env=env, device='auto', custom_objects=custom_objects)
+        raise FileNotFoundError(f"No model or checkpoints found for run {run_paths.run_id}")
 
-    if experiment_config.agent_config.algorithm == "SAC":
-        try:
-            model = SAC.load(run_paths.model, env=env, device='auto', custom_objects=custom_objects)
-        except FileNotFoundError:
-            latest = run_paths.latest_checkpoint()
-            if latest:
-                print(f"Final model not found. Loading latest checkpoint: {latest}")
-                model = SAC.load(latest, env=env, device='auto', custom_objects=custom_objects)
-            else:
-                raise FileNotFoundError(
-                    f"No model or checkpoints found for run {run_paths.run_id}"
-                )
-    else:
-        raise NotImplementedError
 
+def load_env_and_model(
+    run: str | RunPaths,
+    render_mode: str | None = "human",
+    map_config: MapSourceConfigType | None = None,
+) -> tuple[gym.Env, SAC]:
+    """Load a trained model and its environment from a run directory.
+
+    Args:
+        run: Run path, run_id string, or RunPaths object.
+        render_mode: Passed to the base environment.
+        map_config: Optional map source override; replaces the config's map_source_config
+                    without mutating the on-disk config.
+    """
+    run_paths = resolve_run(run) if isinstance(run, str) else run
+    config = ExperimentConfig.load(run_paths.config)
+    if map_config and config.population_config:
+        pop_config = config.population_config.model_copy(update={"map_source_config": map_config})
+        config = config.model_copy(update={"population_config": pop_config})
+    env, _ = build_env(config, render_mode)
+    model = _load_model(run_paths, env, config)
     return env, model
