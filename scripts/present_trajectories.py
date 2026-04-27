@@ -2,25 +2,27 @@ import argparse
 import pickle
 from pathlib import Path
 
+import bluesky as bs
 import numpy as np
 import pandas as pd
 import pyproj
 from bluesky.tools.position import Position
 from matplotlib import pyplot as plt
 from rasterio.plot import plotting_extent
-import bluesky as bs
+from tqdm import tqdm
+
 from bluesky_gym.maps.map_datasets import MapSourceConfigType, TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from scripts.common.run_paths import resolve_run, RunPaths
-from tqdm import tqdm
+
 
 def plot_trajectories(
-    trajectories: pd.DataFrame,
-    map_config: MapSourceConfigType,
-    runway: str = "EHAM/RW27",
-    run_name: str = "",
-    has_map: bool = False,
-    save_path: Path | None = None,
+        trajectories: pd.DataFrame,
+        map_config: MapSourceConfigType,
+        runway: str = "EHAM/RW27",
+        run_name: str = "",
+        has_map: bool = False,
+        save_path: Path | None = None,
 ):
     map_source = TiffMapSourceConfig(file_path=map_config.file_path).build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
@@ -29,7 +31,8 @@ def plot_trajectories(
     coordinate_transformer = pyproj.Transformer.from_crs("WGS84", raster_sampler.destination_crs, always_xy=True)
     destination_xy = coordinate_transformer.transform(destination.lon, destination.lat)
 
-    trajectories["x"], trajectories["y"] = coordinate_transformer.transform(trajectories["lon"].values, trajectories["lat"].values)
+    trajectories["x"], trajectories["y"] = coordinate_transformer.transform(trajectories["lon"].values,
+                                                                            trajectories["lat"].values)
 
     x_min = - 25_000 + trajectories["x"].min()
     x_max = 25_000 + trajectories["x"].max()
@@ -37,7 +40,8 @@ def plot_trajectories(
     y_max = 25_000 + trajectories["y"].max()
 
     background = raster_sampler.get_background(x_min, y_min, x_max, y_max, width=512, height=512)
-    background_transform = raster_sampler.get_dst_transform_from_bounds(x_min, y_min, x_max, y_max, width=512, height=512)
+    background_transform = raster_sampler.get_dst_transform_from_bounds(x_min, y_min, x_max, y_max, width=512,
+                                                                        height=512)
     extent = plotting_extent(background, background_transform)
 
     plt.imshow(background, extent=extent, origin="upper", cmap="Blues", vmin=0, vmax=np.nanpercentile(background, 99))
@@ -47,7 +51,8 @@ def plot_trajectories(
 
     for start_angle, group in trajectories.groupby("start_angle"):
         plt.plot(group["x"], group["y"], color="black")
-        plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green", label="Start" if start_angle == trajectories["start_angle"].min() else "")
+        plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green",
+                 label="Start" if start_angle == trajectories["start_angle"].min() else "")
     map_label = "with map" if has_map else "no map"
     plt.title(f"{run_name} | runway: {runway} | {map_label}")
     plt.xlabel("X Coordinate (meters)")
@@ -56,6 +61,9 @@ def plot_trajectories(
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Figure saved to: {save_path}")
     plt.close()
+
+
+DEFAULT_BACKGROUND_MAP_PATH = Path(__file__).parent.parent / "population_maps" / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
 
 def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
@@ -68,12 +76,14 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
 
     df = pd.read_csv(csv_path)
     with open(details_path, "rb") as f:
-        trajectory_details = pickle.load(f)
+        eval_details = pickle.load(f)
 
-    run_name = trajectory_details.get("run_name", run_name)
-    runway = trajectory_details.get("runway", "EHAM/RW27")
-    has_map = trajectory_details.get("map_in_observation", False)
-    map_config = TiffMapSourceConfig(file_path=trajectory_details["map_path"])
+    runway = eval_details["runway"]
+    has_map = eval_details["map_path"] is not None
+    # Always use the real population map as the plot background, even for runs where
+    # the agent flew without a population map in its observation.
+    background_map_path = eval_details["map_path"] or DEFAULT_BACKGROUND_MAP_PATH
+    map_config = TiffMapSourceConfig(file_path=background_map_path)
 
     safe_run_name = run_name.replace("/", "_").replace(":", "-")
     safe_runway = runway.replace("/", "_")
