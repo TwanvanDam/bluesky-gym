@@ -8,7 +8,7 @@ from torch import nn
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 class LayerBaseConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 class ConvolutionLayerConfig(LayerBaseConfig):
     type: Literal["conv"] = "conv"
@@ -117,17 +117,21 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
     def build_cnn(self) -> None:
         cnn_layers = []
-        number_of_maps = len(self.map_keys)
-        self.config.cnn_layers[0].in_channels = number_of_maps
+
+        # input channels to first layer is equal to the number of maps
+        layer_in_channels = len(self.map_keys)
 
         for layer in self.config.cnn_layers:
             match layer.type:
                 case "conv":
-                    cnn_layers.append(nn.Conv2d(in_channels=layer.in_channels,
+                    cnn_layers.append(nn.Conv2d(in_channels=layer_in_channels,
                                                 out_channels=layer.out_channels,
                                                 kernel_size=layer.kernel_size,
                                                 stride=layer.stride,
                                                 padding=layer.padding))
+                    # input channels to next layers is equal to output channels of previous layer
+                    layer_in_channels = layer.out_channels
+
                 case "pooling":
                     match layer.mode:
                         case "max":
