@@ -27,7 +27,7 @@ class MapSourceConfig(BaseModel):
 
 class TiffMapSourceConfig(MapSourceConfig):
     type: Literal["tiff"] = "tiff"
-    file_path: str
+    file_path: str | Path
     source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
 
     def build(self) -> TiffMapSource:

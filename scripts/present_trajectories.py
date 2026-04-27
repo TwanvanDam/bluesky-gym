@@ -21,10 +21,10 @@ def plot_trajectories(
         map_config: MapSourceConfigType,
         runway: str = "EHAM/RW27",
         run_name: str = "",
-        has_map: bool = False,
+        agent_used_map: bool = False,
         save_path: Path | None = None,
 ):
-    map_source = TiffMapSourceConfig(file_path=map_config.file_path).build()
+    map_source = map_config.build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
     destination = Position(name=runway, reflat=0, reflon=0)
 
@@ -53,7 +53,7 @@ def plot_trajectories(
         plt.plot(group["x"], group["y"], color="black")
         plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green",
                  label="Start" if start_angle == trajectories["start_angle"].min() else "")
-    map_label = "with map" if has_map else "no map"
+    map_label = "with map" if agent_used_map else "no map"
     plt.title(f"{run_name} | runway: {runway} | {map_label}")
     plt.xlabel("X Coordinate (meters)")
     plt.ylabel("Y Coordinate (meters)")
@@ -63,7 +63,7 @@ def plot_trajectories(
     plt.close()
 
 
-DEFAULT_BACKGROUND_MAP_PATH = Path(__file__).parent.parent / "population_maps" / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
+DEFAULT_BACKGROUND_MAP_PATH = Path(__file__).parent / "population_maps" / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
 
 def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
@@ -79,7 +79,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
         eval_details = pickle.load(f)
 
     runway = eval_details["runway"]
-    has_map = eval_details["map_path"] is not None
+    agent_used_map = eval_details["map_path"] is not None
     # Always use the real population map as the plot background, even for runs where
     # the agent flew without a population map in its observation.
     background_map_path = eval_details["map_path"] or DEFAULT_BACKGROUND_MAP_PATH
@@ -87,14 +87,14 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
 
     safe_run_name = run_name.replace("/", "_").replace(":", "-")
     safe_runway = runway.replace("/", "_")
-    map_label = "with_map" if has_map else "no_map"
+    map_label = "with_map" if agent_used_map else "no_map"
     save_path = traj_dir / f"{safe_run_name}_{safe_runway}_{map_label}.png"
 
     if save_path.exists():
         print(f"Plot already exists, skipping: {save_path}")
         return
 
-    plot_trajectories(df, map_config, runway=runway, run_name=run_name, has_map=has_map, save_path=save_path)
+    plot_trajectories(df, map_config, runway=runway, run_name=run_name, agent_used_map=agent_used_map, save_path=save_path)
 
 
 def present_for_run(run_paths: RunPaths) -> None:
