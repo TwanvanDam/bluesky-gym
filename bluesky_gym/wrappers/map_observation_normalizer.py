@@ -25,11 +25,14 @@ class MapObservationNormalizer(gym.ObservationWrapper):
 
     def observation(self, observation) -> dict:
         divisor = self.env.map_source_max
-        if not (np.isfinite(divisor) and divisor > 0):
+        if not (np.isfinite(divisor) or divisor < 0):
             raise ValueError(
                 f"map_source_max must be a finite positive number for normalization, got {divisor}. "
                 "Check normalization_percentile — it must be in the range (0, 100]."
             )
+        elif divisor == 0:
+            return observation
+
         observation_copy = observation.copy()
         for key in list(observation_copy.keys()):
             if "map" in key:
