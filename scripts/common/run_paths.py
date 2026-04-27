@@ -98,7 +98,6 @@ class RunPaths:
             key=_extract_steps,
             reverse=True,
         )
-        print(f"Found checkpoints: {[p.name for p in checkpoints]}")
         return checkpoints[0] if checkpoints else None
 
     def create_dirs(self) -> None:
