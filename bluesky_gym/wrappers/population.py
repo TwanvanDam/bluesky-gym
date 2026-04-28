@@ -94,9 +94,14 @@ class Population(gym.Wrapper):
         # Reset noise tracking variables
         self.total_episode_noise = 0.0
         self.total_episode_noise_reward = 0.0
+
+        ac_alt = self.base_env.get_aircraft_altitude()
+        noise_kernel_shape_meters, noise_kernel_shape_pixels = self.noise_model.get_noise_power_kernel_shape_meters_and_pixels(ac_alt)
+        self.noise_kernel_observation = MapObservationConfig(shape=noise_kernel_shape_pixels, range=noise_kernel_shape_meters)
+
         self.mean_reference_noise = self.noise_model.calculate_mean_reference_noise(
             population_map=self.background_map,
-            altitude=self.base_env.get_aircraft_altitude(),
+            altitude=ac_alt,
         )
 
         if self.render_mode is not None:
@@ -156,20 +161,14 @@ class Population(gym.Wrapper):
                                                                  y_max=self.base_env.y_max,
                                                                  width=width,
                                                                  height=height)
-
     def _get_noise_reward(self) -> tuple[float, bool, TerminationReason]:
         ac_alt = self.base_env.get_aircraft_altitude()
         ac_pos = self.base_env.get_aircraft_position()
         sim_dt = self.base_env.sim_dt
 
-        noise_kernel_shape_meters, noise_kernel_shape_pixels = self.noise_model.get_noise_power_kernel_shape_meters_and_pixels(
-            ac_alt)
-        noise_kernel_observation = MapObservationConfig(shape=noise_kernel_shape_pixels,
-                                                        range=noise_kernel_shape_meters)
-
         population_map_extract = self.raster_sampler.get_observation_clipped(center_position=ac_pos,
                                                                              orientation=0,
-                                                                             observation_config=noise_kernel_observation)
+                                                                             observation_config=self.noise_kernel_observation)
 
         step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
                                                                        altitude=ac_alt,
