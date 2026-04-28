@@ -235,8 +235,6 @@ class Population(gym.Wrapper):
             return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max)
         elif normalization_mode in ["min_max", "min-max"]:
             return Normalize(vmin=v_min, vmax=v_max)
-        else:  # "none" or default
-            return Normalize(vmin=0, vmax=1)
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
         # Mask the area that has no data available ( negative population density )
