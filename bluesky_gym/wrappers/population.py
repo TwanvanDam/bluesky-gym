@@ -129,12 +129,6 @@ class Population(gym.Wrapper):
     def _inject_population_observation(self, observation: dict) -> dict:
         return {**observation, **self.population_observation}
 
-    @staticmethod
-    def _position_row_offset(obs_config: MapObservationConfig) -> float:
-        if obs_config.position == "forward":
-            return obs_config.shape[1] / 2
-        return 0.0
-
     def _update_population_observation(self) -> None:
         ac_pos = self.base_env.get_aircraft_position()
         ac_hdg = self.base_env.get_aircraft_heading()
