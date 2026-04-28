@@ -132,6 +132,7 @@ def main():
     # ------------------------------------------------------------------
     # Step 3: reproject
     # ------------------------------------------------------------------
+    out_nodata = -9999.0
     dst_data = np.full((1, dst_height, dst_width), nodata, dtype=src_dtype)
 
     reproject(
@@ -145,6 +146,13 @@ def main():
         dst_nodata=nodata,
         resampling=getattr(Resampling, args.resampling),
     )
+
+    # Pixels that stayed at the source nodata sentinel are outside coverage.
+    # Pixels with small negative values (e.g. -14) are interpolation artefacts
+    # at valid/nodata boundaries — clamp them to 0.
+    nodata_mask = dst_data[0] == nodata
+    dst_data[0] = np.clip(dst_data[0], 0, None)
+    dst_data[0][nodata_mask] = out_nodata
 
     # ------------------------------------------------------------------
     # Step 4: save as tiled, compressed GeoTIFF
@@ -162,7 +170,7 @@ def main():
         dtype=src_dtype,
         crs=dst_crs,
         transform=dst_transform,
-        nodata=nodata,
+        nodata=out_nodata,
         compress="lzw",
         predictor=2,        # horizontal differencing — good for float rasters
         tiled=True,
