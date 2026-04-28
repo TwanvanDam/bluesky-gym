@@ -46,9 +46,9 @@ def parse_args():
                    help="Output pixel size in metres. Defaults to source resolution.")
     p.add_argument("--bounds", nargs=4, type=float, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                    help="Clip output to this bounding box in the OUTPUT CRS.")
-    p.add_argument("--resampling", default="bilinear",
+    p.add_argument("--resampling", default="cubic_spline",
                    choices=[r.name for r in Resampling],
-                   help="Resampling method (default: bilinear).")
+                   help="Resampling method (default: cubic_spline).")
     return p.parse_args()
 
 
