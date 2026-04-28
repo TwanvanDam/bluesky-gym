@@ -1,6 +1,6 @@
 import itertools
 from enum import Enum
-from typing import Callable, Optional, Literal
+from typing import Callable, Optional, Literal, List
 
 import bluesky as bs
 import gymnasium as gym
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, ConfigDict
 import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.utils.sampling_config import SamplingConfig
+from bluesky_gym.utils.sampling_config import SamplingConfig, ExclusionZone
 
 
 class InitialConditionsSamplingConfig(BaseModel):
@@ -31,6 +31,8 @@ class InitialConditionsSamplingConfig(BaseModel):
     aircraft_position_mode: Literal["absolute", "relative"] = "relative"
     aircraft_lat_sampling: SamplingConfig
     aircraft_lon_sampling: SamplingConfig
+
+    exclusion_zones: Optional[List[ExclusionZone]]
 
 
 class NavigationConfig(BaseModel):
@@ -444,9 +446,16 @@ class BaseNavigationEnv(gym.Env):
     def _generate_airport(self, np_random: np.random.Generator, options: dict) -> Position:
         map_sampling_config = self.config.map_sampling_config
 
-        destination_lat = options.get("destination_lat", map_sampling_config.destination_lat_sampling.sample(np_random))
-        destination_lon = options.get("destination_lon", map_sampling_config.destination_lon_sampling.sample(np_random))
-        destination_hdg = options.get("destination_hdg", map_sampling_config.destination_hdg_sampling.sample(np_random))
+        while True:
+            destination_lat = options.get("destination_lat", map_sampling_config.destination_lat_sampling.sample(np_random))
+            destination_lon = options.get("destination_lon", map_sampling_config.destination_lon_sampling.sample(np_random))
+            destination_hdg = options.get("destination_hdg", map_sampling_config.destination_hdg_sampling.sample(np_random))
+
+            if not map_sampling_config.exclusion_zones:
+                break
+
+            elif all(not zone.contains(destination_lat, destination_lon) for zone in map_sampling_config.exclusion_zones):
+                break
 
         return bs_position(lat=destination_lat,
                            lon=destination_lon,

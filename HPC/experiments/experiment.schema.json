@@ -86,6 +86,30 @@
       "title": "DropoutLayerConfig",
       "type": "object"
     },
+    "ExclusionZone": {
+      "additionalProperties": false,
+      "properties": {
+        "lat": {
+          "title": "Lat",
+          "type": "number"
+        },
+        "lon": {
+          "title": "Lon",
+          "type": "number"
+        },
+        "radius_km": {
+          "title": "Radius Km",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lat",
+        "lon",
+        "radius_km"
+      ],
+      "title": "ExclusionZone",
+      "type": "object"
+    },
     "FeatureExtractorConfig": {
       "properties": {
         "cnn_layers": {
@@ -348,6 +372,20 @@
             }
           ],
           "title": "Aircraft Lon Sampling"
+        },
+        "exclusion_zones": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ExclusionZone"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exclusion Zones"
         }
       },
       "required": [
@@ -355,7 +393,8 @@
         "destination_lon_sampling",
         "destination_hdg_sampling",
         "aircraft_lat_sampling",
-        "aircraft_lon_sampling"
+        "aircraft_lon_sampling",
+        "exclusion_zones"
       ],
       "title": "InitialConditionsSamplingConfig",
       "type": "object"
@@ -670,6 +709,13 @@
           "title": "Resampling",
           "type": "string"
         },
+        "normalization_percentile": {
+          "default": 99.9,
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Normalization Percentile",
+          "type": "number"
+        },
         "observation_normalization": {
           "default": "log",
           "enum": [
@@ -807,8 +853,16 @@
           "type": "string"
         },
         "file_path": {
-          "title": "File Path",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "path",
+              "type": "string"
+            }
+          ],
+          "title": "File Path"
         },
         "source_unit": {
           "default": "people_per_pixel",
