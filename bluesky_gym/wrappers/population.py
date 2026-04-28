@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, List, Tuple, Literal
+from typing import Callable, List, Literal
 
 import gymnasium as gym
 import matplotlib
@@ -8,20 +8,20 @@ import pygame
 from affine import Affine
 from gymnasium import spaces
 from matplotlib.colors import Normalize, FuncNorm
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationReason
 from bluesky_gym.maps.map_sources import MapSourceConfigType
-from bluesky_gym.maps.raster_sampler import RasterSampler
+from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
 
 class PopulationConfig(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', frozen=True)
     noise_model_config: NoiseConfig = Field(default_factory=NoiseConfig)
     map_source_config: MapSourceConfigType
-    observation_shape: List[Tuple[int, int]] = Field(default_factory=lambda: [(64, 64)])  # [px, px]
-    observation_range: List[Tuple[int, int]] = Field(default_factory=lambda: [(100_000, 100_000)])  # [m, m]
+
+    map_observation_configs: List[MapObservationConfig]
 
     # Fuel weight determines how much the noise penalty should factor into the overall reward, with 1.0 meaning only fuel consumption matters and 0.0 meaning only noise matters.
     # This allows for easy tuning of the reward function to find the right balance between fuel efficiency and noise reduction.
@@ -50,8 +50,7 @@ class Population(gym.Wrapper):
         self.mean_reference_noise: float = np.nan
 
         self.window = None
-        self.observation_shape = config.observation_shape
-        self.observation_range = config.observation_range
+        self.observation_configs = config.map_observation_configs
         self.population_observation = None
 
         # cache the map used as background since it does not change often.
@@ -60,8 +59,9 @@ class Population(gym.Wrapper):
         self.render_normalizer: Normalize | None = None
 
         assert isinstance(self.env.observation_space, spaces.Dict)
-        maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=shape, dtype=np.float64) for i, shape in
-                enumerate(self.observation_shape)}
+        maps = {f"population_map_{i}": spaces.Box(low=0, high=np.inf, shape=observation_config.shape, dtype=np.float64)
+                for i, observation_config in
+                enumerate(self.observation_configs)}
 
         self.observation_space = spaces.Dict({
             **self.env.observation_space.spaces,
@@ -129,13 +129,19 @@ class Population(gym.Wrapper):
     def _inject_population_observation(self, observation: dict) -> dict:
         return {**observation, **self.population_observation}
 
+    @staticmethod
+    def _position_row_offset(obs_config: MapObservationConfig) -> float:
+        if obs_config.position == "forward":
+            return obs_config.shape[1] / 2
+        return 0.0
+
     def _update_population_observation(self) -> None:
         ac_pos = self.base_env.get_aircraft_position()
         ac_hdg = self.base_env.get_aircraft_heading()
         observations = {f"population_map_{i}":
-            self.raster_sampler.get_observation_clipped(center_position=ac_pos, orientation=ac_hdg, out_shape=obs_shape,
-                                                        out_meters=obs_range) for
-            i, (obs_shape, obs_range) in enumerate(zip(self.observation_shape, self.observation_range))}
+                            self.raster_sampler.get_observation_clipped(center_position=ac_pos, orientation=ac_hdg,
+                                                                        observation_config=observation_config) for
+                        i, observation_config in enumerate(self.observation_configs)}
         self.population_observation = observations
 
     def get_background(self):
@@ -164,18 +170,19 @@ class Population(gym.Wrapper):
 
         noise_kernel_shape_meters, noise_kernel_shape_pixels = self.noise_model.get_noise_power_kernel_shape_meters_and_pixels(
             ac_alt)
+        noise_kernel_observation = MapObservationConfig(shape=noise_kernel_shape_pixels,
+                                                        range=noise_kernel_shape_meters)
 
         population_map_extract = self.raster_sampler.get_observation_clipped(center_position=ac_pos,
                                                                              orientation=0,
-                                                                             out_shape=noise_kernel_shape_pixels,
-                                                                             out_meters=noise_kernel_shape_meters)
+                                                                             observation_config=noise_kernel_observation)
 
         step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
                                                                        altitude=ac_alt,
                                                                        mean_reference_noise=self.mean_reference_noise,
                                                                        sim_dt=sim_dt)
         noise_penalty = - (
-                    1 - self.base_env.fuel_weight) * step_normalized_noise * self.base_env.dense_reward_scaling
+                1 - self.base_env.fuel_weight) * step_normalized_noise * self.base_env.dense_reward_scaling
 
         self.total_episode_noise += step_normalized_noise
         self.total_episode_noise_reward += noise_penalty
@@ -203,8 +210,10 @@ class Population(gym.Wrapper):
 
     def _get_panel_sizes(self) -> list[tuple[int, int]]:
         y_size = self.base_env.window_size[1]
-        return [(int((obs_range[0] / obs_range[1]) * self.base_env.window_size[0]), y_size) for obs_range in
-                self.observation_range]
+        return [
+            (int((observation_config.range[0] / observation_config.range[1]) * self.base_env.window_size[0]), y_size)
+            for observation_config in
+            self.observation_configs]
 
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
@@ -217,7 +226,7 @@ class Population(gym.Wrapper):
         ]
 
     def get_panel_render_layers(self) -> list[Callable]:
-        return [partial(self._render_array, render_size=size,array=observation) for size, observation in
+        return [partial(self._render_array, render_size=size, array=observation) for size, observation in
                 zip(self._get_panel_sizes(), self.population_observation.values())]
 
     def _get_normalization(self) -> Normalize:
@@ -258,12 +267,9 @@ class Population(gym.Wrapper):
     def _draw_box_around_aircraft(self, canvas):
         ac_pos = self.base_env.get_aircraft_position()
         ac_hdg = self.base_env.get_aircraft_heading()
-        for obs_shape, obs_range in zip(self.observation_shape, self.observation_range):
+        for observation_config in self.observation_configs:
             corners = self.raster_sampler.get_view_corners(center_position=ac_pos,
                                                            orientation=ac_hdg,
-                                                           out_shape=obs_shape,
-                                                           out_meters=obs_range)
+                                                           observation_config=observation_config)
             corners = [self.base_env.meters_to_pix(corner) for corner in corners]
             pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
-
-

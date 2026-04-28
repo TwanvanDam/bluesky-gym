@@ -431,6 +431,54 @@
       "title": "LinearLayerConfig",
       "type": "object"
     },
+    "MapObservationConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "shape": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Shape",
+          "type": "array"
+        },
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "position": {
+          "default": "centered",
+          "enum": [
+            "centered",
+            "forward"
+          ],
+          "title": "Position",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shape",
+        "range"
+      ],
+      "title": "MapObservationConfig",
+      "type": "object"
+    },
     "NavigationConfig": {
       "additionalProperties": false,
       "properties": {
@@ -654,38 +702,11 @@
           ],
           "title": "Map Source Config"
         },
-        "observation_shape": {
+        "map_observation_configs": {
           "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "type": "array"
+            "$ref": "#/$defs/MapObservationConfig"
           },
-          "title": "Observation Shape",
-          "type": "array"
-        },
-        "observation_range": {
-          "items": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "type": "array"
-          },
-          "title": "Observation Range",
+          "title": "Map Observation Configs",
           "type": "array"
         },
         "fuel_weight": {
@@ -728,7 +749,8 @@
         }
       },
       "required": [
-        "map_source_config"
+        "map_source_config",
+        "map_observation_configs"
       ],
       "title": "PopulationConfig",
       "type": "object"

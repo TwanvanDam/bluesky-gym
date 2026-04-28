@@ -14,19 +14,19 @@ import argparse
 import pickle
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import bluesky as bs
 import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyproj
-import bluesky as bs
 from bluesky.tools.position import Position
 from rasterio.plot import plotting_extent
 
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
-from bluesky_gym.maps.raster_sampler import RasterSampler
-from bluesky_gym.metrics.noise_model import NoiseConfig
+from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.fuel_model import FuelModel
+from bluesky_gym.metrics.noise_model import NoiseConfig
 from scripts.common.run_paths import resolve_run, RunPaths
 
 MAP_PATH = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
@@ -48,9 +48,10 @@ def build_metric_fn():
     def _noise(lat, lon, altitude, sim_dt):
         pos = Position(name=f"{lat},{lon}", reflat=0, reflon=0)
         k_m, k_px = noise_model.get_noise_power_kernel_shape_meters_and_pixels(altitude)
-        pop = raster_sampler.get_observation_clipped(
-            center_position=pos, orientation=0, out_meters=k_m, out_shape=k_px
-        )
+
+        noise_kernel_map_extract_config = MapObservationConfig(shape=k_px, range=k_m)
+        pop = raster_sampler.get_observation_clipped(center_position=pos, orientation=0,
+                                                     observation_config=noise_kernel_map_extract_config)
         return noise_model.step_total_noise(pop, altitude, sim_dt)
 
     def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -73,12 +74,12 @@ def _load(csv_path: Path, calculate_metrics) -> pd.DataFrame:
 
 
 def _add_trajectory_overlay(
-    ax: plt.Axes,
-    df_a: pd.DataFrame,
-    df_b: pd.DataFrame,
-    label_a: str,
-    label_b: str,
-    details: dict,
+        ax: plt.Axes,
+        df_a: pd.DataFrame,
+        df_b: pd.DataFrame,
+        label_a: str,
+        label_b: str,
+        details: dict,
 ) -> None:
     """Overlay trajectories from two runs on the population map."""
     map_path = details.get("map_path", MAP_PATH)
@@ -100,9 +101,10 @@ def _add_trajectory_overlay(
     print(f"{label_b} starting positions (x, y): {df_b.groupby('start_angle').first()[['x', 'y']].values}")
     print(f"{label_a} end positions (x, y): {df_a.groupby('start_angle').last()[['x', 'y']].values}")
     print(f"{label_b} end positions (x, y): {df_b.groupby('start_angle').last()[['x', 'y']].values}")
-    print(f"{label_a} destination start to end distances (m): {np.sqrt((df_a.groupby('start_angle').first()['x'] - dest_xy[0])**2 + (df_a.groupby('start_angle').first()['y'] - dest_xy[1])**2).values}")
-    print(f"{label_b} destination start to end distances (m): {np.sqrt((df_b.groupby('start_angle').first()['x'] - dest_xy[0])**2 + (df_b.groupby('start_angle').first()['y'] - dest_xy[1])**2).values}")
-
+    print(
+        f"{label_a} destination start to end distances (m): {np.sqrt((df_a.groupby('start_angle').first()['x'] - dest_xy[0]) ** 2 + (df_a.groupby('start_angle').first()['y'] - dest_xy[1]) ** 2).values}")
+    print(
+        f"{label_b} destination start to end distances (m): {np.sqrt((df_b.groupby('start_angle').first()['x'] - dest_xy[0]) ** 2 + (df_b.groupby('start_angle').first()['y'] - dest_xy[1]) ** 2).values}")
 
     x_min = all_x.min() - 25_000
     x_max = all_x.max() + 25_000
@@ -120,7 +122,7 @@ def _add_trajectory_overlay(
     ax.scatter(*dest_xy, marker="x", s=60, color="black", zorder=5)
 
     for i, (df, color, label) in enumerate(
-        [(df_a, "tab:orange", label_a), (df_b, "limegreen", label_b)]
+            [(df_a, "tab:orange", label_a), (df_b, "limegreen", label_b)]
     ):
         for j, (_, group) in enumerate(df.groupby("start_angle")):
             ax.plot(group["x"], group["y"], color=color, linewidth=2.0,
@@ -183,12 +185,12 @@ def _save_fig(fig, path: Path) -> None:
 
 
 def _plot_comparison(
-    csv_a: Path,
-    csv_b: Path,
-    label_a: str,
-    label_b: str,
-    save_path: Path,
-    calculate_metrics,
+        csv_a: Path,
+        csv_b: Path,
+        label_a: str,
+        label_b: str,
+        save_path: Path,
+        calculate_metrics,
 ) -> None:
     df_a = _load(csv_a, calculate_metrics)
     df_b = _load(csv_b, calculate_metrics)
