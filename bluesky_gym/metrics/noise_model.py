@@ -64,12 +64,8 @@ class NoiseModel:
         noise_power = np.clip(noise_power, self.cutoff_noise_power, None)
         return noise_power
 
-    def calculate_mean_reference_noise(self, population_map: np.ndarray, altitude: float) -> float:
+    def calculate_mean_reference_noise(self, mean_population_density: float, altitude: float) -> float:
         """Calculate the mean reference noise power across the entire population map at a given altitude."""
-        population_map = np.where(np.isnan(population_map), 0, population_map)  # Treat NaNs as zero population
-        population_map = np.clip(population_map, 0, None)  # Ensure no negative population values
-
-        mean_population_density = float(np.mean(population_map))
         noise_power_kernel = self.get_noise_power_kernel(altitude)
 
         mean_noise_power = float(np.sum(mean_population_density * noise_power_kernel))

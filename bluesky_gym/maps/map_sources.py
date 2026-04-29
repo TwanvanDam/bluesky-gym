@@ -162,6 +162,7 @@ class TiffMapSource(MapSource):
         self._dataset = rasterio.open(filepath)
         self.refresh_conversion_factor()
         self._norm_cache: dict[float, float] = {}
+        self._mean_cache: float | None = None
 
     @property
     def crs(self):
@@ -174,6 +175,12 @@ class TiffMapSource(MapSource):
     @property
     def dataset(self):
         return self._dataset
+    @property
+    def mean_value(self) -> float:
+        if not self._mean_cache:
+            data = self._dataset.read(1).astype(np.float64)
+            self._mean_cache = float(np.mean(self._filter_valid_data(data))) * self.conversion_factor
+        return self._mean_cache
 
     def get_normalization_value(self, percentile: float) -> float:
         if percentile not in self._norm_cache:
@@ -221,6 +228,11 @@ class RandomMapSource(MapSource):
     def get_normalization_value(self, percentile: float) -> float:
         data = self._dataset.read(1).astype(np.float64)
         return float(np.percentile(self._filter_valid_data(data), percentile)) * self.conversion_factor
+
+    @property
+    def mean_value(self) -> float:
+        data = self._dataset.read(1).astype(np.float64)
+        return float(np.mean(self._filter_valid_data(data))) * self.conversion_factor
 
     def regenerate(self, rng: np.random.Generator | None = None):
         new_transform, new_shape, new_range = compute_random_map_layout(self._env, self._resolution_m)

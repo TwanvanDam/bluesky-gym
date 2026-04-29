@@ -100,7 +100,7 @@ class Population(gym.Wrapper):
         self.noise_kernel_observation = MapObservationConfig(shape=noise_kernel_shape_pixels, range=noise_kernel_shape_meters)
 
         self.mean_reference_noise = self.noise_model.calculate_mean_reference_noise(
-            population_map=self.background_map,
+            mean_population_density=self.map_source.mean_value,
             altitude=ac_alt,
         )
 
