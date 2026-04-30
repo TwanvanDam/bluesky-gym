@@ -97,7 +97,7 @@ navigation_config:
       high: 55
 population_config:
   normalization_percentile: 99.9
-  fuel_weight: 0.125
+  fuel_weight: 0.5
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
@@ -111,16 +111,16 @@ population_config:
   observation_normalization: log
   map_observation_configs:
     - range:
-        - 300000
-        - 300000
+        - 256000
+        - 256000
       shape:
         - 16
         - 16
-      position: centered
+      position: forward
   resampling: cubic_spline
 training_config:
   batch_size: 256
   buffer_size: 1000000
   learning_rate: 0.0003
-  save_frequency: 25000
-  total_timesteps: 100000
+  save_frequency: 100000
+  total_timesteps: 1000000
