@@ -12,38 +12,85 @@
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
-# Runs up to 6 RL experiments in parallel on a single GPU using
-# shell backgrounding. Arguments are config/seed pairs.
+# Runs RL experiments in parallel on a single GPU (up to 6 at a time).
+# All seeds are run for every config (cartesian product).
 #
 # Usage:
-#   sbatch HPC/run_parallel.sbatch config1.yaml seed1 config2.yaml seed2 ...
-#
-# For sweeps, use make_sweep.py to batch and submit automatically:
-#   python HPC/make_sweep.py --configs cfg1.yaml cfg2.yaml --seeds 0 1 2 --submit
+#   sbatch HPC/run_parallel.sbatch --seeds 0,1,2 --configs config1.yaml config2.yaml
+#   sbatch HPC/run_parallel.sbatch --seeds=0,1,2 --configs config1.yaml config2.yaml
 # ─────────────────────────────────────────────────────────────
 
 echo "=========================================="
 echo "Job ID       : $SLURM_JOB_ID"
 echo "Node         : $(hostname)"
-echo "Args given   : $#"
 echo "Start time   : $(date)"
 echo "=========================================="
 
-# ── Validation ───────────────────────────────────────────────
-if [ "$#" -eq 0 ]; then
-    echo "ERROR: No arguments provided."
-    echo "Usage: sbatch $0 config1.yaml seed1 config2.yaml seed2 ..."
+# ── Parse arguments ───────────────────────────────────────────
+SEEDS=()
+CONFIGS=()
+
+i=1
+while [ $i -le $# ]; do
+    arg="${!i}"
+    case "$arg" in
+        --seeds=*)
+            val="${arg#--seeds=}"
+            val="${val//[\[\]]/}"  # strip optional [ ] brackets
+            IFS=',' read -ra SEEDS <<< "$val"
+            i=$((i+1))
+            ;;
+        --seeds)
+            i=$((i+1))
+            val="${!i}"
+            val="${val//[\[\]]/}"
+            IFS=',' read -ra SEEDS <<< "$val"
+            i=$((i+1))
+            ;;
+        --configs)
+            i=$((i+1))
+            while [ $i -le $# ] && [[ "${!i}" != --* ]]; do
+                CONFIGS+=("${!i}")
+                i=$((i+1))
+            done
+            ;;
+        *)
+            echo "WARNING: Unknown argument: $arg"
+            i=$((i+1))
+            ;;
+    esac
+done
+
+if [ ${#SEEDS[@]} -eq 0 ]; then
+    echo "ERROR: No seeds provided."
+    echo "Usage: sbatch $0 --seeds 0,1,2 --configs config1.yaml config2.yaml"
     exit 1
 fi
 
-if [ $(($# % 2)) -ne 0 ]; then
-    echo "ERROR: Arguments must be config/seed pairs (got $# args, expected an even number)."
+if [ ${#CONFIGS[@]} -eq 0 ]; then
+    echo "ERROR: No configs provided."
+    echo "Usage: sbatch $0 --seeds 0,1,2 --configs config1.yaml config2.yaml"
     exit 1
 fi
 
-NPAIRS=$(($# / 2))
+# ── Build pairs (all configs × all seeds) ────────────────────
+PAIR_CONFIGS=()
+PAIR_SEEDS=()
+for CONFIG in "${CONFIGS[@]}"; do
+    for SEED in "${SEEDS[@]}"; do
+        PAIR_CONFIGS+=("$CONFIG")
+        PAIR_SEEDS+=("$SEED")
+    done
+done
+
+NPAIRS=${#PAIR_CONFIGS[@]}
+echo "Configs      : ${CONFIGS[*]}"
+echo "Seeds        : ${SEEDS[*]}"
+echo "Total runs   : $NPAIRS"
+echo "=========================================="
+
 if [ "$NPAIRS" -gt 6 ]; then
-    echo "WARNING: More than 6 pairs provided ($NPAIRS). Only the first 6 will be run."
+    echo "WARNING: More than 6 pairs ($NPAIRS). Only the first 6 will run in this job."
 fi
 
 PROJECT_DIR=$(pwd)
@@ -56,18 +103,16 @@ fi
 
 mkdir -p HPC/logs/out HPC/logs/err
 
-# ── Run ──────────────────────────────────────────────────────
-ARGS=("$@")
+# ── Launch experiments ────────────────────────────────────────
 COUNT=0
-i=0
-while [ $i -lt ${#ARGS[@]} ] && [ $COUNT -lt 6 ]; do
-    CONFIG="${ARGS[$i]}"
-    SEED="${ARGS[$((i+1))]}"
+for idx in "${!PAIR_CONFIGS[@]}"; do
+    [ $COUNT -ge 6 ] && break
+    CONFIG="${PAIR_CONFIGS[$idx]}"
+    SEED="${PAIR_SEEDS[$idx]}"
     BASENAME=$(basename "$CONFIG" .yaml)
     RUNNAME="${BASENAME}_seed${SEED}"
 
     echo "Launching: $RUNNAME"
-    echo "Logs -> HPC/logs/out/${RUNNAME}_${SLURM_JOB_ID}.out"
 
     apptainer exec --nv \
         --bind "${PROJECT_DIR}:/workspace" \
@@ -82,7 +127,6 @@ while [ $i -lt ${#ARGS[@]} ] && [ $COUNT -lt 6 ]; do
         2>"HPC/logs/err/${RUNNAME}_${SLURM_JOB_ID}.err" &
 
     sleep 2
-    i=$((i+2))
     COUNT=$((COUNT+1))
 done
 
