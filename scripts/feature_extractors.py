@@ -45,7 +45,7 @@ CNN_LayerConfig = Annotated[Union[ConvolutionLayerConfig, GlobalPoolingLayerConf
 Vector_LayerConfig = Annotated[Union[LinearLayerConfig, ActivationLayerConfig, DropoutLayerConfig], Field(discriminator="type")]
 
 class FeatureExtractorConfig(BaseModel):
-    cnn_layers: List[CNN_LayerConfig]
+    cnn_layers: Optional[List[CNN_LayerConfig]]
     vector_layer_sizes: Optional[List[Vector_LayerConfig]] = None
 
 class CombinedExtractor(BaseFeaturesExtractor):
@@ -77,6 +77,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self._features_dim += self.get_vector_output_dim(observation_space)
 
     def get_cnn_output_dim(self, observation_space: Dict) -> int:
+        if not self.config.cnn_layers:
+            return 0
         map_shape = observation_space.spaces[self.map_keys[0]].shape
         if not all(observation_space.spaces[map_key].shape == map_shape for map_key in self.map_keys):
             raise NotImplementedError("Maps with varying sizes are not supported currently.")
@@ -116,6 +118,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self.vector_network = nn.Sequential(*vector_layers)
 
     def build_cnn(self) -> None:
+        if not self.config.cnn_layers:
+            return
         cnn_layers = []
 
         # input channels to first layer is equal to the number of maps

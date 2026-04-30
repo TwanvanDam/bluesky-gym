@@ -113,43 +113,50 @@
     "FeatureExtractorConfig": {
       "properties": {
         "cnn_layers": {
-          "items": {
-            "discriminator": {
-              "mapping": {
-                "ReLU": "#/$defs/ActivationLayerConfig",
-                "Sigmoid": "#/$defs/ActivationLayerConfig",
-                "Tanh": "#/$defs/ActivationLayerConfig",
-                "conv": "#/$defs/ConvolutionLayerConfig",
-                "dropout": "#/$defs/DropoutLayerConfig",
-                "global_pooling": "#/$defs/GlobalPoolingLayerConfig",
-                "linear": "#/$defs/LinearLayerConfig",
-                "pooling": "#/$defs/PoolingLayerConfig"
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "ReLU": "#/$defs/ActivationLayerConfig",
+                    "Sigmoid": "#/$defs/ActivationLayerConfig",
+                    "Tanh": "#/$defs/ActivationLayerConfig",
+                    "conv": "#/$defs/ConvolutionLayerConfig",
+                    "dropout": "#/$defs/DropoutLayerConfig",
+                    "global_pooling": "#/$defs/GlobalPoolingLayerConfig",
+                    "linear": "#/$defs/LinearLayerConfig",
+                    "pooling": "#/$defs/PoolingLayerConfig"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/ConvolutionLayerConfig"
+                  },
+                  {
+                    "$ref": "#/$defs/GlobalPoolingLayerConfig"
+                  },
+                  {
+                    "$ref": "#/$defs/LinearLayerConfig"
+                  },
+                  {
+                    "$ref": "#/$defs/PoolingLayerConfig"
+                  },
+                  {
+                    "$ref": "#/$defs/ActivationLayerConfig"
+                  },
+                  {
+                    "$ref": "#/$defs/DropoutLayerConfig"
+                  }
+                ]
               },
-              "propertyName": "type"
+              "type": "array"
             },
-            "oneOf": [
-              {
-                "$ref": "#/$defs/ConvolutionLayerConfig"
-              },
-              {
-                "$ref": "#/$defs/GlobalPoolingLayerConfig"
-              },
-              {
-                "$ref": "#/$defs/LinearLayerConfig"
-              },
-              {
-                "$ref": "#/$defs/PoolingLayerConfig"
-              },
-              {
-                "$ref": "#/$defs/ActivationLayerConfig"
-              },
-              {
-                "$ref": "#/$defs/DropoutLayerConfig"
-              }
-            ]
-          },
-          "title": "Cnn Layers",
-          "type": "array"
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cnn Layers"
         },
         "vector_layer_sizes": {
           "anyOf": [
@@ -936,6 +943,18 @@
           ],
           "default": 50000,
           "title": "Save Frequency"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
         }
       },
       "title": "TrainingConfig",
