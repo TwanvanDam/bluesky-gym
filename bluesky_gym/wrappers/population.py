@@ -80,6 +80,7 @@ class Population(gym.Wrapper):
         current_seed = seed
         while True:
             observation, info = self.env.reset(seed=current_seed, options=options)
+            current_seed = None  # advance RNG on retries rather than re-seeding to the same value
             self.map_source.regenerate(rng=self.base_env.np_random)
             if self.raster_sampler.coordinate_on_land(self.base_env.destination):
                 break

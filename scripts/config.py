@@ -17,6 +17,7 @@ class TrainingConfig(BaseModel):
     buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
     save_frequency: Optional[int] = 50_000
+    seed: Optional[int] = None
 
 class AgentConfig(BaseModel):
     """Base class for agent configuration. Specific algorithms will extend this with their own parameters."""
