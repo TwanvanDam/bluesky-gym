@@ -8,7 +8,8 @@ Usage:
         --configs HPC/experiments/cfg1.yaml HPC/experiments/cfg2.yaml \\
         --seeds 0 1 2 \\
         [--batch-size 6] \\
-        [--submit]
+        [--submit] \\
+        [--test-only]
 """
 import argparse
 import subprocess
@@ -19,7 +20,10 @@ from pathlib import Path
 
 def _chunked(iterable, n):
     it = iter(iterable)
-    while chunk := list(islice(it, n)):
+    while True:
+        chunk = list(islice(it, n))
+        if not chunk:
+            break
         yield chunk
 
 
@@ -33,6 +37,8 @@ def main() -> None:
                         help="Experiments per job (default: 6).")
     parser.add_argument("--submit", action="store_true",
                         help="Actually call sbatch. Without this flag, just print the commands.")
+    parser.add_argument("--test-only", action="store_true",
+                        help="Pass --test-only to sbatch (validates with SLURM without queuing). Implies --submit.")
     args = parser.parse_args()
 
     configs = [Path(c) for c in args.configs]
@@ -49,11 +55,11 @@ def main() -> None:
     sbatch_script = "HPC/run_parallel.sbatch"
     for i, batch in enumerate(batches):
         flat = [x for config, seed in batch for x in (config, str(seed))]
-        cmd = ["sbatch", sbatch_script] + flat
+        cmd = ["sbatch"] + (["--test-only"] if args.test_only else []) + [sbatch_script] + flat
         label = ", ".join(f"{Path(c).stem}:s{s}" for c, s in batch)
         print(f"Job {i + 1}/{len(batches)}: {label}")
         print(f"  {' '.join(cmd)}")
-        if args.submit:
+        if args.submit or args.test_only:
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 print(f"  sbatch failed:\n{result.stderr}", file=sys.stderr)
@@ -61,7 +67,7 @@ def main() -> None:
             print(f"  {result.stdout.strip()}")
         print()
 
-    if not args.submit:
+    if not args.submit and not args.test_only:
         print("Dry run — pass --submit to actually submit.")
 
 
