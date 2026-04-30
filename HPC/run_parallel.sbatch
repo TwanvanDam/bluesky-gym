@@ -3,38 +3,47 @@
 #SBATCH --partition=general
 #SBATCH --qos=medium
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1             # 1 GPU (any type) shared by all background processes
+#SBATCH --gres=gpu:1             # 1 GPU shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=7        # Total CPUs shared by all experiments (1 cpus per experiment if running 6 in parallel) + overhead for container and logging
-#SBATCH --mem=40G                # Total memory (~6G per experiment)
+#SBATCH --cpus-per-task=7        # ~1 CPU per experiment + overhead
+#SBATCH --mem=40G                # ~6G per experiment
 #SBATCH --time=24:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
 # ── Description ──────────────────────────────────────────────
-# Runs 6 reinforcement learning experiments in parallel on a single
-# GPU using shell backgrounding
+# Runs up to 6 RL experiments in parallel on a single GPU using
+# shell backgrounding. Arguments are config/seed pairs.
 #
 # Usage:
-#   sbatch HPC/run_parallel.sbatch HPC/experiments/exp1.yaml HPC/experiments/exp2.yaml
+#   sbatch HPC/run_parallel.sbatch config1.yaml seed1 config2.yaml seed2 ...
+#
+# For sweeps, use make_sweep.py to batch and submit automatically:
+#   python HPC/make_sweep.py --configs cfg1.yaml cfg2.yaml --seeds 0 1 2 --submit
 # ─────────────────────────────────────────────────────────────
 
 echo "=========================================="
 echo "Job ID       : $SLURM_JOB_ID"
 echo "Node         : $(hostname)"
-echo "Configs given: $#"
+echo "Args given   : $#"
 echo "Start time   : $(date)"
 echo "=========================================="
 
 # ── Validation ───────────────────────────────────────────────
 if [ "$#" -eq 0 ]; then
-    echo "ERROR: No configuration files provided."
-    echo "Usage: sbatch $0 path/to/config1.yaml path/to/config2.yaml ..."
+    echo "ERROR: No arguments provided."
+    echo "Usage: sbatch $0 config1.yaml seed1 config2.yaml seed2 ..."
     exit 1
 fi
 
-if [ "$#" -gt 6 ]; then
-    echo "WARNING: More than 6 configs provided ($#). Only the first 6 will be run."
+if [ $(($# % 2)) -ne 0 ]; then
+    echo "ERROR: Arguments must be config/seed pairs (got $# args, expected an even number)."
+    exit 1
+fi
+
+NPAIRS=$(($# / 2))
+if [ "$NPAIRS" -gt 6 ]; then
+    echo "WARNING: More than 6 pairs provided ($NPAIRS). Only the first 6 will be run."
 fi
 
 PROJECT_DIR=$(pwd)
@@ -45,36 +54,38 @@ if [ ! -f "$CONTAINER" ]; then
     exit 1
 fi
 
-# Ensure log directories exist so the job doesn't fail trying to write to them
 mkdir -p HPC/logs/out HPC/logs/err
 
 # ── Run ──────────────────────────────────────────────────────
-# Loop over all arguments passed via the command line ("$@")
-for CONFIG in "${@:1:6}"; do
-    # Extract the filename without the path and extension for clean log names
-    # e.g., "HPC/experiments/test1.yaml" becomes "test1"
+ARGS=("$@")
+COUNT=0
+i=0
+while [ $i -lt ${#ARGS[@]} ] && [ $COUNT -lt 6 ]; do
+    CONFIG="${ARGS[$i]}"
+    SEED="${ARGS[$((i+1))]}"
     BASENAME=$(basename "$CONFIG" .yaml)
+    RUNNAME="${BASENAME}_seed${SEED}"
 
-    echo "Launching experiment: $BASENAME"
-    echo "Logs -> HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out"
+    echo "Launching: $RUNNAME"
+    echo "Logs -> HPC/logs/out/${RUNNAME}_${SLURM_JOB_ID}.out"
 
-    # Run directly with shell backgrounding — no srun sub-steps needed
     apptainer exec --nv \
         --bind "${PROJECT_DIR}:/workspace" \
         --pwd /workspace \
         "$CONTAINER" \
         python -m scripts.run_experiment "$CONFIG" \
+            --seed "$SEED" \
             --slurm-job-id "$SLURM_JOB_ID" \
-            --slurm-log-out "HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
-            --slurm-log-err "HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" \
-        >"HPC/logs/out/${BASENAME}_${SLURM_JOB_ID}.out" \
-        2>"HPC/logs/err/${BASENAME}_${SLURM_JOB_ID}.err" &
+            --slurm-log-out "HPC/logs/out/${RUNNAME}_${SLURM_JOB_ID}.out" \
+            --slurm-log-err "HPC/logs/err/${RUNNAME}_${SLURM_JOB_ID}.err" \
+        >"HPC/logs/out/${RUNNAME}_${SLURM_JOB_ID}.out" \
+        2>"HPC/logs/err/${RUNNAME}_${SLURM_JOB_ID}.err" &
 
-    # Slight delay to prevent race conditions during container startup
     sleep 2
+    i=$((i+2))
+    COUNT=$((COUNT+1))
 done
 
-# Wait for all background tasks to finish before ending the Slurm job
 wait
 
 echo "=========================================="
