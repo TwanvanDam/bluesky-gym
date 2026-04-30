@@ -22,7 +22,7 @@ def _generate_unique_run_name(experiment_config_path: Path, env_name: str, seed:
     suffix = 1
 
     while RunPaths.from_run_id(env_name, run_name).exists():
-        run_name = f"{base_name}_{suffix:02d}"
+        run_name = f"{run_name}_{suffix:02d}"
         suffix += 1
 
     return run_name
