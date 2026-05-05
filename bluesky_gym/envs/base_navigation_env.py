@@ -216,8 +216,8 @@ class BaseNavigationEnv(gym.Env):
         self._set_terminal_condition()
 
         for _ in range(100):
-            aircraft_initial_position = self._generate_initial_position(self.np_random, options)
-            if self.check_inside_bounds(aircraft_initial_position):
+            initial_position_fixed, aircraft_initial_position = self._generate_initial_position(self.np_random, options)
+            if initial_position_fixed or self.check_inside_bounds(aircraft_initial_position):
                 break
         else:
             raise RuntimeError("Could not sample an aircraft position within bounds after 100 attempts. Check SamplingConfig.")
@@ -446,12 +446,14 @@ class BaseNavigationEnv(gym.Env):
     def _generate_airport(self, np_random: np.random.Generator, options: dict) -> Position:
         map_sampling_config = self.config.map_sampling_config
 
+        destination_fixed = "destination_lat" in options and "destination_lon" in options
+
         while True:
             destination_lat = options.get("destination_lat", map_sampling_config.destination_lat_sampling.sample(np_random))
             destination_lon = options.get("destination_lon", map_sampling_config.destination_lon_sampling.sample(np_random))
             destination_hdg = options.get("destination_hdg", map_sampling_config.destination_hdg_sampling.sample(np_random))
 
-            if not map_sampling_config.exclusion_zones:
+            if destination_fixed or not map_sampling_config.exclusion_zones:
                 break
 
             elif all(not zone.contains(destination_lat, destination_lon) for zone in map_sampling_config.exclusion_zones):
@@ -461,11 +463,11 @@ class BaseNavigationEnv(gym.Env):
                            lon=destination_lon,
                            hdg=destination_hdg)
 
-    def _generate_initial_position(self, np_random: np.random.Generator, options: dict) -> Position:
+    def _generate_initial_position(self, np_random: np.random.Generator, options: dict) -> tuple[bool, Position]:
         map_sampling_config = self.config.map_sampling_config
 
         if "aircraft_lat" in options and "aircraft_lon" in options:
-            return bs_position(lat=options["aircraft_lat"], lon=options["aircraft_lon"])
+            return True, bs_position(lat=options["aircraft_lat"], lon=options["aircraft_lon"])
         elif "aircraft_lat" in options or "aircraft_lon" in options:
             raise ValueError("Both aircraft_lat and aircraft_lon must be provided in options if one is provided.")
 
@@ -478,8 +480,7 @@ class BaseNavigationEnv(gym.Env):
                 aircraft_lon = map_sampling_config.aircraft_lon_sampling.sample(np_random)
             case _:
                 raise ValueError("Unrecognized aircraft position mode")
-
-        return bs_position(
+        return False, bs_position(
             lat=aircraft_lat,
             lon=aircraft_lon
         )
