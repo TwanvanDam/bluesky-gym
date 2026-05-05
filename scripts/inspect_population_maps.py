@@ -2,14 +2,22 @@
 Inspect all population map TIFFs in scripts/population_maps/.
 - Saves one plot per file showing the covered area (log-scaled density)
 - Writes a summary text file with CRS, bounds, resolution, and basic stats
+
+Options:
+  --exclusion LAT LON RADIUS_KM   Overlay an exclusion zone as a red shaded
+                                   circle (may be repeated for multiple zones)
 """
 
+import argparse
 from pathlib import Path
 import numpy as np
 import rasterio
 import rasterio.enums
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from pyproj import Transformer
+
+from bluesky_gym.utils.sampling_config import ExclusionZone
 
 MAP_DIR = Path(__file__).parent / "population_maps"
 OUT_DIR = MAP_DIR
@@ -29,7 +37,26 @@ def wgs84_bounds(dataset):
         return None
 
 
-def inspect_file(tiff_path: Path) -> dict:
+def wgs84_to_pixel(lat, lon, ds_crs, ds_transform, img_w, orig_w, img_h, orig_h):
+    """Convert WGS84 lat/lon to (col, row) in the displayed (possibly downsampled) image."""
+    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
+    x, y = transformer.transform(lon, lat)
+    col_orig = (x - ds_transform.c) / ds_transform.a
+    row_orig = (y - ds_transform.f) / ds_transform.e
+    return col_orig * img_w / orig_w, row_orig * img_h / orig_h
+
+
+def km_to_pixel_radius(lat, lon, radius_km, ds_crs, ds_transform, img_w, orig_w):
+    """Convert radius_km to pixel radius in the displayed image via eastward offset."""
+    lon_offset = lon + radius_km / (111.0 * np.cos(np.deg2rad(lat)))
+    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
+    x0, _ = transformer.transform(lon, lat)
+    x1, _ = transformer.transform(lon_offset, lat)
+    r_orig = abs(x1 - x0) / abs(ds_transform.a)
+    return r_orig * img_w / orig_w
+
+
+def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = None) -> dict:
     with rasterio.open(tiff_path) as ds:
         # Downsample very large rasters to avoid OOM
         total_px = ds.width * ds.height
@@ -62,21 +89,27 @@ def inspect_file(tiff_path: Path) -> dict:
 
         # Plot
         display = np.where(np.isfinite(data) & (data > 0), np.log1p(data), np.nan)
+        img_h, img_w = display.shape
         fig, ax = plt.subplots(figsize=(10, 6))
-        im = ax.imshow(display, cmap="YlOrRd", origin="upper", aspect="auto")
+        im = ax.imshow(display, cmap="Blues", origin="upper", aspect="auto")
         plt.colorbar(im, ax=ax, label="log(1 + population density)")
 
-        b = info["bounds_wgs84"]
-        if b:
-            ax.set_title(
-                f"{tiff_path.stem}\n"
-                f"lon [{b[0]:.1f}, {b[2]:.1f}]  lat [{b[1]:.1f}, {b[3]:.1f}]  "
-                f"({ds.width}×{ds.height} px)"
-            )
-        else:
-            ax.set_title(f"{tiff_path.stem}  ({ds.width}×{ds.height} px)")
-        ax.set_xlabel("column (pixel)")
-        ax.set_ylabel("row (pixel)")
+        if exclusion_zones:
+            for zone in exclusion_zones:
+                col, row = wgs84_to_pixel(
+                    zone.lat, zone.lon, ds.crs, ds.transform,
+                    img_w, ds.width, img_h, ds.height,
+                )
+                r_px = km_to_pixel_radius(
+                    zone.lat, zone.lon, zone.radius_km, ds.crs, ds.transform,
+                    img_w, ds.width,
+                )
+                circle = mpatches.Circle(
+                    (col, row), r_px,
+                    facecolor="red", edgecolor="darkred",
+                    alpha=0.35, linewidth=1.5,
+                )
+                ax.add_patch(circle)
 
         plot_path = OUT_DIR / f"{tiff_path.stem}_coverage.png"
         fig.tight_layout()
@@ -88,6 +121,19 @@ def inspect_file(tiff_path: Path) -> dict:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--exclusion", metavar=("LAT", "LON", "RADIUS_KM"),
+        nargs=3, action="append", type=float, default=[],
+        help="Exclusion zone to shade red (lat lon radius_km). Repeatable.",
+    )
+    args = parser.parse_args()
+
+    exclusion_zones = [
+        ExclusionZone(lat=lat, lon=lon, radius_km=r)
+        for lat, lon, r in args.exclusion
+    ]
+
     tiffs = sorted(p for p in MAP_DIR.iterdir() if p.suffix.lower() in {".tif", ".tiff"})
     if not tiffs:
         print(f"No TIFF files found in {MAP_DIR}")
@@ -96,7 +142,7 @@ def main():
     all_info = []
     for path in tiffs:
         print(f"\nInspecting {path.name} ...")
-        info = inspect_file(path)
+        info = inspect_file(path, exclusion_zones=exclusion_zones or None)
         all_info.append(info)
 
     summary_path = OUT_DIR / "map_summary.txt"
