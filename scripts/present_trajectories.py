@@ -50,7 +50,8 @@ def plot_trajectories(
     plt.scatter(*destination_xy, marker=".", linewidths=5)
 
     for start_angle, group in trajectories.groupby("start_angle"):
-        plt.plot(group["x"], group["y"], color="black")
+        color = "black" if group["termination_reason"].iloc[0] == "success" else "red"
+        plt.plot(group["x"], group["y"], color=color)
         plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green",
                  label="Start" if start_angle == trajectories["start_angle"].min() else "")
     map_label = "with map" if agent_used_map else "no map"

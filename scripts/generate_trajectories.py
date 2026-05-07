@@ -70,9 +70,11 @@ def simulate_trajectories(
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
+        termination_reason = info.get("termination_reason", None)
         episode_records = navigation_env.get_telemetry_history()
         for record in episode_records:
             record["start_angle"] = start_angle
+            record["termination_reason"] = termination_reason
         all_records.extend(episode_records)
 
     return pd.DataFrame(all_records)
@@ -121,25 +123,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     maps_base_path = Path(__file__).parent / "population_maps"
-    real_map_path = maps_base_path / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
+    real_map_path = maps_base_path / "europe_3035_1km.tif"
 
     eval_configs = [
         TrajectoryEvalConfig(
             runway="EHAM/RW27",
             destination_latlon=(52.3322, 4.75),
             map_path=real_map_path,
-            start_distance=150 * nm / 1000,
-        ),
-        TrajectoryEvalConfig(
-            runway="EHAM/RW18R",
-            map_path=real_map_path,
-            start_distance=150 * nm / 1000,
-        ),
-        TrajectoryEvalConfig(
-            runway="EHAM/RW27",
-            destination_latlon=(52.3322, 4.75),
-            map_path=None,
-            start_distance=150 * nm / 1000,
+            start_distance=250,
         ),
     ]
 
