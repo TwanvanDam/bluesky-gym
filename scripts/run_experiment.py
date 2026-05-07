@@ -50,6 +50,7 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
             device="cuda" if torch.cuda.is_available() else "auto",
             policy_kwargs=policy_kwargs,
             seed=seed,
+            learning_starts=10_000
         )
     else:
         raise NotImplementedError(f"Algorithm {experiment_config.agent_config.algorithm.algorithm} is not implemented.")
