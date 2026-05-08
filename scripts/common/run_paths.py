@@ -6,10 +6,12 @@ No script should construct result paths on its own.
 Run directory layout:
     runs/{env_name}/{run_name}/
         config.yaml
-        model.zip
+        best_model.zip        # best model by mean episode reward (EvalCallback)
         metadata.json
         tensorboard/
         checkpoints/
+            checkpoint_{N}_steps.zip
+            final_model.zip   # model weights at end of training
         trajectories/
         slurm/
 """
@@ -35,8 +37,12 @@ class RunPaths:
         return self.root / "config.yaml"
 
     @property
-    def model(self) -> Path:
-        return self.root / "model.zip"
+    def best_model(self) -> Path:
+        return self.root / "best_model.zip"
+
+    @property
+    def final_model(self) -> Path:
+        return self.checkpoints_dir / "final_model.zip"
 
     @property
     def metadata(self) -> Path:
@@ -94,7 +100,7 @@ class RunPaths:
             return 0
 
         checkpoints = sorted(
-            self.checkpoints_dir.glob("*.zip"),
+            (p for p in self.checkpoints_dir.glob("*.zip") if p.stem != "final_model"),
             key=_extract_steps,
             reverse=True,
         )

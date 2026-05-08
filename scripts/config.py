@@ -16,7 +16,9 @@ class TrainingConfig(BaseModel):
     batch_size: int = 256
     buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
-    save_frequency: Optional[int] = 50_000
+    save_frequency: int = 50_000
+    n_eval_episodes: int = 10
+    save_replay_buffer: bool = False
     seed: Optional[int] = None
 
 class AgentConfig(BaseModel):

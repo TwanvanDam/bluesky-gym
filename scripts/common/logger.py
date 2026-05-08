@@ -82,14 +82,37 @@ def _flatten_config(obj, prefix="") -> dict:
     return flat
 
 
+class BestModelCallback(BaseCallback):
+    """Saves the model when mean episode reward over the last n_episodes_window episodes improves.
+
+    Designed to be triggered periodically via EveryNTimesteps. Requires the training env
+    to be wrapped with Monitor so that model.ep_info_buffer is populated.
+    """
+
+    def __init__(self, save_path, n_episodes_window: int = 10, verbose: int = 0):
+        super().__init__(verbose)
+        self.save_path = save_path
+        self.n_episodes_window = n_episodes_window
+        self.best_mean_reward = -np.inf
+
+    def _on_step(self) -> bool:
+        ep_info_buffer = self.model.ep_info_buffer
+        if len(ep_info_buffer) < self.n_episodes_window:
+            return True
+        recent = list(ep_info_buffer)[-self.n_episodes_window:]
+        mean_reward = float(np.mean([ep["r"] for ep in recent]))
+        if mean_reward > self.best_mean_reward:
+            self.best_mean_reward = mean_reward
+            self.model.save(str(self.save_path))
+            if self.verbose:
+                print(f"New best mean reward: {mean_reward:.2f} — saved to {self.save_path}")
+        return True
+
+
 class TensorboardCallback(BaseCallback):
-    def __init__(self, experiment_config=None, verbose=0, validation_env=None, save_frequency=50000, save_dir=None):
+    def __init__(self, experiment_config=None, verbose=0):
         super().__init__(verbose)
         self.experiment_config = experiment_config
-        self.validation_env = validation_env
-        self.save_frequency = save_frequency
-        self.save_dir = save_dir
-        self.last_save_step = 0
 
     def _on_training_start(self) -> None:
         if self.experiment_config is None:
@@ -127,14 +150,6 @@ class TensorboardCallback(BaseCallback):
                             self.logger.record_mean(f"episode/termination_reason/{reason.name}", 0.0)
                 if isinstance(value, scalar_types):
                     self.logger.record_mean(f"episode/{key}", float(value))
-
-        # Periodically save the model checkpoint
-        if self.save_dir and self.save_frequency and self.num_timesteps - self.last_save_step >= self.save_frequency:
-            checkpoint_path = os.path.join(self.save_dir, f"checkpoint_{self.num_timesteps}_steps")
-            self.model.save(checkpoint_path)
-            if self.verbose:
-                print(f"Model checkpoint saved to {checkpoint_path}")
-            self.last_save_step = self.num_timesteps
 
         for info in self.locals.get('infos', []):
             # Only log your custom termination statistics
