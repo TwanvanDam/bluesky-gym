@@ -616,7 +616,6 @@ class BaseNavigationEnv(gym.Env):
 
         obs = self._get_obs()
         y_offset = 10
-        obs = {**obs, "destination_bearing": np.array([self.destination.hdg])}
 
         for key, value in obs.items():
             if "distance" in key:

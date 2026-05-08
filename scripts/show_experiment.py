@@ -25,8 +25,10 @@ def render_experiment(run_name: str, map_config: MapSourceConfigType | None = No
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
+        print(info["termination_reason"])
         print(f"Fuel: {info['total_episode_fuel_used']:.2f} kg, Reward:{info['total_episode_fuel_reward']:.2f}")
-        print(f"Noise: {info['total_episode_noise']:.2f}, Reward:{info['total_episode_noise_reward']:.2f}")
+        if 'total_episode_noise' in info:
+            print(f"Noise: {info['total_episode_noise']:.2f}, Reward:{info['total_episode_noise_reward']:.2f}")
         print(f"Episode Length: {info['episode_length_seconds']/60:.2f} minutes")
 
 if __name__ == '__main__':
