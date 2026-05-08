@@ -578,6 +578,30 @@
           "default": 1200,
           "title": "Mean Episode Length",
           "type": "number"
+        },
+        "clip_reward_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clip Reward Min"
+        },
+        "clip_reward_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clip Reward Max"
         }
       },
       "required": [
@@ -948,16 +972,19 @@
           "type": "integer"
         },
         "save_frequency": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
           "default": 50000,
-          "title": "Save Frequency"
+          "title": "Save Frequency",
+          "type": "integer"
+        },
+        "n_eval_episodes": {
+          "default": 10,
+          "title": "N Eval Episodes",
+          "type": "integer"
+        },
+        "save_replay_buffer": {
+          "default": false,
+          "title": "Save Replay Buffer",
+          "type": "boolean"
         },
         "seed": {
           "anyOf": [

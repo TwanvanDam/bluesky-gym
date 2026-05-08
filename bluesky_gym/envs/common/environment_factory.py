@@ -1,5 +1,5 @@
 import gymnasium as gym
-from gymnasium.wrappers import RescaleAction
+from gymnasium.wrappers import RescaleAction, ClipReward
 from stable_baselines3 import SAC
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
@@ -15,6 +15,7 @@ from scripts.feature_extractors import CombinedExtractor
 
 def _apply_wrappers(env: gym.Env, config: ExperimentConfig) -> tuple[gym.Env, str]:
     """Apply the full wrapper stack in order. Returns (wrapped_env, env_name)."""
+    name = "BaseNavigationEnv-v0"
     if config.navigation_config.use_sin_cos_obs:
         env = SinCosNormalization(env)
     if config.navigation_config.normalize_distance_obs:
@@ -24,8 +25,10 @@ def _apply_wrappers(env: gym.Env, config: ExperimentConfig) -> tuple[gym.Env, st
         env = Population(env, config=config.population_config)
         if config.population_config.observation_normalization:
             env = MapObservationNormalizer(env, mode=config.population_config.observation_normalization)
-        return env, "PopulationWrapper-v0"
-    return env, "BaseNavigationEnv-v0"
+            name = "PopulationWrapper-v0"
+    if config.navigation_config.clip_reward_min is not None or config.navigation_config.clip_reward_max is not None:
+        env = ClipReward(env=env, min_reward=config.navigation_config.clip_reward_min, max_reward=config.navigation_config.clip_reward_max)
+    return env, name
 
 
 def build_env(config: ExperimentConfig, render_mode: str | None = None) -> tuple[gym.Env, str]:
