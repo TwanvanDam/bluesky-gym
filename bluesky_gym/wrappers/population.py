@@ -1,3 +1,4 @@
+import warnings
 from functools import partial
 from typing import Callable, List, Literal
 
@@ -78,12 +79,19 @@ class Population(gym.Wrapper):
 
     def reset(self, seed=None, options=None):
         current_seed = seed
-        while True:
-            observation, info = self.env.reset(seed=current_seed, options=options)
+        for _ in range(100):
+            observation, info = super().reset(seed=current_seed, options=options)
             current_seed = None  # advance RNG on retries rather than re-seeding to the same value
-            self.map_source.regenerate(rng=self.base_env.np_random)
+            self.map_source.regenerate(rng=self.np_random)
             if self.raster_sampler.coordinate_on_land(self.base_env.destination):
                 break
+        else:
+            warnings.warn(
+                "Population.reset: destination still not on land after 100 attempts; "
+                "proceeding with last sampled positions/map. Check map source coverage "
+                "and destination_lat/lon SamplingConfig.",
+                stacklevel=2,
+            )
 
         self.map_source_max = self.map_source.get_normalization_value(self.config.normalization_percentile)
 
