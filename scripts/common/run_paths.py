@@ -6,7 +6,7 @@ No script should construct result paths on its own.
 Run directory layout:
     runs/{env_name}/{run_name}/
         config.yaml
-        best_model.zip        # best model by mean episode reward (EvalCallback)
+        best_model.zip        # best model by mean episode reward
         metadata.json
         tensorboard/
         checkpoints/
@@ -118,6 +118,17 @@ class RunPaths:
 
     def exists(self) -> bool:
         return self.root.exists()
+
+
+def iter_runs(env_name: str) -> list[RunPaths]:
+    """Return all RunPaths under runs/{env_name}, sorted by run name."""
+    env_dir = RUNS_ROOT / env_name
+    if not env_dir.is_dir():
+        raise FileNotFoundError(f"No env directory: {env_dir}")
+    return sorted(
+        [RunPaths.from_run_dir(d) for d in env_dir.iterdir() if d.is_dir()],
+        key=lambda r: r.run_name,
+    )
 
 
 def resolve_run(run_ref: str) -> RunPaths:
