@@ -23,9 +23,9 @@ def _apply_wrappers(env: gym.Env, config: ExperimentConfig) -> tuple[gym.Env, st
     env = RescaleAction(env, min_action=-1.0, max_action=1.0)
     if config.population_config:
         env = Population(env, config=config.population_config)
+        name = "PopulationWrapper-v0"
         if config.population_config.observation_normalization:
             env = MapObservationNormalizer(env, mode=config.population_config.observation_normalization)
-            name = "PopulationWrapper-v0"
     if config.navigation_config.clip_reward_min is not None or config.navigation_config.clip_reward_max is not None:
         env = ClipReward(env=env, min_reward=config.navigation_config.clip_reward_min, max_reward=config.navigation_config.clip_reward_max)
     return env, name
