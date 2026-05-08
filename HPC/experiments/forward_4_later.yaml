@@ -1,5 +1,6 @@
 agent_config:
   algorithm: SAC
+  learning_starts: 10000
   feature_extractor:
     cnn_layers:
       - in_channels: null
@@ -111,8 +112,8 @@ population_config:
   observation_normalization: log
   map_observation_configs:
     - range:
-        - 128000
-        - 128000
+        - 64000
+        - 64000
       shape:
         - 16
         - 16
