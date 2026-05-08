@@ -1,5 +1,6 @@
 agent_config:
   algorithm: SAC
+  learning_starts: 10000
   feature_extractor:
     cnn_layers:
       - in_channels: null
@@ -111,13 +112,13 @@ population_config:
   observation_normalization: log
   map_observation_configs:
     - range:
-        - 64000
-        - 64000
+        - 256000
+        - 256000
       shape:
         - 16
         - 16
       position: forward
   resampling: cubic_spline
 training_config:
-  save_frequency: 100000
+  save_frequency: 50000
   total_timesteps: 1000000

@@ -1,5 +1,6 @@
 agent_config:
   algorithm: SAC
+  learning_starts: 10000
   feature_extractor:
     cnn_layers:
       - in_channels: null
