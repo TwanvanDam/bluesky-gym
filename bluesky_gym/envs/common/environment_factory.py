@@ -44,14 +44,17 @@ def _load_model(run_paths: RunPaths, env: gym.Env, config: ExperimentConfig) -> 
         "net_arch": config.agent_config.network_arch,
     }
     custom_objects = {"policy_kwargs": policy_kwargs}
-    try:
-        return SAC.load(run_paths.model, env=env, device='auto', custom_objects=custom_objects)
-    except FileNotFoundError:
-        latest = run_paths.latest_checkpoint()
-        if latest:
-            print(f"Final model not found. Loading latest checkpoint: {latest}")
-            return SAC.load(latest, env=env, device='auto', custom_objects=custom_objects)
-        raise FileNotFoundError(f"No model or checkpoints found for run {run_paths.run_id}")
+    candidates = [
+        (run_paths.best_model, "best model"),
+        (run_paths.final_model, "final model"),
+        (run_paths.latest_checkpoint(), "latest checkpoint"),
+    ]
+    for path, label in candidates:
+        if path and path.exists():
+            if label != "best model":
+                print(f"best_model.zip not found. Loading {label}: {path}")
+            return SAC.load(path, env=env, device='auto', custom_objects=custom_objects)
+    raise FileNotFoundError(f"No model or checkpoints found for run {run_paths.run_id}")
 
 
 def load_env_and_model(

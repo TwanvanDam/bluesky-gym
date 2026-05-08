@@ -1,14 +1,17 @@
 import argparse
 import datetime
 import shutil
+import warnings
 from pathlib import Path
 
 import torch
 from stable_baselines3 import SAC
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EveryNTimesteps
+from stable_baselines3.common.monitor import Monitor
 
 from bluesky_gym.envs.common.environment_factory import build_env
-from scripts.common.logger import TensorboardCallback
-from scripts.common.run_paths import RunPaths, write_metadata, update_metadata
+from scripts.common.logger import BestModelCallback, TensorboardCallback
+from scripts.common.run_paths import RunPaths, read_metadata, resolve_run, update_metadata, write_metadata
 from scripts.config import ExperimentConfig, TrainingConfig
 from scripts.feature_extractors import CombinedExtractor
 
@@ -36,7 +39,7 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "features_extractor_kwargs": {"config": agent_config.feature_extractor},
-        "net_arch" : agent_config.network_arch
+        "net_arch": agent_config.network_arch
     }
 
     seed = experiment_config.training_config.seed if experiment_config.training_config else None
@@ -66,9 +69,57 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
     print(f"Seed: {seed}")
     return model
 
-def train_model(experiment_config_path: Path, slurm_job_id: str | None = None,
-                slurm_log_out: str | None = None, slurm_log_err: str | None = None,
-                seed: int | None = None):
+
+def _build_callbacks(experiment_config: ExperimentConfig, run_paths: RunPaths) -> CallbackList:
+    training_config = experiment_config.training_config
+    eval_freq = training_config.save_frequency
+    return CallbackList([
+        TensorboardCallback(experiment_config=experiment_config),
+        CheckpointCallback(
+            save_freq=eval_freq,
+            save_path=str(run_paths.checkpoints_dir),
+            name_prefix="checkpoint",
+            save_replay_buffer=training_config.save_replay_buffer,
+            verbose=1,
+        ),
+        EveryNTimesteps(
+            n_steps=eval_freq,
+            callback=BestModelCallback(
+                save_path=run_paths.best_model,
+                n_episodes_window=training_config.n_eval_episodes,
+            ),
+        ),
+    ])
+
+
+def _copy_slurm_logs(
+        run_paths: RunPaths,
+        slurm_job_id: str | None,
+        slurm_log_out: str | None,
+        slurm_log_err: str | None,
+) -> None:
+    slurm_logs = []
+    if slurm_log_out:
+        slurm_logs.append(Path(slurm_log_out))
+    if slurm_log_err:
+        slurm_logs.append(Path(slurm_log_err))
+    if slurm_job_id and not slurm_logs:
+        slurm_logs = [
+            Path(f"HPC/logs/out/slurm-{slurm_job_id}.out"),
+            Path(f"HPC/logs/err/slurm-{slurm_job_id}.err"),
+        ]
+    for src in slurm_logs:
+        if src.exists():
+            shutil.copy2(src, run_paths.slurm_dir / src.name)
+
+
+def train_model(
+        experiment_config_path: Path,
+        slurm_job_id: str | None = None,
+        slurm_log_out: str | None = None,
+        slurm_log_err: str | None = None,
+        seed: int | None = None,
+) -> None:
     experiment_config = ExperimentConfig.load(experiment_config_path)
 
     if seed is not None:
@@ -77,16 +128,15 @@ def train_model(experiment_config_path: Path, slurm_job_id: str | None = None,
         experiment_config.training_config.seed = seed
 
     env, env_name = build_env(experiment_config)
+    env = Monitor(env)
     run_name = _generate_unique_run_name(experiment_config_path, env_name, seed=seed)
     experiment_config.run_name = run_name
 
     run_paths = RunPaths.from_run_id(env_name, run_name)
     run_paths.create_dirs()
 
-    # Save config
     experiment_config.save(run_paths.config)
 
-    # Write initial metadata
     metadata = {
         "run_name": run_name,
         "env_name": env_name,
@@ -107,31 +157,77 @@ def train_model(experiment_config_path: Path, slurm_job_id: str | None = None,
 
     model.learn(
         total_timesteps=training_config.total_timesteps,
-        callback=TensorboardCallback(
-            experiment_config=experiment_config,
-            validation_env=env,
-            save_frequency=experiment_config.training_config.save_frequency,
-            save_dir=str(run_paths.checkpoints_dir),
-        ),
+        callback=_build_callbacks(experiment_config, run_paths),
         tb_log_name=run_name,
     )
-    model.save(run_paths.model)
+    model.save(run_paths.final_model)
     update_metadata(run_paths, status="completed")
+    _copy_slurm_logs(run_paths, slurm_job_id, slurm_log_out, slurm_log_err)
 
-    # Copy SLURM logs into the run directory
-    slurm_logs = []
-    if slurm_log_out:
-        slurm_logs.append(Path(slurm_log_out))
-    if slurm_log_err:
-        slurm_logs.append(Path(slurm_log_err))
-    if slurm_job_id and not slurm_logs:
-        slurm_logs = [
-            Path(f"HPC/logs/out/slurm-{slurm_job_id}.out"),
-            Path(f"HPC/logs/err/slurm-{slurm_job_id}.err"),
-        ]
-    for src in slurm_logs:
-        if src.exists():
-            shutil.copy2(src, run_paths.slurm_dir / src.name)
+
+def resume_training(
+        run_ref: str,
+        slurm_job_id: str | None = None,
+        slurm_log_out: str | None = None,
+        slurm_log_err: str | None = None,
+) -> None:
+    run_paths = resolve_run(run_ref)
+    config = ExperimentConfig.load(run_paths.config)
+    training_config = config.training_config
+
+    latest_ckpt = run_paths.latest_checkpoint()
+    if latest_ckpt is None:
+        raise FileNotFoundError(f"No checkpoint found for run {run_paths.run_id}.")
+
+    print(f"Resuming run: {run_paths.run_id}")
+    print(f"Loading checkpoint: {latest_ckpt}")
+
+    env, _ = build_env(config)
+    env = Monitor(env)
+
+    policy_kwargs = {
+        "features_extractor_class": CombinedExtractor,
+        "features_extractor_kwargs": {"config": config.agent_config.feature_extractor},
+        "net_arch": config.agent_config.network_arch,
+    }
+    model = SAC.load(
+        latest_ckpt,
+        env=env,
+        device="cuda" if torch.cuda.is_available() else "auto",
+        custom_objects={"policy_kwargs": policy_kwargs},
+        verbose=1,
+    )
+
+    if training_config.save_replay_buffer:
+        replay_buffer_path = latest_ckpt.with_name(latest_ckpt.stem + "_replay_buffer.pkl")
+        if replay_buffer_path.exists():
+            model.load_replay_buffer(str(replay_buffer_path))
+            print(f"Replay buffer loaded from: {replay_buffer_path}")
+        else:
+            warnings.warn(
+                f"save_replay_buffer is True but no replay buffer found at {replay_buffer_path}. "
+                "Training will continue without it."
+            )
+
+    metadata = read_metadata(run_paths)
+    resumes = metadata.get("resumes", [])
+    resumes.append({
+        "resumed_at": datetime.datetime.now().isoformat(),
+        "from_checkpoint": latest_ckpt.name,
+    })
+    update_metadata(run_paths, resumes=resumes, status="running")
+    if slurm_job_id:
+        update_metadata(run_paths, slurm_job_id=slurm_job_id)
+
+    model.learn(
+        total_timesteps=training_config.total_timesteps,
+        callback=_build_callbacks(config, run_paths),
+        tb_log_name=run_paths.run_name,
+        reset_num_timesteps=False,
+    )
+    model.save(run_paths.final_model)
+    update_metadata(run_paths, status="completed")
+    _copy_slurm_logs(run_paths, slurm_job_id, slurm_log_out, slurm_log_err)
 
 
 if __name__ == '__main__':
@@ -142,13 +238,22 @@ if __name__ == '__main__':
         default=None,
         help="Path to a single experiment YAML config.",
     )
+    parser.add_argument("--resume", default=None, metavar="RUN_REF",
+                        help="Resume training from the latest checkpoint of an existing run.")
     parser.add_argument("--slurm-job-id", default=None, help="SLURM job ID for log association.")
     parser.add_argument("--slurm-log-out", default=None, help="Path to SLURM stdout log file.")
     parser.add_argument("--slurm-log-err", default=None, help="Path to SLURM stderr log file.")
     parser.add_argument("--seed", type=int, default=None, help="Random seed (overrides config).")
     args = parser.parse_args()
 
-    if args.config:
+    if args.resume:
+        resume_training(
+            args.resume,
+            slurm_job_id=args.slurm_job_id,
+            slurm_log_out=args.slurm_log_out,
+            slurm_log_err=args.slurm_log_err,
+        )
+    elif args.config:
         train_model(
             Path(args.config),
             slurm_job_id=args.slurm_job_id,
@@ -157,4 +262,4 @@ if __name__ == '__main__':
             seed=args.seed,
         )
     else:
-        raise ValueError("No config path provided. Please provide a path to an experiment YAML config.")
+        raise ValueError("Provide either a config path or --resume <run_ref>.")
