@@ -142,7 +142,7 @@ stop_children() {
     echo "Stopping running experiments..."
     for pid in "${CHILD_PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
+            kill -- -"$pid" 2>/dev/null || true
         fi
     done
 }
