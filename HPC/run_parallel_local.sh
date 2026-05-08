@@ -204,9 +204,9 @@ for idx in "${!PAIR_CONFIGS[@]}"; do
     log_err="${LOG_DIR}/${run_name}.err"
 
     if [ -n "$seed" ]; then
-        command=(uv run scripts.run_experiment.py "$config" --seed "$seed" --slurm-log-out "$log_out" --slurm-log-err "$log_err")
+        command=(uv run scripts/run_experiment.py "$config" --seed "$seed" --slurm-log-out "$log_out" --slurm-log-err "$log_err")
     else
-        command=(uv run scripts.run_experiment.py "$config" --slurm-log-out "$log_out" --slurm-log-err "$log_err")
+        command=(uv run scripts/run_experiment.py "$config" --slurm-log-out "$log_out" --slurm-log-err "$log_err")
     fi
 
 
