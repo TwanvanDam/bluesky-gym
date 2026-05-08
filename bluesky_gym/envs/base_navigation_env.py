@@ -57,6 +57,8 @@ class NavigationConfig(BaseModel):
     constraint_violation_reward: float = -1.0
     successful_approach_reward: float = 50.0
     mean_episode_length: float = 20 * 60  # [ s ]
+    clip_reward_min: Optional[float] = None
+    clip_reward_max: Optional[float] = None
 
 
 class TerminationReason(Enum):
