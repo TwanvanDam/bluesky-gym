@@ -12,9 +12,6 @@ from scripts.feature_extractors import FeatureExtractorConfig
 class TrainingConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    learning_rate: float = 3e-4
-    batch_size: int = 256
-    buffer_size: int = 1_000_000
     total_timesteps: int = 1_000_000
     save_frequency: Optional[int] = 50_000
     seed: Optional[int] = None
@@ -29,6 +26,12 @@ class SB3ModelConfig(AgentConfig):
     policy: Literal["MultiInputPolicy", "MlpPolicy", "CnnPolicy"] = "MultiInputPolicy"
     feature_extractor: FeatureExtractorConfig
     network_arch: dict[Literal["pi", "qf"], list[int]]
+    learning_rate: float = 3e-4
+    batch_size: int = 256
+    buffer_size: int = 1_000_000
+    learning_starts: int = 100
+    gamma: float = 0.99
+    tau: float = 0.005
 
 class ExperimentConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')

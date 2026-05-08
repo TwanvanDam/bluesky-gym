@@ -60,8 +60,5 @@ navigation_config:
       low: 35
       high: 55
 training_config:
-  batch_size: 256
-  buffer_size: 1000000
-  learning_rate: 0.0003
   save_frequency: 100000
   total_timesteps: 1000000

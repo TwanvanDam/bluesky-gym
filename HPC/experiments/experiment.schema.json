@@ -863,6 +863,36 @@
           },
           "title": "Network Arch",
           "type": "object"
+        },
+        "learning_rate": {
+          "default": 0.0003,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "batch_size": {
+          "default": 256,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "buffer_size": {
+          "default": 1000000,
+          "title": "Buffer Size",
+          "type": "integer"
+        },
+        "learning_starts": {
+          "default": 100,
+          "title": "Learning Starts",
+          "type": "integer"
+        },
+        "gamma": {
+          "default": 0.99,
+          "title": "Gamma",
+          "type": "number"
+        },
+        "tau": {
+          "default": 0.005,
+          "title": "Tau",
+          "type": "number"
         }
       },
       "required": [
@@ -912,21 +942,6 @@
     "TrainingConfig": {
       "additionalProperties": false,
       "properties": {
-        "learning_rate": {
-          "default": 0.0003,
-          "title": "Learning Rate",
-          "type": "number"
-        },
-        "batch_size": {
-          "default": 256,
-          "title": "Batch Size",
-          "type": "integer"
-        },
-        "buffer_size": {
-          "default": 1000000,
-          "title": "Buffer Size",
-          "type": "integer"
-        },
         "total_timesteps": {
           "default": 1000000,
           "title": "Total Timesteps",
