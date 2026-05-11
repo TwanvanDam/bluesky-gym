@@ -7,6 +7,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
 
 from bluesky_gym.envs.base_navigation_env import TerminationReason
+from scripts.common.run_paths import RunPaths, update_metadata
 
 
 class CSVLoggerCallback(BaseCallback):
@@ -94,6 +95,7 @@ class BestModelCallback(BaseCallback):
         self.save_path = save_path
         self.n_episodes_window = n_episodes_window
         self.best_mean_reward = -np.inf
+        self.run = RunPaths(save_path)
 
     def _on_step(self) -> bool:
         ep_info_buffer = self.model.ep_info_buffer
@@ -104,6 +106,7 @@ class BestModelCallback(BaseCallback):
         if mean_reward > self.best_mean_reward:
             self.best_mean_reward = mean_reward
             self.model.save(str(self.save_path))
+            update_metadata(run_paths=self.run, windowed_mean=f"{mean_reward:.2f}", best_checkpoint=f"checkpoint_{self.num_timesteps}_steps.zip")
             if self.verbose:
                 print(f"New best mean reward: {mean_reward:.2f} — saved to {self.save_path}")
         return True
