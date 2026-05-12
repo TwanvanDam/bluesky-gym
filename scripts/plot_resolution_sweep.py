@@ -21,6 +21,7 @@ RUNS_ROOT = Path(__file__).parent.parent / "runs" / "resolution_sweep_1"
 BASELINE_DIR = Path(__file__).parent.parent / "runs" / "BaseNavigationEnv-v0" / "no_map_seed00"
 RUN_PATTERN = re.compile(r"^(forward|centered)_(\d+)_seed(\d+)$")
 SUCCESS_REASON = "success"
+runway = "EHAM_RW27"
 
 FORWARD_COLOR = "#2196F3"
 CENTERED_COLOR = "#FF6B35"
@@ -38,7 +39,7 @@ def compute_success_rate(run_dir: Path) -> float | None:
     if not traj_root.exists():
         return None
 
-    map_csvs = list(traj_root.glob("*map*/trajectories.csv"))
+    map_csvs = list(traj_root.glob(f"*{runway}_map*/trajectories.csv"))
     if not map_csvs:
         return None
 
@@ -210,7 +211,7 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode(ax, mode_df, mode, color, baseline=baseline_rate)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"resolution_sweep_{mode}.png"
+        out_path = Path(__file__).parent / f"resolution_sweep_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
@@ -218,7 +219,7 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"resolution_sweep_{mode}_length.png"
+        out_path = Path(__file__).parent / f"resolution_sweep_{mode}_length_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
