@@ -5,7 +5,7 @@ dependencies = [
     "torch",
     "pygame",
     "gymnasium[other]",
-    "stable-baselines3",
+    "stable-baselines3>=2.0.0",
     "numpy",
     "bluesky-simulator>=1.0.7",
     "rasterio",
