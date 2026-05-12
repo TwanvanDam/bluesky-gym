@@ -132,6 +132,11 @@ if __name__ == '__main__':
             map_path=real_map_path,
             start_distance=250,
         ),
+        TrajectoryEvalConfig(
+            runway="EDDF/RW25R",
+            map_path=real_map_path,
+            start_distance=250,
+        ),
     ]
 
     runs = [resolve_run(r) for r in args.run_refs]
