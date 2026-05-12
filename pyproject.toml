@@ -4,7 +4,7 @@ dynamic = ["version"]
 dependencies = [
     "pygame",
     "gymnasium[other]>=1.2.3",
-    "stable-baselines3",
+    "stable-baselines3>=2.7",
     "numpy>=2.4.3",
     "bluesky-simulator>=1.0.7",
     "rasterio",
