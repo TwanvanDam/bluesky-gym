@@ -29,6 +29,7 @@ class PopulationConfig(BaseModel):
     fuel_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "cubic_spline"
     normalization_percentile: float = Field(default=99.9, ge=0.0, le=100.0)
+    clip_noise_reward: bool = False
     observation_normalization: Literal["log", "min_max", "min-max"] = "log"
 
 
@@ -178,6 +179,9 @@ class Population(gym.Wrapper):
         population_map_extract = self.raster_sampler.get_observation_clipped(center_position=ac_pos,
                                                                              orientation=0,
                                                                              observation_config=self.noise_kernel_observation)
+        if self.config.clip_noise_reward:
+            # Works by clipping the population map extract that is used to generate the noise reward by the self.map_source_max
+            population_map_extract = np.clip(population_map_extract, 0, self.map_source_max)
 
         step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
                                                                        altitude=ac_alt,
