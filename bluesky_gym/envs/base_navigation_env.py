@@ -54,6 +54,7 @@ class NavigationConfig(BaseModel):
     map_projection_crs: str = "EPSG:3035"
     use_sin_cos_obs: bool = False
     normalize_distance_obs: Optional[float] = None
+    max_action_degrees: float = 180
     constraint_violation_reward: float = -1.0
     successful_approach_reward: float = 50.0
     mean_episode_length: float = 20 * 60  # [ s ]

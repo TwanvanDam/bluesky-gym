@@ -1,9 +1,10 @@
 import gymnasium as gym
-from gymnasium.wrappers import RescaleAction, ClipReward
+from gymnasium.wrappers import ClipReward
 from stable_baselines3 import SAC
 
 from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.maps.map_sources import MapSourceConfigType
+from bluesky_gym.wrappers.action_rescaler import ScaledHeadingAction
 from bluesky_gym.wrappers.distance_normalizer import DistanceNormalization
 from bluesky_gym.wrappers.map_observation_normalizer import MapObservationNormalizer
 from bluesky_gym.wrappers.population import Population
@@ -20,7 +21,7 @@ def _apply_wrappers(env: gym.Env, config: ExperimentConfig) -> tuple[gym.Env, st
         env = SinCosNormalization(env)
     if config.navigation_config.normalize_distance_obs:
         env = DistanceNormalization(env, normalization_factor=config.navigation_config.normalize_distance_obs)
-    env = RescaleAction(env, min_action=-1.0, max_action=1.0)
+    env = ScaledHeadingAction(env=env, max_deg=config.navigation_config.max_action_degrees)
     if config.population_config:
         env = Population(env, config=config.population_config)
         name = "PopulationWrapper-v0"
