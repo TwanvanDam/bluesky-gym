@@ -2,6 +2,7 @@
 name = "bluesky-gym"
 dynamic = ["version"]
 dependencies = [
+    "torch>=2.3.1",
     "pygame",
     "gymnasium[other]>=1.2.3",
     "stable-baselines3>=2.7",
@@ -43,34 +44,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[project.optional-dependencies]
-cu130 = ["torch==2.10.0+cu130" ]
-cu121 = ["torch==2.3.1+cu121"]
-
-[tool.uv]
-conflicts = [
-    [
-        { extra = "cu121" },
-        { extra = "cu130" },
-    ],
-]
-
 [tool.uv.sources]
-torch = [
-    { index = "pytorch-cu121" , extra = "cu121"},
-    { index = "pytorch-cu130" , extra = "cu130"},
-]
+torch = { index = "pytorch-cu121" }
 
 [[tool.uv.index]]
 name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
 explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
 
 [project.urls]
 Homepage = "https://github.com/TUDelft-CNS-ATM/bluesky-gym"
