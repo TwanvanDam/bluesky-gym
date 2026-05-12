@@ -2,7 +2,6 @@
 name = "bluesky-gym"
 dynamic = ["version"]
 dependencies = [
-    "torch",
     "pygame",
     "gymnasium[other]>=1.2.3",
     "stable-baselines3",
@@ -14,6 +13,8 @@ dependencies = [
     "gstools",
     "pydantic",
     "tqdm>=4.67.3",
+    "tensorboard",
+    "gstools-core",
 ]
 
 authors = [
@@ -43,31 +44,33 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-train = ["tensorboard"]
-speedups = ["gstools-core"]
-all = [
-    "tensorboard",
-    "gstools-core",
+cu130 = ["torch==2.10.0+cu130" ]
+cu121 = ["torch==2.3.1+cu121"]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cu121" },
+        { extra = "cu130" },
+    ],
 ]
-[dependency-groups]
-gpu-legacy = ["torch==2.3.1+cu121"]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu121", group = "gpu-legacy" },
-    { index = "pytorch-cu130" },
+    { index = "pytorch-cu121" , extra = "cu121"},
+    { index = "pytorch-cu130" , extra = "cu130"},
 ]
-torchvision = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
-[[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
 
 [project.urls]
 Homepage = "https://github.com/TUDelft-CNS-ATM/bluesky-gym"
