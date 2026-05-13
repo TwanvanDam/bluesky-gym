@@ -17,6 +17,8 @@ from scripts.common.run_paths import RunPaths, read_metadata, resolve_run, updat
 from scripts.config import ExperimentConfig, TrainingConfig
 from scripts.feature_extractors import CombinedExtractor
 
+# supress Pygame warnings
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated", category=UserWarning)
 
 def _get_env_name(experiment_config: ExperimentConfig) -> str:
     if experiment_config.population_config:
@@ -108,6 +110,7 @@ def _build_callbacks(experiment_config: ExperimentConfig, run_paths: RunPaths) -
             n_steps=eval_freq,
             callback=BestModelCallback(
                 save_path=run_paths.best_model,
+                run_paths=run_paths,
                 n_episodes_window=training_config.n_eval_episodes,
             ),
         ),

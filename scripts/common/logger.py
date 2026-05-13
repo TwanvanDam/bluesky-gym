@@ -90,12 +90,12 @@ class BestModelCallback(BaseCallback):
     to be wrapped with Monitor so that model.ep_info_buffer is populated.
     """
 
-    def __init__(self, save_path, n_episodes_window: int = 10, verbose: int = 0):
+    def __init__(self, save_path, run_paths: RunPaths, n_episodes_window: int = 10, verbose: int = 0):
         super().__init__(verbose)
         self.save_path = save_path
         self.n_episodes_window = n_episodes_window
         self.best_mean_reward = -np.inf
-        self.run = RunPaths(save_path)
+        self.run = run_paths
 
     def _on_step(self) -> bool:
         ep_info_buffer = self.model.ep_info_buffer
