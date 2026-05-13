@@ -35,6 +35,7 @@ class SB3ModelConfig(AgentConfig):
     learning_starts: int = 100
     gamma: float = 0.99
     tau: float = 0.005
+    gradient_steps: int = -1
 
 class ExperimentConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')

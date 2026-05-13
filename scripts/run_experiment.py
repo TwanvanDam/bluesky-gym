@@ -82,7 +82,8 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
             buffer_size=agent_config.buffer_size,
             learning_starts=agent_config.learning_starts,
             gamma=agent_config.gamma,
-            tau=agent_config.tau
+            tau=agent_config.tau,
+            gradient_steps=agent_config.gradient_steps,
         )
     else:
         raise NotImplementedError(f"Algorithm {experiment_config.agent_config.algorithm.algorithm} is not implemented.")
