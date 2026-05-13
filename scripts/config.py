@@ -17,6 +17,7 @@ class TrainingConfig(BaseModel):
     n_eval_episodes: int = 10
     save_replay_buffer: bool = False
     seed: Optional[int] = None
+    n_envs: int = 1
 
 class AgentConfig(BaseModel):
     """Base class for agent configuration. Specific algorithms will extend this with their own parameters."""

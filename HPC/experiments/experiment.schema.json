@@ -1007,6 +1007,11 @@
           ],
           "default": null,
           "title": "Seed"
+        },
+        "n_envs": {
+          "default": 1,
+          "title": "N Envs",
+          "type": "integer"
         }
       },
       "title": "TrainingConfig",

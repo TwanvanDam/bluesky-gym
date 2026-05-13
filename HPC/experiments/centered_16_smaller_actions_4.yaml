@@ -1,7 +1,5 @@
 agent_config:
   algorithm: SAC
-  batch_size: 512
-  learning_rate: 1.0E-4
   feature_extractor:
     cnn_layers:
       - in_channels: null
@@ -55,6 +53,7 @@ agent_config:
   policy: MultiInputPolicy
   type: SB3
 navigation_config:
+  max_action_degrees: 90
   ac_initial_alt: 4572.0
   ac_initial_spd: 128.611111
   ac_name: KL001
@@ -122,4 +121,5 @@ population_config:
   resampling: cubic_spline
 training_config:
   save_frequency: 100000
-  total_timesteps: 1000000
+  total_timesteps: 100000
+  n_envs: 4
