@@ -17,9 +17,6 @@ from scripts.common.run_paths import RunPaths, read_metadata, resolve_run, updat
 from scripts.config import ExperimentConfig, TrainingConfig
 from scripts.feature_extractors import CombinedExtractor
 
-# supress Pygame warnings
-warnings.filterwarnings("ignore", message="pkg_resources is deprecated", category=UserWarning)
-
 def _get_env_name(experiment_config: ExperimentConfig) -> str:
     if experiment_config.population_config:
         return "PopulationWrapper-v0"
