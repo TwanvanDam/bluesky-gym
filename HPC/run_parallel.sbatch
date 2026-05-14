@@ -5,9 +5,9 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1             # 1 GPU shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=7        # ~1 CPU per experiment + overhead
+#SBATCH --cpus-per-task=9        # ~1 CPU per environment + overhead
 #SBATCH --mem=40G                # ~6G per experiment
-#SBATCH --time=30:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
