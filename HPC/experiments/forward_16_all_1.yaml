@@ -73,9 +73,9 @@ navigation_config:
   use_sin_cos_obs: true
   map_sampling_config:
     exclusion_zones:
-     - lat: 52.308
-       lon: 4.764
-       radius_km: 250
+      - lat: 52.308
+        lon: 4.764
+        radius_km: 250
     simulation_bounds_mode: degrees
     simulation_bounds_size: 5
     aircraft_position_mode: relative
@@ -119,9 +119,8 @@ population_config:
       shape:
         - 16
         - 16
-      position: centered
+      position: forward
   resampling: cubic_spline
 training_config:
   save_frequency: 50000
   total_timesteps: 1000000
-  n_envs: 2
