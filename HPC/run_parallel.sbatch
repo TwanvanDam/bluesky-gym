@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-parallel
-#SBATCH --partition=general
+#SBATCH --partition=lr-co,general
 #SBATCH --qos=medium
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1             # 1 GPU shared by all background processes
