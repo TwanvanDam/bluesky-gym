@@ -564,6 +564,11 @@
           "default": null,
           "title": "Normalize Distance Obs"
         },
+        "max_action_degrees": {
+          "default": 180,
+          "title": "Max Action Degrees",
+          "type": "number"
+        },
         "constraint_violation_reward": {
           "default": -1.0,
           "title": "Constraint Violation Reward",
@@ -767,6 +772,11 @@
           "minimum": 0.0,
           "title": "Normalization Percentile",
           "type": "number"
+        },
+        "clip_noise_reward": {
+          "default": false,
+          "title": "Clip Noise Reward",
+          "type": "boolean"
         },
         "observation_normalization": {
           "default": "log",
@@ -997,6 +1007,11 @@
           ],
           "default": null,
           "title": "Seed"
+        },
+        "n_envs": {
+          "default": 1,
+          "title": "N Envs",
+          "type": "integer"
         }
       },
       "title": "TrainingConfig",

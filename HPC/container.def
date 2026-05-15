@@ -11,7 +11,7 @@ From: pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
     cd /workspace
     pip install --no-cache-dir \
         pygame \
-        gymnasium[other] \
+        gymnasium \
         stable-baselines3 \
         "numpy" \
         "bluesky-simulator>=1.0.7" \

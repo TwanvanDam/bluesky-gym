@@ -125,6 +125,16 @@ Path resolution is centralized in `scripts/common/run_paths.py`. All scripts acc
 - Coordinate handling is CRS-aware (WGS84 → `pygame_crs` via `pyproj`); map reprojection uses `rasterio.warp.reproject`.
 - `base_navigation_env.py` imports `NavigationConfig` from `scripts.config`; keep `scripts` on `PYTHONPATH` (set in `HPC/container.def`).
 
+## Research Plan
+
+The active experiment roadmap (step-by-step plan, decision gates, writing guide) is at:
+
+```
+HPC/experiments/experiment_roadmap.md
+```
+
+Current status (2026-05-14): validating stable training config (`centered_16_all` × 3 seeds). Next step is Block A resolution sweep rerun once that gate is passed.
+
 ## Safe Edit Checklist
 
 - **Config schema changes**: edit `scripts/config.py` and update matching `HPC/experiments/*.yaml` examples together.

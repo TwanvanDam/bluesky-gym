@@ -4,16 +4,37 @@ import shutil
 import warnings
 from pathlib import Path
 
+import gymnasium as gym
 import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EveryNTimesteps
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from bluesky_gym.envs.common.environment_factory import build_env
 from scripts.common.logger import BestModelCallback, TensorboardCallback
 from scripts.common.run_paths import RunPaths, read_metadata, resolve_run, update_metadata, write_metadata
 from scripts.config import ExperimentConfig, TrainingConfig
 from scripts.feature_extractors import CombinedExtractor
+
+def _get_env_name(experiment_config: ExperimentConfig) -> str:
+    if experiment_config.population_config:
+        return "PopulationWrapper-v0"
+    return "BaseNavigationEnv-v0"
+
+
+def _make_env(experiment_config: ExperimentConfig):
+    def _init() -> gym.Env:
+        env, _ = build_env(experiment_config)
+        return Monitor(env)
+    return _init
+
+
+def _build_vec_env(experiment_config: ExperimentConfig, n_envs: int):
+    fns = [_make_env(experiment_config) for _ in range(n_envs)]
+    if n_envs == 1:
+        return DummyVecEnv(fns)
+    return SubprocVecEnv(fns)
 
 
 def _generate_unique_run_name(experiment_config_path: Path, env_name: str, seed: int | None = None) -> str:
@@ -58,7 +79,8 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
             buffer_size=agent_config.buffer_size,
             learning_starts=agent_config.learning_starts,
             gamma=agent_config.gamma,
-            tau=agent_config.tau
+            tau=agent_config.tau,
+            gradient_steps=agent_config.gradient_steps,
         )
     else:
         raise NotImplementedError(f"Algorithm {experiment_config.agent_config.algorithm.algorithm} is not implemented.")
@@ -86,6 +108,7 @@ def _build_callbacks(experiment_config: ExperimentConfig, run_paths: RunPaths) -
             n_steps=eval_freq,
             callback=BestModelCallback(
                 save_path=run_paths.best_model,
+                run_paths=run_paths,
                 n_episodes_window=training_config.n_eval_episodes,
             ),
         ),
@@ -127,8 +150,9 @@ def train_model(
             experiment_config.training_config = TrainingConfig()
         experiment_config.training_config.seed = seed
 
-    env, env_name = build_env(experiment_config)
-    env = Monitor(env)
+    n_envs = experiment_config.training_config.n_envs if experiment_config.training_config else 1
+    env_name = _get_env_name(experiment_config)
+    env = _build_vec_env(experiment_config, n_envs)
     run_name = _generate_unique_run_name(experiment_config_path, env_name, seed=seed)
     experiment_config.run_name = run_name
 
@@ -182,8 +206,8 @@ def resume_training(
     print(f"Resuming run: {run_paths.run_id}")
     print(f"Loading checkpoint: {latest_ckpt}")
 
-    env, _ = build_env(config)
-    env = Monitor(env)
+    n_envs = training_config.n_envs if training_config else 1
+    env = _build_vec_env(config, n_envs)
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
