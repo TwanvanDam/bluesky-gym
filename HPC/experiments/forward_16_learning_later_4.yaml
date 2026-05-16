@@ -121,7 +121,7 @@ population_config:
       shape:
         - 16
         - 16
-      position: centered
+      position: forward
   resampling: cubic_spline
 training_config:
   n_envs: 4

@@ -122,5 +122,6 @@ population_config:
       position: centered
   resampling: cubic_spline
 training_config:
+  n_envs: 4
   save_frequency: 50000
   total_timesteps: 1000000
