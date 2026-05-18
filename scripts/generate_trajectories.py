@@ -133,26 +133,13 @@ if __name__ == '__main__':
             runway="EHAM/RW27",
             destination_latlon=(52.3322, 4.75),
             map_path=real_map_path,
-            model="best",
+            model=args.model,
             start_distance=250,
         ),
         TrajectoryEvalConfig(
             runway="EDDF/RW25R",
             map_path=real_map_path,
-            model="best",
-            start_distance=250,
-        ),
-        TrajectoryEvalConfig(
-            runway="EHAM/RW27",
-            destination_latlon=(52.3322, 4.75),
-            model="final",
-            map_path=real_map_path,
-            start_distance=250,
-        ),
-        TrajectoryEvalConfig(
-            runway="EDDF/RW25R",
-            map_path=real_map_path,
-            model="final",
+            model=args.model,
             start_distance=250,
         ),
     ]
