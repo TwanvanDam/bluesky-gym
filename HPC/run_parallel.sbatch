@@ -1,13 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=bluesky-rl-parallel
 #SBATCH --partition=lr-co,general
-#SBATCH --qos=medium
+#SBATCH --qos=short
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1             # 1 GPU shared by all background processes
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16        # ~1 CPU per environment + overhead
-#SBATCH --mem=40G                # ~6G per experiment
-#SBATCH --time=18:00:00
+#SBATCH --cpus-per-task=1        # ~1 CPU per environment + overhead
+#SBATCH --mem=1G                # ~6G per experiment
+#SBATCH --time=00:01:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
