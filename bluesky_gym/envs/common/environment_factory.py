@@ -1,3 +1,5 @@
+from typing import Literal
+
 import gymnasium as gym
 from gymnasium.wrappers import ClipReward
 from stable_baselines3 import SAC
@@ -38,7 +40,7 @@ def build_env(config: ExperimentConfig, render_mode: str | None = None) -> tuple
     return _apply_wrappers(env, config)
 
 
-def _load_model(run_paths: RunPaths, env: gym.Env, config: ExperimentConfig) -> SAC:
+def _load_model(run_paths: RunPaths, env: gym.Env, config: ExperimentConfig, model_type: Literal["final", "best"]) -> SAC:
     """Load a SAC model from a run directory, falling back to the latest checkpoint."""
     if config.agent_config.algorithm != "SAC":
         raise NotImplementedError(f"Algorithm {config.agent_config.algorithm!r} is not supported.")
@@ -48,23 +50,27 @@ def _load_model(run_paths: RunPaths, env: gym.Env, config: ExperimentConfig) -> 
         "net_arch": config.agent_config.network_arch,
     }
     custom_objects = {"policy_kwargs": policy_kwargs}
-    candidates = [
-        (run_paths.best_model, "best model"),
-        (run_paths.final_model, "final model"),
-        (run_paths.latest_checkpoint(), "latest checkpoint"),
-    ]
-    for path, label in candidates:
-        if path and path.exists():
-            if label != "best model":
-                print(f"best_model.zip not found. Loading {label}: {path}")
-            return SAC.load(path, env=env, device='auto', custom_objects=custom_objects)
-    raise FileNotFoundError(f"No model or checkpoints found for run {run_paths.run_id}")
+    candidates = {"best":  run_paths.best_model,
+                  "final": run_paths.final_model,
+                  "latest_checkpoint": run_paths.latest_checkpoint}
+
+    if model_type in candidates:
+        path = candidates[model_type]
+    else:
+        print(f"{model_type}_model.zip not found. Loading latest checkpoint: {candidates['latest_checkpoint']}")
+        path = candidates['latest_checkpoint']
+
+    if path and path.exists():
+        return SAC.load(path, env=env, device='auto', custom_objects=custom_objects)
+    else:
+        raise FileNotFoundError(f"No model or checkpoints found for run {run_paths.run_id}")
 
 
 def load_env_and_model(
     run: str | RunPaths,
     render_mode: str | None = "human",
     map_config: MapSourceConfigType | None = None,
+    model_type: Literal["best", "final"] = "best",
 ) -> tuple[gym.Env, SAC]:
     """Load a trained model and its environment from a run directory.
 
@@ -80,5 +86,5 @@ def load_env_and_model(
         pop_config = config.population_config.model_copy(update={"map_source_config": map_config})
         config = config.model_copy(update={"population_config": pop_config})
     env, _ = build_env(config, render_mode)
-    model = _load_model(run_paths, env, config)
+    model = _load_model(run_paths, env, config, model_type=model_type)
     return env, model

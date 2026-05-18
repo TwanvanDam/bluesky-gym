@@ -927,6 +927,11 @@
           "default": 0.005,
           "title": "Tau",
           "type": "number"
+        },
+        "gradient_steps": {
+          "default": -1,
+          "title": "Gradient Steps",
+          "type": "integer"
         }
       },
       "required": [
@@ -984,11 +989,6 @@
         "save_frequency": {
           "default": 50000,
           "title": "Save Frequency",
-          "type": "integer"
-        },
-        "n_eval_episodes": {
-          "default": 10,
-          "title": "N Eval Episodes",
           "type": "integer"
         },
         "save_replay_buffer": {

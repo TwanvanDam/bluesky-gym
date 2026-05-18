@@ -7,12 +7,12 @@ from pathlib import Path
 import gymnasium as gym
 import torch
 from stable_baselines3 import SAC
-from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EveryNTimesteps
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from bluesky_gym.envs.common.environment_factory import build_env
-from scripts.common.logger import BestModelCallback, TensorboardCallback
+from scripts.common.logger import TensorboardCallback
 from scripts.common.run_paths import RunPaths, read_metadata, resolve_run, update_metadata, write_metadata
 from scripts.config import ExperimentConfig, TrainingConfig
 from scripts.feature_extractors import CombinedExtractor
@@ -95,22 +95,15 @@ def initialize_agent(experiment_config: ExperimentConfig, env, log_dir: Path | s
 def _build_callbacks(experiment_config: ExperimentConfig, run_paths: RunPaths) -> CallbackList:
     training_config = experiment_config.training_config
     eval_freq = training_config.save_frequency
+    n_envs = training_config.n_envs if training_config else 1
     return CallbackList([
         TensorboardCallback(experiment_config=experiment_config),
         CheckpointCallback(
-            save_freq=eval_freq,
+            save_freq=max(eval_freq // n_envs, 1),
             save_path=str(run_paths.checkpoints_dir),
             name_prefix="checkpoint",
             save_replay_buffer=training_config.save_replay_buffer,
             verbose=1,
-        ),
-        EveryNTimesteps(
-            n_steps=eval_freq,
-            callback=BestModelCallback(
-                save_path=run_paths.best_model,
-                run_paths=run_paths,
-                n_episodes_window=training_config.n_eval_episodes,
-            ),
         ),
     ])
 
