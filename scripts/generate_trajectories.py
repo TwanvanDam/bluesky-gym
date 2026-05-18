@@ -3,6 +3,7 @@ import dataclasses
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import bluesky
 import gymnasium as gym
@@ -27,6 +28,7 @@ class TrajectoryEvalConfig:
     runway: str
     start_distance: float  # [km] radius from the runway at which aircraft start
     map_path: Path | None = None
+    model: Literal["best", "final"] = "best"
 
     # Force a runway starting position that is different from the bluesky database to ensure fair comparison to legacy models.
     destination_latlon: tuple[float, float] | None = None
@@ -84,7 +86,7 @@ def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfi
     for eval_config in tqdm(eval_configs, desc=f"Configs [{run_paths.run_name}]"):
         runway_id = eval_config.runway.replace("/", "_")
         map_suffix = "map" if eval_config.map_path else "no_map"
-        subdir_label = f"{runway_id}_{map_suffix}"
+        subdir_label = f"{runway_id}_{map_suffix}_{eval_config.model}"
 
         trajectory_folder = run_paths.trajectory_subdir(subdir_label)
 
@@ -103,7 +105,7 @@ def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfi
             else RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
         )
 
-        env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map)
+        env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map, model_type=eval_config.model)
         trajectories = simulate_trajectories(
             env, model,
             angle_interval=10,
@@ -120,6 +122,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Generate trajectories for trained run(s).")
     parser.add_argument("run_refs", nargs="+",
                         help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
+    parser.add_argument("--model", nargs=1, type=str, help="Trained model: 'best' or 'final'")
     args = parser.parse_args()
 
     maps_base_path = Path(__file__).parent / "population_maps"
@@ -130,11 +133,26 @@ if __name__ == '__main__':
             runway="EHAM/RW27",
             destination_latlon=(52.3322, 4.75),
             map_path=real_map_path,
+            model="best",
             start_distance=250,
         ),
         TrajectoryEvalConfig(
             runway="EDDF/RW25R",
             map_path=real_map_path,
+            model="best",
+            start_distance=250,
+        ),
+        TrajectoryEvalConfig(
+            runway="EHAM/RW27",
+            destination_latlon=(52.3322, 4.75),
+            model="final",
+            map_path=real_map_path,
+            start_distance=250,
+        ),
+        TrajectoryEvalConfig(
+            runway="EDDF/RW25R",
+            map_path=real_map_path,
+            model="final",
             start_distance=250,
         ),
     ]
