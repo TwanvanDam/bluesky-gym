@@ -32,23 +32,48 @@ def load_scalar(run: RunPaths, tag: str) -> pd.DataFrame | None:
     return pd.DataFrame({"step": [e.step for e in events], "value": [e.value for e in events]})
 
 
-def main(runs: list[RunPaths], seeds: list[int], smoothing: int, plot_name: str) -> None:
+def _differing_parts(names: list[str]) -> tuple[list[str], str]:
+    """Return (labels, plot_name) using the part of each name that differs from the rest."""
+    if len(names) == 1:
+        return [names[0]], names[0]
+
+    prefix = names[0]
+    for name in names[1:]:
+        while not name.startswith(prefix):
+            prefix = prefix[:-1]
+        if not prefix:
+            break
+
+    suffix = names[0]
+    for name in names[1:]:
+        while not name.endswith(suffix):
+            suffix = suffix[1:]
+        if not suffix:
+            break
+
+    suffix_len = len(suffix)
+    labels = [name[len(prefix):-suffix_len if suffix_len else None] for name in names]
+    plot_name = prefix.rstrip("_-")
+    return labels, plot_name
+
+
+def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str, legend_title: str = "runs") -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
 
     cmap = plt.colormaps["Dark2"]
 
-    for i, (run, seed) in enumerate(zip(runs, seeds)):
+    for i, (run, label) in enumerate(zip(runs, labels)):
         df = load_scalar(run, TAG)
         if df is None:
             continue
         color = cmap(i)
         ax.plot(df["step"], df["value"], color=color, alpha=0.3, linewidth=1)
         df["smoothed"] = df["value"].rolling(smoothing).mean()
-        ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=f"seed {seed}")
+        ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=label)
 
     ax.set_xlabel("Environment steps")
     ax.set_ylabel("Mean episode reward")
-    ax.set_title(f"{plot_name} — training reward ({len(runs)} seeds)")
+    ax.set_title(f"{plot_name} — training reward ({len(runs)} {legend_title})")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.legend(frameon=False)
@@ -69,15 +94,20 @@ if __name__ == "__main__":
 
     runs = [resolve_run(r) for r in args.run_refs]
     smoothing = args.smoothing
+    run_names = [run.run_name for run in runs]
 
-    if not all("seed" in run.run_name for run in runs):
-        parser.error("All runs must contain 'seed' in their name.")
+    if all("seed" in name for name in run_names):
+        bases = [name.split("seed")[0].rstrip("_") for name in run_names]
+        if len(set(bases)) == 1:
+            seeds = [int(name.split("seed")[-1]) for name in run_names]
+            labels = [f"seed {s}" for s in seeds]
+            plot_name = bases[0]
+            legend_title = "seeds"
+        else:
+            labels, plot_name = _differing_parts(run_names)
+            legend_title = "runs"
+    else:
+        labels, plot_name = _differing_parts(run_names)
+        legend_title = "runs"
 
-    bases = [run.run_name.split("seed")[0].rstrip("_") for run in runs]
-    if len(set(bases)) > 1:
-        parser.error(f"Runs differ in more than seed: {set(bases)}")
-
-    seeds = [int(run.run_name.split("seed")[-1]) for run in runs]
-    plot_name = bases[0]
-
-    main(runs, seeds, smoothing, plot_name)
+    main(runs, labels, smoothing, plot_name, legend_title)
