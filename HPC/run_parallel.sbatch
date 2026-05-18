@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16        # ~1 CPU per environment + overhead
 #SBATCH --mem=40G                # ~6G per experiment
-#SBATCH --time=24:00:00
+#SBATCH --time=18:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
