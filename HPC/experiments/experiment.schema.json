@@ -991,11 +991,6 @@
           "title": "Save Frequency",
           "type": "integer"
         },
-        "n_eval_episodes": {
-          "default": 10,
-          "title": "N Eval Episodes",
-          "type": "integer"
-        },
         "save_replay_buffer": {
           "default": false,
           "title": "Save Replay Buffer",
