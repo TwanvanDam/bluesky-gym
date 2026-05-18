@@ -5,9 +5,9 @@ windowed mean over the 50 k steps preceding each checkpoint, and copies
 the checkpoint with the highest windowed mean to best_model.zip.
 
 Usage:
-    python -m scripts.backfill_best_model --env PopulationWrapper-v0
-    python -m scripts.backfill_best_model --env PopulationWrapper-v0 --dry-run
-    python -m scripts.backfill_best_model --env PopulationWrapper-v0 --overwrite
+    python -m scripts.backfill_best_model PopulationWrapper-v0/RealMap_base_2026-...
+    python -m scripts.backfill_best_model --dry-run PopulationWrapper-v0/RealMap_base_2026-...
+    python -m scripts.backfill_best_model --overwrite PopulationWrapper-v0/RealMap_base_2026-...
 """
 
 from __future__ import annotations
@@ -20,16 +20,16 @@ from pathlib import Path
 import numpy as np
 from tensorboard.backend.event_processing import event_accumulator
 
-from scripts.common.run_paths import RunPaths, iter_runs, update_metadata
+from scripts.common.run_paths import RunPaths, resolve_run, update_metadata
 
-WINDOW_STEPS = 500
+WINDOW_STEPS = 50000
 REWARD_TAG = "rollout/ep_rew_mean"
 _CKPT_RE = re.compile(r"checkpoint_(\d+)_steps\.zip")
 
 
-def _load_reward_series(tb_dir: Path) -> tuple[np.ndarray, np.ndarray] | None:
+def _load_reward_series(run: RunPaths) -> tuple[np.ndarray, np.ndarray] | None:
     """Return (steps, values) for rollout/ep_rew_mean, or None if unavailable."""
-    event_files = sorted(tb_dir.glob("*"))
+    event_files = sorted(run.tensorboard_dir.glob("*"))
     if not event_files:
         return None
     ea = event_accumulator.EventAccumulator(str(event_files[0]))
@@ -67,7 +67,7 @@ def process_run(run: RunPaths, dry_run: bool, overwrite: bool) -> str:
     if run.best_model.exists() and not overwrite:
         return "skip (best_model.zip already exists)"
 
-    reward_data = _load_reward_series(run.tensorboard_dir)
+    reward_data = _load_reward_series(run)
     if reward_data is None:
         return "skip (no TensorBoard reward data)"
 
@@ -86,6 +86,8 @@ def process_run(run: RunPaths, dry_run: bool, overwrite: bool) -> str:
         return "skip (could not score any checkpoint)"
 
     best_step = max(scored, key=lambda s: scored[s][0])
+    for step in scored:
+        print(step,scored[step][0])
     best_mean, best_path = scored[best_step]
 
     if dry_run:
@@ -98,22 +100,17 @@ def process_run(run: RunPaths, dry_run: bool, overwrite: bool) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env", required=True, help="env name, e.g. PopulationWrapper-v0")
+    parser.add_argument("run_refs", nargs="+",
+                        help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     parser.add_argument("--dry-run", action="store_true", help="print actions without copying")
     parser.add_argument("--overwrite", action="store_true", help="overwrite existing best_model.zip")
     args = parser.parse_args()
 
-    try:
-        runs = iter_runs(args.env)
-    except FileNotFoundError as e:
-        raise SystemExit(e)
-
-    if not runs:
-        raise SystemExit(f"No run directories found for env '{args.env}'")
+    runs = [resolve_run(r) for r in args.run_refs]
 
     for run in runs:
         status = process_run(run, dry_run=args.dry_run, overwrite=args.overwrite)
-        print(f"{run.run_name}: {status}")
+        print(f"{run.run_id}: {status}")
 
 
 if __name__ == "__main__":
