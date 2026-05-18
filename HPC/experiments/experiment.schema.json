@@ -927,6 +927,11 @@
           "default": 0.005,
           "title": "Tau",
           "type": "number"
+        },
+        "gradient_steps": {
+          "default": -1,
+          "title": "Gradient Steps",
+          "type": "integer"
         }
       },
       "required": [
