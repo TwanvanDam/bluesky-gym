@@ -122,7 +122,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Generate trajectories for trained run(s).")
     parser.add_argument("run_refs", nargs="+",
                         help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
-    parser.add_argument("--model", nargs=1, type=str, help="Trained model: 'best' or 'final'")
+    parser.add_argument("--model", default="best", nargs=1, type=str, help="Trained model: 'best' or 'final', default='best'")
     args = parser.parse_args()
 
     maps_base_path = Path(__file__).parent / "population_maps"
