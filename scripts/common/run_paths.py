@@ -88,6 +88,7 @@ class RunPaths:
     def trajectory_subdir(self, name: str) -> Path:
         return self.trajectories_dir / name
 
+    @property
     def latest_checkpoint(self) -> Path | None:
         if not self.checkpoints_dir.exists():
             return None

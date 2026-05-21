@@ -79,7 +79,10 @@ def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str
     ax.legend(frameon=False)
 
     fig.tight_layout()
-    out_path = f"plots/{plot_name}.png"
+    group_slug = runs[0].env_name.replace("_", "-").lower()
+    out_dir = Path("plots/reward-plots") / group_slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{plot_name}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.show()
