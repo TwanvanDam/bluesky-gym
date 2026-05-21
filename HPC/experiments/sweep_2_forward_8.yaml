@@ -1,8 +1,6 @@
 agent_config:
   algorithm: SAC
-  learning_starts: 50000
-  batch_size: 512
-  learning_rate: 1.0E-4
+  learning_starts: 10000
   feature_extractor:
     cnn_layers:
       - in_channels: null
@@ -56,7 +54,6 @@ agent_config:
   policy: MultiInputPolicy
   type: SB3
 navigation_config:
-  max_action_degrees: 90
   ac_initial_alt: 4572.0
   ac_initial_spd: 128.611111
   ac_name: KL001
@@ -101,7 +98,6 @@ navigation_config:
       high: 55
 population_config:
   normalization_percentile: 99.9
-  clip_noise_reward: true
   fuel_weight: 0.5
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
@@ -116,14 +112,13 @@ population_config:
   observation_normalization: log
   map_observation_configs:
     - range:
-        - 256000
-        - 256000
+        - 128000
+        - 128000
       shape:
         - 16
         - 16
       position: forward
   resampling: cubic_spline
 training_config:
-  n_envs: 4
-  save_frequency: 12500
+  save_frequency: 100000
   total_timesteps: 1000000
