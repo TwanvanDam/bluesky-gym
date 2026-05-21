@@ -98,8 +98,8 @@ navigation_config:
     - lat: 52.308
       lon: 4.764
       radius_km: 250.0
-    simulation_bounds_mode: degrees
-    simulation_bounds_size: 5.0
+    simulation_bounds_mode: meters
+    simulation_bounds_size: 400000.0
   max_action_degrees: 90.0
   max_steps: 50
   mean_episode_length: 1200.0
