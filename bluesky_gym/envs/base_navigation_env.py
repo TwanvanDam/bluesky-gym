@@ -166,31 +166,27 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
 
-    def _set_simulation_bounds_meters(self) -> None:
-        corners_xy = [
-            self.coordinate_transformer.transform(self.lon_min, self.lat_min),
-            self.coordinate_transformer.transform(self.lon_min, self.lat_max),
-            self.coordinate_transformer.transform(self.lon_max, self.lat_min),
-            self.coordinate_transformer.transform(self.lon_max, self.lat_max),
-        ]
-        xs, ys = zip(*corners_xy)
-        self.x_min = min(xs)
-        self.y_min = min(ys)
-        self.x_max = max(xs)
-        self.y_max = max(ys)
-
     def _update_simulation_bounds(self, destination: Position) -> None:
         map_size = self.config.map_sampling_config.simulation_bounds_size
         match self.config.map_sampling_config.simulation_bounds_mode:
             case "degrees":
                 self.lon_min, self.lon_max = destination.lon - map_size, destination.lon + map_size
                 self.lat_min, self.lat_max = destination.lat - map_size, destination.lat + map_size
+                corners_xy = [
+                    self.coordinate_transformer.transform(self.lon_min, self.lat_min),
+                    self.coordinate_transformer.transform(self.lon_min, self.lat_max),
+                    self.coordinate_transformer.transform(self.lon_max, self.lat_min),
+                    self.coordinate_transformer.transform(self.lon_max, self.lat_max),
+                ]
+                xs, ys = zip(*corners_xy)
+                self.x_min, self.x_max = min(xs), max(xs)
+                self.y_min, self.y_max = min(ys), max(ys)
             case "meters":
-                # get_point_at_distance -> (lat, lon)
-                self.lat_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 180)[0]
-                self.lat_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 0)[0]
-                self.lon_min = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 270)[1]
-                self.lon_max = fn.get_point_at_distance(destination.lat, destination.lon, map_size / 1000, 90)[1]
+                dest_x, dest_y = self.coordinate_transformer.transform(destination.lon, destination.lat)
+                self.x_min = dest_x - map_size
+                self.x_max = dest_x + map_size
+                self.y_min = dest_y - map_size
+                self.y_max = dest_y + map_size
 
     def reset(self, seed=None, options: None | dict[str, float] = None):
         """Reset the environment to an initial state.
@@ -215,7 +211,6 @@ class BaseNavigationEnv(gym.Env):
 
         self.destination = self._generate_airport(self.np_random, options)
         self._update_simulation_bounds(self.destination)
-        self._set_simulation_bounds_meters()
         self._set_terminal_condition()
 
         for _ in range(100):
@@ -489,11 +484,12 @@ class BaseNavigationEnv(gym.Env):
         )
 
     def check_inside_bounds(self, pos: Position, margin: float = 0.1) -> bool:
-        delta_lat = self.lat_max - self.lat_min
-        delta_lon = self.lon_max - self.lon_min
-        lat_in_bounds = self.lat_min + (delta_lat * margin) <= pos.lat <= self.lat_max - (delta_lat * margin)
-        lon_in_bounds = self.lon_min + (delta_lon * margin) <= pos.lon <= self.lon_max - (delta_lon * margin)
-        return lat_in_bounds and lon_in_bounds
+        x, y = self.coordinate_transformer.transform(pos.lon, pos.lat)
+        delta_x = self.x_max - self.x_min
+        delta_y = self.y_max - self.y_min
+        x_in_bounds = self.x_min + margin * delta_x <= x <= self.x_max - margin * delta_x
+        y_in_bounds = self.y_min + margin * delta_y <= y <= self.y_max - margin * delta_y
+        return x_in_bounds and y_in_bounds
 
     def _save_telemetry(self) -> None:
         ac_alt = self.get_aircraft_altitude()
