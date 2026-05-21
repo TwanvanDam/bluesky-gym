@@ -226,6 +226,8 @@ class Population(gym.Wrapper):
         return [
             lambda canvas: canvas.fill(pygame.Color("grey")),
             partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map),
+            self.base_env.draw_spawn_boundaries,
+            self.base_env.draw_airport_radius,
             self.base_env.draw_airport,
             self.base_env.draw_aircraft,
             self._draw_box_around_aircraft,
