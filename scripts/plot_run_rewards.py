@@ -85,7 +85,6 @@ def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str
     out_path = out_dir / f"{plot_name}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
-    plt.show()
 
 
 if __name__ == "__main__":
