@@ -58,6 +58,8 @@ class Population(gym.Wrapper):
         # cache the map used as background since it does not change often.
         self.background_map: None | np.ndarray = None
         self.color_map: str = color_map
+
+        self.clip_indicator_color: tuple[int, int, int, int] = (255, 0, 0, 255)
         self.render_normalizer: Normalize | None = None
 
         assert isinstance(self.env.observation_space, spaces.Dict)
@@ -244,9 +246,9 @@ class Population(gym.Wrapper):
             return Normalize(vmin=0, vmax=1)
         normalization_mode = self.config.observation_normalization
         if normalization_mode == "log":
-            return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max)
+            return FuncNorm(functions=(np.log1p, np.expm1), vmin=v_min, vmax=v_max, clip=True)
         elif normalization_mode in ["min_max", "min-max"]:
-            return Normalize(vmin=v_min, vmax=v_max)
+            return Normalize(vmin=v_min, vmax=v_max, clip=True)
 
     def _convert_heatmap_to_rgba_array(self, population_map: np.ndarray) -> np.ndarray:
         # Mask the area that has no data available ( negative population density )
@@ -256,6 +258,10 @@ class Population(gym.Wrapper):
 
         color_data = matplotlib.colormaps[self.color_map](normalized_map)
         rgba_array = (color_data * 255).astype(np.uint8)
+
+        # Mark areas with population density that would be clipped
+        clipped_mask = ~no_data_mask & (population_map > self.map_source_max)
+        rgba_array[clipped_mask] = self.clip_indicator_color
 
         # Make areas without data transparent
         rgba_array[no_data_mask, 3] = 0
