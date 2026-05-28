@@ -10,6 +10,7 @@ Success rate is computed from trajectory CSVs (requires generate_trajectories.py
 to have been run first with the termination_reason column present).
 """
 
+import argparse
 import re
 from pathlib import Path
 
@@ -17,11 +18,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-RUNS_ROOT = Path(__file__).parent.parent / "runs" / "resolution_sweep_1"
-BASELINE_DIR = Path(__file__).parent.parent / "runs" / "BaseNavigationEnv-v0" / "no_map_seed00"
+DEFAULT_RUNS_ROOT = Path(__file__).parent.parent / "runs" / "resolution_sweep_2"
+DEFAULT_BASELINE_NAME = "sweep_2_no_map_seed00"
+DEFAULT_RUNWAY = "EDDF_RW25R"
 RUN_PATTERN = re.compile(r"^(forward|centered)_(\d+)_seed(\d+)$")
 SUCCESS_REASON = "success"
-runway = "EHAM_RW27"
 
 FORWARD_COLOR = "#2196F3"
 CENTERED_COLOR = "#FF6B35"
@@ -33,7 +34,7 @@ SEED_COLORS = ["#4CAF50", "#9C27B0", "#FF9800", "#E91E63", "#00BCD4", "#795548"]
 BASELINE_COLOR = "#555555"
 
 
-def compute_success_rate(run_dir: Path) -> float | None:
+def compute_success_rate(run_dir: Path, runway: str) -> float | None:
     """Mean success rate across all *_map trajectory CSVs in a run."""
     traj_root = run_dir / "trajectories"
     if not traj_root.exists():
@@ -59,13 +60,14 @@ def compute_success_rate(run_dir: Path) -> float | None:
     all_episodes = pd.concat(episodes)
     return (all_episodes == SUCCESS_REASON).mean()
 
-def compute_episode_length(run_dir: Path) -> pd.DataFrame | None:
-    """Mean success rate across all *_map trajectory CSVs in a run."""
+
+def compute_episode_length(run_dir: Path, runway: str) -> pd.Series | None:
+    """Episode lengths (seconds) across all *_map trajectory CSVs in a run."""
     traj_root = run_dir / "trajectories"
     if not traj_root.exists():
         return None
 
-    map_csvs = list(traj_root.glob("*map*/trajectories.csv"))
+    map_csvs = list(traj_root.glob(f"*{runway}_map*/trajectories.csv"))
     if not map_csvs:
         return None
 
@@ -81,25 +83,32 @@ def compute_episode_length(run_dir: Path) -> pd.DataFrame | None:
 
     return pd.concat(episodes)
 
-def collect_data() -> pd.DataFrame:
+
+def collect_data(runs_root: Path, runway: str) -> pd.DataFrame:
     records = []
-    for run_dir in sorted(RUNS_ROOT.iterdir()):
+    for run_dir in sorted(runs_root.iterdir()):
         m = RUN_PATTERN.match(run_dir.name)
         if not m:
             continue
         mode, resolution, seed = m.group(1), int(m.group(2)), int(m.group(3))
-        rate = compute_success_rate(run_dir)
+        rate = compute_success_rate(run_dir, runway)
         if rate is None:
             print(f"  Skipping {run_dir.name}: no usable trajectory data")
             continue
-        records.append({"mode": mode, "resolution": resolution, "seed": seed, "success_rate": rate, "length": compute_episode_length(run_dir)})
+        records.append({
+            "mode": mode,
+            "resolution": resolution,
+            "seed": seed,
+            "success_rate": rate,
+            "length": compute_episode_length(run_dir, runway),
+        })
     return pd.DataFrame(records)
 
 
-def compute_baseline() -> tuple[float | None, float | None]:
+def compute_baseline(baseline_dir: Path, runway: str) -> tuple[float | None, float | None]:
     """Return (success_rate, mean_episode_length_s) for the baseline run."""
-    lengths = compute_episode_length(BASELINE_DIR)
-    return compute_success_rate(BASELINE_DIR), (lengths.mean() if lengths is not None else None)
+    lengths = compute_episode_length(baseline_dir, runway)
+    return compute_success_rate(baseline_dir, runway), (lengths.mean() if lengths is not None else None)
 
 
 def _seed_color_map(df: pd.DataFrame) -> dict:
@@ -192,12 +201,31 @@ def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: floa
 
 
 def main() -> None:
-    df = collect_data()
+    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
+    parser.add_argument(
+        "runs_root", nargs="?", type=Path, default=DEFAULT_RUNS_ROOT,
+        help=f"Directory containing sweep run folders (default: {DEFAULT_RUNS_ROOT})",
+    )
+    parser.add_argument(
+        "--baseline", type=Path, default=None,
+        help=f"Baseline run directory (default: <runs_root>/{DEFAULT_BASELINE_NAME})",
+    )
+    parser.add_argument(
+        "--runway", default=DEFAULT_RUNWAY,
+        help=f"Runway identifier used to filter trajectory CSVs (default: {DEFAULT_RUNWAY})",
+    )
+    args = parser.parse_args()
+
+    runs_root: Path = args.runs_root
+    baseline_dir: Path = args.baseline or runs_root / DEFAULT_BASELINE_NAME
+    runway: str = args.runway
+
+    df = collect_data(runs_root, runway)
     if df.empty:
         print("No data found. Run generate_trajectories.py on the sweep runs first.")
         return
 
-    baseline_rate, baseline_length = compute_baseline()
+    baseline_rate, baseline_length = compute_baseline(baseline_dir, runway)
     print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
 
     for mode in ("forward", "centered"):
@@ -211,7 +239,7 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode(ax, mode_df, mode, color, baseline=baseline_rate)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"resolution_sweep_{mode}_{runway}.png"
+        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
@@ -219,7 +247,7 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"resolution_sweep_{mode}_length_{runway}.png"
+        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_length_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
