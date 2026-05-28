@@ -44,7 +44,15 @@ def plot_trajectories(
                                                                         height=512)
     extent = plotting_extent(background, background_transform)
 
-    plt.imshow(background, extent=extent, origin="upper", cmap="Blues", vmin=0, vmax=np.nanpercentile(background, 99))
+    bg_log = np.where(np.isfinite(background) & (background > 0), np.log1p(background), np.nan)
+    plt.imshow(
+        bg_log,
+        extent=extent,
+        origin="upper",
+        cmap="Blues",
+        vmin=0,
+        vmax=np.nanpercentile(bg_log, 99.9),
+    )
     plt.xlim(extent[0], extent[1])
     plt.ylim(extent[2], extent[3])
     plt.scatter(*destination_xy, marker=".", linewidths=5)
@@ -55,7 +63,6 @@ def plot_trajectories(
         plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green",
                  label="Start" if start_angle == trajectories["start_angle"].min() else "")
     map_label = "with map" if agent_used_map else "no map"
-    plt.title(f"{run_name} | runway: {runway} | {map_label}")
     plt.xlabel("X Coordinate (meters)")
     plt.ylabel("Y Coordinate (meters)")
     if save_path is not None:
@@ -89,8 +96,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     save_path = traj_dir / f"plot.png"
 
     if save_path.exists():
-        print(f"Plot already exists, skipping: {save_path}")
-        return
+        print(f"Overwriting existing plot: {save_path}")
 
     plot_trajectories(df, map_config, runway=runway, run_name=run_name, agent_used_map=agent_used_map, save_path=save_path)
 
