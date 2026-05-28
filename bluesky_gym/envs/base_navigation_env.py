@@ -165,6 +165,7 @@ class BaseNavigationEnv(gym.Env):
         self.window: pygame.Surface | None = None
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
+        self._paused = False
 
     def _update_simulation_bounds(self, destination: Position) -> None:
         map_size = self.config.map_sampling_config.simulation_bounds_size
@@ -550,6 +551,14 @@ class BaseNavigationEnv(gym.Env):
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
+            while self._paused:
+                self.clock.tick(30)
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.close()
+                        selfan 
+                    elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                        self._paused = False
         elif self.render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
@@ -560,6 +569,8 @@ class BaseNavigationEnv(gym.Env):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                self._paused = not self._paused
 
     def draw_airport(self, canvas):
         airport_color = pygame.Color("black")
