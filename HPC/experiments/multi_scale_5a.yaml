@@ -113,11 +113,18 @@ population_config:
   map_observation_configs:
   - position: centered
     range:
-    - 64000.0
-    - 64000.0
+      - 32000.0
+      - 32000.0
     shape:
-    - 16
-    - 16
+      - 16
+      - 16
+  - position: centered
+    range:
+      - 256000.0
+      - 256000.0
+    shape:
+      - 16
+      - 16
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
