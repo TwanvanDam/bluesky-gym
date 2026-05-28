@@ -25,47 +25,12 @@ from rasterio.plot import plotting_extent
 
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
+from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
 from scripts.common.run_paths import resolve_run, RunPaths
 
 MAP_PATH = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
-
-
-def build_metric_fn():
-    """Initialise models once and return a calculate_metrics(df) function."""
-    raster_sampler = RasterSampler(
-        map_source=TiffMapSourceConfig(file_path=MAP_PATH).build(),
-        resampling="cubic_spline",
-        destination_crs="epsg:3035",
-    )
-    noise_model = NoiseConfig().build()
-    fuel_model = FuelModel("a320")
-
-    def _fuel(altitude, tas, sim_dt, mass):
-        return fuel_model.step_fuel_flow(mass=mass, tas=tas, altitude=altitude) * sim_dt
-
-    def _noise(lat, lon, altitude, sim_dt):
-        pos = Position(name=f"{lat},{lon}", reflat=0, reflon=0)
-        k_m, k_px = noise_model.get_noise_power_kernel_shape_meters_and_pixels(altitude)
-
-        noise_kernel_map_extract_config = MapObservationConfig(shape=k_px, range=k_m)
-        pop = raster_sampler.get_observation_clipped(center_position=pos, orientation=0,
-                                                     observation_config=noise_kernel_map_extract_config)
-        return noise_model.step_total_noise(pop, altitude, sim_dt)
-
-    def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
-        alt_key = "altitude" if "altitude" in df.columns else "alt"
-        df["calculated_fuel"] = df.apply(
-            lambda r: _fuel(r[alt_key], r["tas"], r["sim_dt"], r["mass"]), axis=1
-        )
-        df["calculated_noise"] = df.apply(
-            lambda r: _noise(r["lat"], r["lon"], r[alt_key], r["sim_dt"]), axis=1
-        )
-        return df
-
-    return calculate_metrics
-
 
 def _load(csv_path: Path, calculate_metrics) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
@@ -323,5 +288,5 @@ if __name__ == "__main__":
         else Path("comparisons") / f"{rp_a.run_name}_vs_{rp_b.run_name}"
     )
 
-    calculate_metrics = build_metric_fn()
+    calculate_metrics = build_metric_fn(MAP_PATH)
     compare_runs(rp_a, rp_b, out_dir, calculate_metrics)

@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
+from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
 
@@ -22,6 +23,7 @@ CENTERED_COLOR = "#FF6B35"
 BASELINE_COLOR = "#555555"
 BOX_OFFSET = 0.2
 BOX_WIDTH = 0.35
+MEAN_EPISODE_LENGTH = 1400  # s
 
 
 @dataclass
@@ -29,43 +31,11 @@ class Record:
     mode: str
     fuel: float
     noise: float
+    normalized_fuel: float
+    normalized_noise: float
     success: bool
     resolution: float | None
     seed: int
-
-def build_metric_fn(map_path: Path) -> Callable[[pd.DataFrame], pd.DataFrame]:
-    """Initialise models once and return a calculate_metrics(df) function."""
-    raster_sampler = RasterSampler(
-        map_source=TiffMapSourceConfig(file_path=map_path).build(),
-        resampling="cubic_spline",
-        destination_crs="epsg:3035",
-    )
-    noise_model = NoiseConfig().build()
-    fuel_model = FuelModel("a320")
-
-    def _fuel(altitude, tas, sim_dt, mass):
-        return fuel_model.step_fuel_flow(mass=mass, tas=tas, altitude=altitude) * sim_dt
-
-    def _noise(lat, lon, altitude, sim_dt):
-        pos = Position(name=f"{lat},{lon}", reflat=0, reflon=0)
-        k_m, k_px = noise_model.get_noise_power_kernel_shape_meters_and_pixels(altitude)
-
-        noise_kernel_map_extract_config = MapObservationConfig(shape=k_px, range=k_m)
-        pop = raster_sampler.get_observation_clipped(center_position=pos, orientation=0,
-                                                     observation_config=noise_kernel_map_extract_config)
-        return noise_model.step_total_noise(pop, altitude, sim_dt)
-
-    def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
-        alt_key = "altitude" if "altitude" in df.columns else "alt"
-        df["calculated_fuel"] = df.apply(
-            lambda r: _fuel(r[alt_key], r["tas"], r["sim_dt"], r["mass"]), axis=1
-        )
-        df["calculated_noise"] = df.apply(
-            lambda r: _noise(r["lat"], r["lon"], r[alt_key], r["sim_dt"]), axis=1
-        )
-        return df
-
-    return calculate_metrics
 
 def find_run_dirs(run_pattern: None | list[str], runs_root: Path) -> Generator:
     for run_dir in sorted(runs_root.iterdir()):
@@ -105,6 +75,9 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
         fuel_summed = df_grouped["calculated_fuel"].sum()
         noise_summed = df_grouped["calculated_noise"].sum()
         success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
+        normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
+        normalized_noise = noise_summed / (df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH)
+        combined = normalized_fuel + normalized_noise
 
         for start_angle in fuel_summed.index:
             records.append(
@@ -113,6 +86,8 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
                     resolution=resolution,
                     fuel=fuel_summed[start_angle],
                     noise=noise_summed[start_angle],
+                    normalized_fuel=normalized_fuel[start_angle],
+                    normalized_noise=normalized_noise[start_angle],
                     success=success_per_episode[start_angle],
                     seed=seed
                 )
@@ -134,6 +109,9 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
     fuel_summed = df_grouped["calculated_fuel"].sum()
     noise_summed = df_grouped["calculated_noise"].sum()
     success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
+    normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
+    normalized_noise = noise_summed / (df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH)
+    combined = normalized_fuel + normalized_noise
     records = []
     for start_angle in fuel_summed.index:
         records.append(
@@ -142,6 +120,8 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
                 resolution=None,
                 fuel=fuel_summed[start_angle],
                 noise=noise_summed[start_angle],
+                normalized_fuel=normalized_fuel[start_angle],
+                normalized_noise=normalized_noise[start_angle],
                 success=success_per_episode[start_angle],
                 seed=seed,
             )
@@ -169,6 +149,7 @@ def plot_metric_boxplot(
     metric: str,
     ylabel: str,
     runway: str,
+    output_dir: Path = Path("./plots"),
 ) -> None:
     resolutions = sorted(df["resolution"].dropna().unique())
     # baseline at 0, resolutions start at 1
@@ -209,8 +190,8 @@ def plot_metric_boxplot(
     ax.spines["right"].set_visible(False)
 
     fig.tight_layout()
-    plt.show()
-    out_path = Path(f"./plots/{metric}_{runway}.png")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{metric}_{runway}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
@@ -229,20 +210,30 @@ if __name__ == '__main__':
     bs.init()
     calculate_metrics = build_metric_fn(Path(args.map_path))
 
-    cache_path = Path(args.runs_root) / f"cached_metrics_{args.runway}.csv"
+    runs_root = Path(args.runs_root)
+    output_dir = Path("plots/sweep_overview_plots") / runs_root.name
+
+    cache_path = runs_root / f"cached_metrics_{args.runway}.csv"
     if cache_path.exists() and args.cache:
         print("Using the cached metrics...")
-        run_metrics = pd.read_csv(Path(args.runs_root) / f"cached_metrics_{args.runway}.csv")
+        run_metrics = pd.read_csv(cache_path)
     else:
-        run_metrics = collect_metrics(Path(args.runs_root), args.runway, ["forward", "centered"], calculate_metrics)
+        run_metrics = collect_metrics(runs_root, args.runway, ["forward", "centered"], calculate_metrics)
         if args.cache:
             print(f"Saving results to {cache_path} ...")
             run_metrics.to_csv(cache_path)
 
     if args.baseline_run:
-        baseline_metrics = collect_baseline_metrics(Path(args.baseline_run[0]), args.runway,calculate_metrics)
+        baseline_metrics = collect_baseline_metrics(Path(args.baseline_run[0]), args.runway, calculate_metrics)
     else:
         baseline_metrics = None
 
-    plot_metric_boxplot(run_metrics, baseline_metrics, "fuel", "fuel [kg]", args.runway)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "noise", "noise", args.runway)
+    run_metrics["combined"] = run_metrics["normalized_fuel"] + run_metrics["normalized_noise"]
+    if baseline_metrics is not None and not baseline_metrics.empty:
+        baseline_metrics["combined"] = baseline_metrics["normalized_fuel"] + baseline_metrics["normalized_noise"]
+
+    plot_metric_boxplot(run_metrics, baseline_metrics, "fuel", "fuel [kg]", args.runway, output_dir)
+    plot_metric_boxplot(run_metrics, baseline_metrics, "noise", "noise [W·s]", args.runway, output_dir)
+    plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_fuel", "normalized fuel", args.runway, output_dir)
+    plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_noise", "normalized noise", args.runway, output_dir)
+    plot_metric_boxplot(run_metrics, baseline_metrics, "combined", "normalized fuel + noise", args.runway, output_dir)

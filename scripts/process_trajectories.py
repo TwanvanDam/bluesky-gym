@@ -2,29 +2,8 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-from bluesky.tools.position import Position
-
-from bluesky_gym.maps.map_sources import TiffMapSourceConfig
-from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
-from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.metrics.noise_model import NoiseConfig
+from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
 from scripts.common.run_paths import resolve_run, RunPaths
-
-
-def calculate_fuel(altitude, tas, sim_dt, mass):
-    fuel_flow = fuel_model.step_fuel_flow(mass=mass, tas=tas, altitude=altitude) * sim_dt
-    return fuel_flow
-
-
-def calculate_noise(lat, lon, altitude, sim_dt):
-    pos = Position(name=f"{lat},{lon}", reflat=0, reflon=0)
-    kernel_shape_meters, kernel_shape_pixels = noise_model.get_noise_power_kernel_shape_meters_and_pixels(altitude)
-    noise_kernel_map_extract_config = MapObservationConfig(shape=kernel_shape_pixels, range=kernel_shape_meters)
-    population_map = raster_sampler.get_observation_clipped(center_position=pos, orientation=0,
-                                                            observation_config=noise_kernel_map_extract_config)
-    noise = noise_model.step_total_noise(population_map, altitude, sim_dt)
-    return noise
-
 
 def plot_noise_bar_chart(df: pd.DataFrame, save_path: Path):
     import matplotlib.pyplot as plt
@@ -48,15 +27,6 @@ def plot_fuel_bar_chart(df: pd.DataFrame, save_path: Path):
     plt.xticks(rotation=45)
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close()
-
-
-def calculate_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    altitude_key = "altitude" if "altitude" in df.columns else "alt"
-    df["calculated_fuel"] = df.apply(
-        lambda row: calculate_fuel(row[altitude_key], row["tas"], row["sim_dt"], row["mass"]), axis=1)
-    df["calculated_noise"] = df.apply(
-        lambda row: calculate_noise(row["lat"], row["lon"], row[altitude_key], row["sim_dt"]), axis=1)
-    return df
 
 
 def process_trajectory_csv(csv_path: Path, traj_dir: Path) -> None:
@@ -93,14 +63,9 @@ if __name__ == '__main__':
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
     args = parser.parse_args()
 
-    validation_map_config = TiffMapSourceConfig(
-        file_path="/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff")
-    validation_map = validation_map_config.build()
-    raster_sampler = RasterSampler(map_source=validation_map, resampling="sum", destination_crs="epsg:3035")
+    file_path= Path("./scripts/population_maps/europe_3035.tif")
 
-    noise_model_config = NoiseConfig()
-    noise_model = noise_model_config.build()
-    fuel_model = FuelModel("a320")
+    calculate_metrics = build_metric_fn(file_path)
 
     # Legacy: if a single arg is a CSV file, process that directly
     if len(args.run_refs) == 1 and args.run_refs[0].endswith(".csv"):
