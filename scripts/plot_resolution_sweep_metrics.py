@@ -215,6 +215,7 @@ if __name__ == '__main__':
     arg_parser.add_argument("--cache", action="store_true", default=False, help="whether to cache results")
     arg_parser.add_argument("--noise_clip_percentile", type=float, default=99.9, help="noise clip percentile")
     arg_parser.add_argument("--mean_episode_length", type=float, default=1400.0, help="Used to normalize the reward values")
+    arg_parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"), help=f"Output directory for the plots")
     args = arg_parser.parse_args()
 
     RUN_PATTERN = re.compile(r"(forward|centered)_(\d+)_seed(\d+)")
@@ -228,7 +229,9 @@ if __name__ == '__main__':
     calculate_metrics = build_metric_fn(Path(args.map_path), args.noise_clip_percentile)
 
     runs_root = Path(args.runs_root)
-    output_dir = Path("plots/sweep_overview_plots") / runs_root.name
+    output_dir = args.output_dir / runs_root.name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    baseline_dir = args.baseline
 
     cache_path = runs_root / f"cached_metrics_{args.runway}.csv"
     if cache_path.exists() and args.cache:
