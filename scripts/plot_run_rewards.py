@@ -79,6 +79,7 @@ def _plot_and_save(
     ylabel: str,
     title_suffix: str,
     file_suffix: str,
+    output_dir: Path,
     limits: list | None
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -103,7 +104,7 @@ def _plot_and_save(
     ax.grid()
 
     fig.tight_layout()
-    out_dir = Path("plots/reward-plots") / group_slug
+    out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{plot_name}{file_suffix}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -122,6 +123,7 @@ def _plot_sum_and_save(
     ylabel: str,
     title_suffix: str,
     file_suffix: str,
+    output_dir: Path,
     limits: list | None
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -150,7 +152,7 @@ def _plot_sum_and_save(
     ax.grid()
 
     fig.tight_layout()
-    out_dir = Path("plots/reward-plots") / group_slug
+    out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{plot_name}{file_suffix}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -158,7 +160,7 @@ def _plot_sum_and_save(
     print(f"Saved → {out_path}")
 
 
-def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str, legend_title: str = "runs") -> None:
+def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str, output_dir: Path, legend_title: str = "runs") -> None:
     all_tags = [TAG, TAG_NOISE, TAG_FUEL]
     run_data = [
         load_run_scalars(run, all_tags)
@@ -172,11 +174,11 @@ def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str
         dict(tag=TAG_FUEL, ylabel="Mean fuel reward", title_suffix="fuel reward", file_suffix="_fuel", limits=[-1, 0]),
     ]
     for kwargs in tqdm(plots, desc="Rendering figures", unit="fig"):
-        _plot_and_save(run_data, labels, smoothing, plot_name, legend_title, group_slug, **kwargs)
+        _plot_and_save(run_data, labels, smoothing, plot_name, legend_title, group_slug, output_dir=output_dir, **kwargs)
     tqdm.write("Rendering fuel+noise figure...")
     _plot_sum_and_save(run_data, labels, smoothing, plot_name, legend_title, group_slug,
                        tags=[TAG_FUEL, TAG_NOISE], ylabel="Mean fuel + noise reward",
-                       title_suffix="fuel + noise reward", file_suffix="_fuel_noise", limits=[-2,0])
+                       title_suffix="fuel + noise reward", file_suffix="_fuel_noise", output_dir=output_dir, limits=[-2,0])
 
 
 if __name__ == "__main__":
@@ -184,11 +186,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot mean reward for trained run(s).")
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
     parser.add_argument("--smoothing", type=int, default=100)
+    parser.add_argument("--output_dir", type=Path, default=Path("plots/run_rewards"), help=f"Output directory for the plots")
     args = parser.parse_args()
 
     runs = [resolve_run(r) for r in args.run_refs]
     smoothing = args.smoothing
     run_names = [run.run_name for run in runs]
+
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if all("seed" in name for name in run_names):
         bases = [name.split("seed")[0].rstrip("_") for name in run_names]
@@ -204,4 +210,4 @@ if __name__ == "__main__":
         labels, plot_name = _differing_parts(run_names)
         legend_title = "runs"
 
-    main(runs, labels, smoothing, plot_name, legend_title)
+    main(runs, labels, smoothing, plot_name, output_dir, legend_title)
