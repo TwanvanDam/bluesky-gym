@@ -165,6 +165,9 @@ class BaseNavigationEnv(gym.Env):
         self.window: pygame.Surface | None = None
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
+        self._paused = False
+        self._show_boundaries = False
+        self._show_radius = False
 
     def _update_simulation_bounds(self, destination: Position) -> None:
         map_size = self.config.map_sampling_config.simulation_bounds_size
@@ -530,10 +533,15 @@ class BaseNavigationEnv(gym.Env):
 
     def get_render_layers(self) -> list[Callable]:
         """Return a list of functions that can be run to render the environment."""
-        return [lambda canvas: canvas.fill(self.blue_background),
-                self.draw_airport,
-                self.draw_aircraft,
-                self.draw_observation_text]
+        layers = [lambda canvas: canvas.fill(self.blue_background)]
+        if self._show_boundaries:
+            layers.append(self.draw_spawn_boundaries)
+        if self._show_radius:
+            layers.append(self.draw_airport_radius)
+        layers += [self.draw_airport,
+                   self.draw_aircraft,
+                   self.draw_observation_text]
+        return layers
 
     def initialize_pygame(self, window_size: tuple[int, int]):
         """Checks if pygame is initialized properly. If not it will initialize."""
@@ -550,6 +558,19 @@ class BaseNavigationEnv(gym.Env):
             self.window.blit(canvas, canvas.get_rect())
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
+            while self._paused:
+                self.clock.tick(30)
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.close()
+                        raise SystemExit
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_SPACE:
+                            self._paused = False
+                        elif event.key == pygame.K_b:
+                            self._show_boundaries = not self._show_boundaries
+                        elif event.key == pygame.K_r:
+                            self._show_radius = not self._show_radius
         elif self.render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
@@ -560,6 +581,14 @@ class BaseNavigationEnv(gym.Env):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+                raise SystemExit
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self._paused = not self._paused
+                elif event.key == pygame.K_b:
+                    self._show_boundaries = not self._show_boundaries
+                elif event.key == pygame.K_r:
+                    self._show_radius = not self._show_radius
 
     def draw_airport(self, canvas):
         airport_color = pygame.Color("black")
@@ -607,6 +636,35 @@ class BaseNavigationEnv(gym.Env):
             x1, y1 = self.lat_lon_to_pix(bs_position(lat=point_1[0], lon=point_1[1]))
             x2, y2 = self.lat_lon_to_pix(bs_position(lat=point_2[0], lon=point_2[1]))
             pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
+
+    def draw_spawn_boundaries(self, canvas):
+        """Draw the inner rectangle indicating where aircraft can spawn (10% margin from each edge).
+
+        Margin is applied in projected meter space so the rectangle aligns with the screen axes.
+        The lat/lon check_inside_bounds margin is equivalent in distance (~80 km).
+        """
+        margin = 0.1
+        delta_x = self.x_max - self.x_min
+        delta_y = self.y_max - self.y_min
+        inner_x_min = self.x_min + margin * delta_x
+        inner_x_max = self.x_max - margin * delta_x
+        inner_y_min = self.y_min + margin * delta_y
+        inner_y_max = self.y_max - margin * delta_y
+
+        pixel_corners = [
+            self.meters_to_pix((inner_x_min, inner_y_min)),
+            self.meters_to_pix((inner_x_min, inner_y_max)),
+            self.meters_to_pix((inner_x_max, inner_y_max)),
+            self.meters_to_pix((inner_x_max, inner_y_min)),
+        ]
+        pygame.draw.polygon(canvas, pygame.Color(255, 140, 0), pixel_corners, 2)
+
+    def draw_airport_radius(self, canvas):
+        """Draw a 250 km radius circle centered at the airport."""
+        radius_m = 250_000
+        radius_pix = int(radius_m * self.window_size[0] / (self.x_max - self.x_min))
+        airport_x, airport_y = self.lat_lon_to_pix(self.destination)
+        pygame.draw.circle(canvas, pygame.Color(30, 80, 200), (airport_x, airport_y), radius_pix, 2)
 
     def draw_observation_text(self, canvas):
         """Draw observation values as text in the upper-left corner."""
