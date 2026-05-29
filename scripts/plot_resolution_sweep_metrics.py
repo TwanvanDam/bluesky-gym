@@ -41,7 +41,7 @@ def find_csv(run_dir: Path, runway: str) -> None | Path:
         print("More than one csv found for " + runway)
         return csvs[0]
 
-def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame]) -> pd.DataFrame:
+def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame], mean_episode_length: float) -> pd.DataFrame:
     run_dirs = find_run_dirs(run_pattern, runs_root)
     records = []
     for run_dir in tqdm(list(run_dirs)):
@@ -62,11 +62,10 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
         noise_summed = df_grouped["calculated_noise"].sum()
         noise_clipped_summed = df_grouped["calculated_noise_clipped"].sum()
         success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
-        mean_noise_ref = df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH
-        normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
+        mean_noise_ref = df_grouped["mean_reference_noise"].first() * mean_episode_length
+        normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * mean_episode_length)
         normalized_noise = noise_summed / mean_noise_ref
         normalized_noise_clipped = noise_clipped_summed / mean_noise_ref
-        combined = normalized_fuel + normalized_noise
 
         for start_angle in fuel_summed.index:
             records.append(
@@ -84,7 +83,7 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
             )
     return pd.DataFrame(records)
 
-def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame]) -> pd.DataFrame:
+def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame], mean_episode_length: float) -> pd.DataFrame:
     seed_match = re.search(r"seed(\d+)", baseline_run.name)
     seed = int(seed_match.group(1)) if seed_match else 0
 
@@ -100,8 +99,8 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
     noise_summed = df_grouped["calculated_noise"].sum()
     noise_clipped_summed = df_grouped["calculated_noise_clipped"].sum()
     success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
-    mean_noise_ref = df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH
-    normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
+    mean_noise_ref = df_grouped["mean_reference_noise"].first() * mean_episode_length
+    normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * mean_episode_length)
     normalized_noise = noise_summed / mean_noise_ref
     normalized_noise_clipped = noise_clipped_summed / mean_noise_ref
     combined = normalized_fuel + normalized_noise
@@ -214,17 +213,19 @@ if __name__ == '__main__':
     arg_parser.add_argument("--runway", type=str, default="EHAM_RW27", help="runway to use for comparison")
     arg_parser.add_argument("--map-path", type=str, default="./scripts/population_maps/europe_3035_1km.tif", help="path to map source")
     arg_parser.add_argument("--cache", type=bool, default=False, help="whether to cache results")
+    arg_parser.add_argument("--noise_clip_percentile", type=float, default=99.9, help="noise clip percentile")
+    arg_parser.add_argument("--mean_episode_length", type=float, default=1400.0, help="Used to normalize the reward values")
     args = arg_parser.parse_args()
 
     RUN_PATTERN = re.compile(r"(forward|centered)_(\d+)_seed(\d+)")
     SUCCESS_REASON = "success"
 
+    # rendering defaults
     BOX_OFFSET = 0.2
     BOX_WIDTH = 0.35
-    MEAN_EPISODE_LENGTH = 1400  # s
 
     bs.init()
-    calculate_metrics = build_metric_fn(Path(args.map_path))
+    calculate_metrics = build_metric_fn(Path(args.map_path), args.noise_clip_percentile)
 
     runs_root = Path(args.runs_root)
     output_dir = Path("plots/sweep_overview_plots") / runs_root.name
@@ -234,13 +235,13 @@ if __name__ == '__main__':
         print("Using the cached metrics...")
         run_metrics = pd.read_csv(cache_path)
     else:
-        run_metrics = collect_metrics(runs_root, args.runway, ["forward", "centered"], calculate_metrics)
+        run_metrics = collect_metrics(runs_root, args.runway, ["forward", "centered"], calculate_metrics, args.mean_episode_length)
         if args.cache:
             print(f"Saving results to {cache_path} ...")
             run_metrics.to_csv(cache_path)
 
     if args.baseline_run:
-        baseline_metrics = collect_baseline_metrics(Path(args.baseline_run[0]), args.runway, calculate_metrics)
+        baseline_metrics = collect_baseline_metrics(Path(args.baseline_run[0]), args.runway, calculate_metrics, args.mean_episode_length)
     else:
         baseline_metrics = None
 
