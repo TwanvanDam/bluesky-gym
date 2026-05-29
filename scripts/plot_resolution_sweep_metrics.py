@@ -33,6 +33,7 @@ class Record:
     noise: float
     normalized_fuel: float
     normalized_noise: float
+    normalized_noise_clipped: float
     success: bool
     resolution: float | None
     seed: int
@@ -74,9 +75,12 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
         df_grouped = df.groupby("start_angle")
         fuel_summed = df_grouped["calculated_fuel"].sum()
         noise_summed = df_grouped["calculated_noise"].sum()
+        noise_clipped_summed = df_grouped["calculated_noise_clipped"].sum()
         success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
+        mean_noise_ref = df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH
         normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
-        normalized_noise = noise_summed / (df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH)
+        normalized_noise = noise_summed / mean_noise_ref
+        normalized_noise_clipped = noise_clipped_summed / mean_noise_ref
         combined = normalized_fuel + normalized_noise
 
         for start_angle in fuel_summed.index:
@@ -88,6 +92,7 @@ def collect_metrics(runs_root: Path, runway: str, run_pattern: None| list[str], 
                     noise=noise_summed[start_angle],
                     normalized_fuel=normalized_fuel[start_angle],
                     normalized_noise=normalized_noise[start_angle],
+                    normalized_noise_clipped=normalized_noise_clipped[start_angle],
                     success=success_per_episode[start_angle],
                     seed=seed
                 )
@@ -108,9 +113,12 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
     df_grouped = df.groupby("start_angle")
     fuel_summed = df_grouped["calculated_fuel"].sum()
     noise_summed = df_grouped["calculated_noise"].sum()
+    noise_clipped_summed = df_grouped["calculated_noise_clipped"].sum()
     success_per_episode = df_grouped["termination_reason"].last() == SUCCESS_REASON
+    mean_noise_ref = df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH
     normalized_fuel = fuel_summed / (df_grouped["mean_fuel_flow"].first() * MEAN_EPISODE_LENGTH)
-    normalized_noise = noise_summed / (df_grouped["mean_reference_noise"].first() * MEAN_EPISODE_LENGTH)
+    normalized_noise = noise_summed / mean_noise_ref
+    normalized_noise_clipped = noise_clipped_summed / mean_noise_ref
     combined = normalized_fuel + normalized_noise
     records = []
     for start_angle in fuel_summed.index:
@@ -122,11 +130,27 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
                 noise=noise_summed[start_angle],
                 normalized_fuel=normalized_fuel[start_angle],
                 normalized_noise=normalized_noise[start_angle],
+                normalized_noise_clipped=normalized_noise_clipped[start_angle],
                 success=success_per_episode[start_angle],
                 seed=seed,
             )
         )
     return pd.DataFrame(records)
+
+SUCCESS_BONUS = 5.0
+FAILURE_PENALTY = -1.0
+
+
+def add_reward(df: pd.DataFrame) -> None:
+    """Add a per-episode reward column in place.
+
+    Reward = (+5 if success else -1) with normalized fuel and noise entering
+    negatively, since they are costs the agent is penalized for. The noise term
+    uses the clipped variant so it matches the training reward (clip_noise_reward).
+    """
+    success_term = df["success"].map({True: SUCCESS_BONUS, False: FAILURE_PENALTY})
+    df["reward"] = success_term - df["normalized_fuel"] - df["normalized_noise_clipped"]
+
 
 def _draw_boxplot(ax, data, position, color):
     ax.boxplot(
@@ -232,8 +256,13 @@ if __name__ == '__main__':
     if baseline_metrics is not None and not baseline_metrics.empty:
         baseline_metrics["combined"] = baseline_metrics["normalized_fuel"] + baseline_metrics["normalized_noise"]
 
+    add_reward(run_metrics)
+    if baseline_metrics is not None and not baseline_metrics.empty:
+        add_reward(baseline_metrics)
+
     plot_metric_boxplot(run_metrics, baseline_metrics, "fuel", "fuel [kg]", args.runway, output_dir)
     plot_metric_boxplot(run_metrics, baseline_metrics, "noise", "noise [W·s]", args.runway, output_dir)
     plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_fuel", "normalized fuel", args.runway, output_dir)
     plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_noise", "normalized noise", args.runway, output_dir)
     plot_metric_boxplot(run_metrics, baseline_metrics, "combined", "normalized fuel + noise", args.runway, output_dir)
+    plot_metric_boxplot(run_metrics, baseline_metrics, "reward", "reward", args.runway, output_dir)
