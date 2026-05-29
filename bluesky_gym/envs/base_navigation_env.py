@@ -556,7 +556,7 @@ class BaseNavigationEnv(gym.Env):
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.close()
-                        selfan 
+                        raise SystemExit
                     elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                         self._paused = False
         elif self.render_mode == "rgb_array":
@@ -569,6 +569,7 @@ class BaseNavigationEnv(gym.Env):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.close()
+                raise SystemExit
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 self._paused = not self._paused
 
