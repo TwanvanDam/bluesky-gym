@@ -225,15 +225,20 @@ class Population(gym.Wrapper):
 
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
-        return [
+        layers = [
             lambda canvas: canvas.fill(pygame.Color("grey")),
             partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map),
-            self.base_env.draw_spawn_boundaries,
-            self.base_env.draw_airport_radius,
+        ]
+        if self.base_env._show_boundaries:
+            layers.append(self.base_env.draw_spawn_boundaries)
+        if self.base_env._show_radius:
+            layers.append(self.base_env.draw_airport_radius)
+        layers += [
             self.base_env.draw_airport,
             self.base_env.draw_aircraft,
             self._draw_box_around_aircraft,
         ]
+        return layers
 
     def get_panel_render_layers(self) -> list[Callable]:
         return [partial(self._render_array, render_size=size, array=observation) for size, observation in

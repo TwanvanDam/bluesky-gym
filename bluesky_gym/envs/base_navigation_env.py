@@ -166,6 +166,8 @@ class BaseNavigationEnv(gym.Env):
         self.clock = None
         self.blue_background = pygame.Color(135, 206, 235)
         self._paused = False
+        self._show_boundaries = False
+        self._show_radius = False
 
     def _update_simulation_bounds(self, destination: Position) -> None:
         map_size = self.config.map_sampling_config.simulation_bounds_size
@@ -531,12 +533,15 @@ class BaseNavigationEnv(gym.Env):
 
     def get_render_layers(self) -> list[Callable]:
         """Return a list of functions that can be run to render the environment."""
-        return [lambda canvas: canvas.fill(self.blue_background),
-                self.draw_spawn_boundaries,
-                self.draw_airport_radius,
-                self.draw_airport,
-                self.draw_aircraft,
-                self.draw_observation_text]
+        layers = [lambda canvas: canvas.fill(self.blue_background)]
+        if self._show_boundaries:
+            layers.append(self.draw_spawn_boundaries)
+        if self._show_radius:
+            layers.append(self.draw_airport_radius)
+        layers += [self.draw_airport,
+                   self.draw_aircraft,
+                   self.draw_observation_text]
+        return layers
 
     def initialize_pygame(self, window_size: tuple[int, int]):
         """Checks if pygame is initialized properly. If not it will initialize."""
@@ -559,8 +564,13 @@ class BaseNavigationEnv(gym.Env):
                     if event.type == pygame.QUIT:
                         self.close()
                         raise SystemExit
-                    elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                        self._paused = False
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_SPACE:
+                            self._paused = False
+                        elif event.key == pygame.K_b:
+                            self._show_boundaries = not self._show_boundaries
+                        elif event.key == pygame.K_r:
+                            self._show_radius = not self._show_radius
         elif self.render_mode == "rgb_array":
             return np.transpose(pygame.surfarray.array3d(canvas), (1, 0, 2))
         return None
@@ -572,8 +582,13 @@ class BaseNavigationEnv(gym.Env):
             if event.type == pygame.QUIT:
                 self.close()
                 raise SystemExit
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                self._paused = not self._paused
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self._paused = not self._paused
+                elif event.key == pygame.K_b:
+                    self._show_boundaries = not self._show_boundaries
+                elif event.key == pygame.K_r:
+                    self._show_radius = not self._show_radius
 
     def draw_airport(self, canvas):
         airport_color = pygame.Color("black")
