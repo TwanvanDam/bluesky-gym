@@ -71,9 +71,6 @@ def plot_trajectories(
     plt.close()
 
 
-DEFAULT_BACKGROUND_MAP_PATH = Path(__file__).parent / "population_maps" / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
-
-
 def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     """Plot a single trajectory subdirectory (contains trajectories.csv + details.pkl)."""
     csv_path = traj_dir / "trajectories.csv"
@@ -90,8 +87,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     agent_used_map = eval_details["map_path"] is not None
     # Always use the real population map as the plot background, even for runs where
     # the agent flew without a population map in its observation.
-    background_map_path = eval_details["map_path"] or DEFAULT_BACKGROUND_MAP_PATH
-    map_config = TiffMapSourceConfig(file_path=background_map_path)
+    map_config = TiffMapSourceConfig(file_path=args.background_map_path)
 
     save_path = traj_dir / f"plot.png"
 
@@ -117,6 +113,8 @@ def present_for_run(run_paths: RunPaths) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s).")
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
+    parser.add_argument("background_map_path", type=str, default="./scripts/population_maps/europe_3035.tif",
+                        help="Path to map to use as the background of the plots.")
     args = parser.parse_args()
 
     # Legacy: if a single arg is a CSV file, plot that directly
