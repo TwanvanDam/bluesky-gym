@@ -111,7 +111,7 @@ def present_for_run(run_paths: RunPaths) -> None:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s).")
+    parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s). PNG's are saved to CSV directory.")
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
     parser.add_argument("background_map_path", type=str, default="./scripts/population_maps/europe_3035.tif",
                         help="Path to map to use as the background of the plots.")
