@@ -55,6 +55,19 @@ apptainer build HPC/rl_env.sif HPC/container.def
 sbatch HPC/run_training.sbatch HPC/experiments/Test.yaml
 ```
 
+**Run/smoke-test the container directly (outside SLURM):**
+```bash
+apptainer exec --nv --cleanenv --env PYTHONNOUSERSITE=1 \
+    --bind "$(pwd):/workspace" --pwd /workspace \
+    HPC/rl_env.sif python -m scripts.run_experiment HPC/experiments/Test.yaml
+```
+`--cleanenv` + `PYTHONNOUSERSITE=1` are required: Apptainer auto-mounts `$HOME`,
+so without them a host `~/.local/lib/pythonX.Y/site-packages` shadows the
+container's packages and triggers NumPy binary-incompatibility crashes
+(`numpy.dtype size changed ...`). There is no `--total-timesteps` flag; for a
+short smoke run, copy a config and lower `training_config.total_timesteps`
+(and `agent_config.learning_starts`) instead.
+
 **Migrate old results to unified layout:**
 ```bash
 bash scripts/migrate_to_runs.sh              # dry-run
