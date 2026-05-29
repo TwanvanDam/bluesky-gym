@@ -10,6 +10,7 @@ import pandas as pd
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from tqdm import tqdm
 
+from scripts.common.colors import qual
 from scripts.common.run_paths import resolve_run, RunPaths
 
 
@@ -81,13 +82,12 @@ def _plot_and_save(
     limits: list | None
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    cmap = plt.colormaps["Dark2"]
 
     for i, (data, label) in enumerate(zip(run_data, labels)):
         df = data.get(tag)
         if df is None:
             continue
-        color = cmap(i)
+        color = qual(i)
         ax.plot(df["step"], df["value"], color=color, alpha=0.1, linewidth=1)
         df["smoothed"] = df["value"].rolling(smoothing).mean()
         ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=label)
@@ -125,7 +125,6 @@ def _plot_sum_and_save(
     limits: list | None
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    cmap = plt.colormaps["Dark2"]
 
     for i, (data, label) in enumerate(zip(run_data, labels)):
         dfs = [data.get(t) for t in tags]
@@ -135,7 +134,7 @@ def _plot_sum_and_save(
         for j, d in enumerate(dfs[1:], 1):
             merged = merged.merge(d.rename(columns={"value": f"v{j}"}), on="step", how="inner")
         merged["value"] = sum(merged[f"v{j}"] for j in range(len(tags)))
-        color = cmap(i)
+        color = qual(i)
         ax.plot(merged["step"], merged["value"], color=color, alpha=0.1, linewidth=1)
         merged["smoothed"] = merged["value"].rolling(smoothing).mean()
         ax.plot(merged["step"], merged["smoothed"], color=color, linewidth=1.5, label=label)

@@ -6,25 +6,10 @@ from typing import Callable, Generator
 import matplotlib.pyplot as plt
 import pandas as pd
 import bluesky as bs
-from bluesky.tools.position import Position
 from tqdm import tqdm
 
-from bluesky_gym.maps.map_sources import TiffMapSourceConfig
-from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
-from bluesky_gym.metrics.fuel_model import FuelModel
-from bluesky_gym.metrics.noise_model import NoiseConfig
-
-RUN_PATTERN = re.compile(r"(forward|centered)_(\d+)_seed(\d+)")
-SUCCESS_REASON = "success"
-
-FORWARD_COLOR = "#2196F3"
-CENTERED_COLOR = "#FF6B35"
-BASELINE_COLOR = "#555555"
-BOX_OFFSET = 0.2
-BOX_WIDTH = 0.35
-MEAN_EPISODE_LENGTH = 1400  # s
-
+from scripts.common.colors import BASELINE_COLOR, MODE_COLORS
 
 @dataclass
 class Record:
@@ -191,8 +176,8 @@ def plot_metric_boxplot(
             ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     mode_config = [
-        ("centered", CENTERED_COLOR, -BOX_OFFSET),
-        ("forward",  FORWARD_COLOR,  +BOX_OFFSET),
+        ("centered", MODE_COLORS["centered"], -BOX_OFFSET),
+        ("forward",  MODE_COLORS["forward"],  +BOX_OFFSET),
     ]
 
     for mode, color, offset in mode_config:
@@ -230,6 +215,13 @@ if __name__ == '__main__':
     arg_parser.add_argument("--map-path", type=str, default="./scripts/population_maps/europe_3035_1km.tif", help="path to map source")
     arg_parser.add_argument("--cache", type=bool, default=False, help="whether to cache results")
     args = arg_parser.parse_args()
+
+    RUN_PATTERN = re.compile(r"(forward|centered)_(\d+)_seed(\d+)")
+    SUCCESS_REASON = "success"
+
+    BOX_OFFSET = 0.2
+    BOX_WIDTH = 0.35
+    MEAN_EPISODE_LENGTH = 1400  # s
 
     bs.init()
     calculate_metrics = build_metric_fn(Path(args.map_path))
