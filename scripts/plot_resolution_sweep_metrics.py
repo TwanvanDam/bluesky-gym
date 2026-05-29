@@ -212,7 +212,7 @@ if __name__ == '__main__':
     arg_parser.add_argument("--baseline_run", nargs="+", type=str, help="path to baseline runs root")
     arg_parser.add_argument("--runway", type=str, default="EHAM_RW27", help="runway to use for comparison")
     arg_parser.add_argument("--map-path", type=str, default="./scripts/population_maps/europe_3035_1km.tif", help="path to map source")
-    arg_parser.add_argument("--cache", type=bool, default=False, help="whether to cache results")
+    arg_parser.add_argument("--cache", action="store_true", default=False, help="whether to cache results")
     arg_parser.add_argument("--noise_clip_percentile", type=float, default=99.9, help="noise clip percentile")
     arg_parser.add_argument("--mean_episode_length", type=float, default=1400.0, help="Used to normalize the reward values")
     args = arg_parser.parse_args()
