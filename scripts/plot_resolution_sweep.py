@@ -15,7 +15,9 @@ the termination_reason column present).
 """
 
 import argparse
+import os
 import re
+from os.path import exists
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -319,19 +321,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
     parser.add_argument("runs_root", type=str, help="path to runs root for comparison")
-
-    parser.add_argument(
-        "--baseline", type=Path, default=None,
-        help=f"Baseline run directory",
-    )
-    parser.add_argument(
-        "--runway",
-        help=f"Runway identifier used to select trajectory CSVs",
-    )
+    parser.add_argument("--baseline", type=Path, default=None, help=f"Baseline run directory")
+    parser.add_argument("--runway",help=f"Runway identifier used to select trajectory CSVs")
+    parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"), help=f"Output directory for the plots")
     args = parser.parse_args()
 
     runs_root = Path(args.runs_root)
-    output_dir = Path("plots/sweep_overview_plots") / runs_root.name
+    output_dir = args.output_dir / runs_root.name
+    output_dir.mkdir(parents=True, exist_ok=True)
     baseline_dir = args.baseline
     runway = args.runway
 
