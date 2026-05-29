@@ -200,7 +200,7 @@ def plot_metric_boxplot(
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runway}.png"
+    out_path = output_dir / f"{metric}_{runs_root.name}_{runway}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)

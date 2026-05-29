@@ -30,12 +30,7 @@ from scripts.common.colors import (
     SEED_COLORS,
 )
 
-DEFAULT_RUNS_ROOT = Path(__file__).parent.parent / "runs" / "resolution_sweep_2"
-DEFAULT_BASELINE_NAME = "sweep_2_no_map_seed00"
-DEFAULT_RUNWAY = "EDDF_RW25R"
-RUN_PATTERN = re.compile(r"^(?:sweep_\d+_)?(forward|centered)_(\d+)_seed(\d+)$")
 SUCCESS_REASON = "success"
-
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 BAR_ALPHA = 0.6
@@ -189,7 +184,7 @@ def _mean_breakdowns(df: pd.DataFrame, resolutions: list) -> tuple[list, dict]:
     return ordered, means
 
 
-def plot_mode(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | None = None) -> None:
+def plot_episode_success(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | None = None) -> None:
     resolutions = sorted(df["resolution"].unique())
     x = np.arange(len(resolutions))
     colors = _seed_color_map(df)
@@ -278,33 +273,21 @@ def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: floa
     _draw_baseline(ax, baseline, f"{baseline:.0f} s" if baseline is not None else "")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
-    parser.add_argument(
-        "runs_root", nargs="?", type=Path, default=DEFAULT_RUNS_ROOT,
-        help=f"Directory containing sweep run folders (default: {DEFAULT_RUNS_ROOT})",
-    )
-    parser.add_argument(
-        "--baseline", type=Path, default=None,
-        help=f"Baseline run directory (default: <runs_root>/{DEFAULT_BASELINE_NAME})",
-    )
-    parser.add_argument(
-        "--runway", default=DEFAULT_RUNWAY,
-        help=f"Runway identifier used to filter trajectory CSVs (default: {DEFAULT_RUNWAY})",
-    )
-    args = parser.parse_args()
-
-    runs_root: Path = args.runs_root
-    baseline_dir: Path = args.baseline or runs_root / DEFAULT_BASELINE_NAME
-    runway: str = args.runway
-
+def main(runs_root: Path, output_dir: Path, baseline_dir: Path, runway: str) -> None:
     df = collect_data(runs_root, runway)
     if df.empty:
         print("No data found. Run generate_trajectories.py on the sweep runs first.")
         return
 
     baseline_rate, baseline_length = compute_baseline(baseline_dir, runway)
-    print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
+    if baseline_rate is None or baseline_length is None:
+        if not baseline_dir.exists():
+            print(f"Baseline — directory not found: {baseline_dir} (plotting without baseline)")
+        else:
+            print(f"Baseline — no usable '{runway}_map' trajectory data in {baseline_dir} "
+                  "(plotting without baseline)")
+    else:
+        print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
 
     for mode in ("forward", "centered"):
         mode_df = df[df["mode"] == mode]
@@ -315,9 +298,9 @@ def main() -> None:
         color = MODE_COLORS[mode]
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
-        plot_mode(ax, mode_df, mode, color, baseline=baseline_rate)
+        plot_episode_success(ax, mode_df, mode, color, baseline=baseline_rate)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_{runway}.png"
+        out_path = output_dir / f"episode_success_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
@@ -325,11 +308,31 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_length_{runway}.png"
+        out_path = output_dir / f"episode_length_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.show()
 
 
 if __name__ == "__main__":
-    main()
+    RUN_PATTERN = re.compile(r"^(?:sweep_\d+_)?(forward|centered)_(\d+)_seed(\d+)$")
+
+    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
+    parser.add_argument("runs_root", type=str, help="path to runs root for comparison")
+
+    parser.add_argument(
+        "--baseline", type=Path, default=None,
+        help=f"Baseline run directory",
+    )
+    parser.add_argument(
+        "--runway",
+        help=f"Runway identifier used to select trajectory CSVs",
+    )
+    args = parser.parse_args()
+
+    runs_root = Path(args.runs_root)
+    output_dir = Path("plots/sweep_overview_plots") / runs_root.name
+    baseline_dir = args.baseline
+    runway = args.runway
+
+    main(runs_root, output_dir, baseline_dir, runway)
