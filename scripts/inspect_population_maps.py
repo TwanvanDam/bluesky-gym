@@ -20,7 +20,7 @@ from pyproj import Transformer
 from bluesky_gym.utils.sampling_config import ExclusionZone
 
 MAP_DIR = Path(__file__).parent / "population_maps"
-OUT_DIR = MAP_DIR
+OUT_DIR = Path("./plots/population_maps")
 
 MAX_PIXELS = 4_000_000  # downsample files larger than this on read
 
