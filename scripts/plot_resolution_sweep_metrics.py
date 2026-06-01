@@ -121,10 +121,6 @@ def collect_baseline_metrics(baseline_run: Path, runway: str, calculate_metrics:
         )
     return pd.DataFrame(records)
 
-SUCCESS_BONUS = 5.0
-FAILURE_PENALTY = -1.0
-
-
 def add_reward(df: pd.DataFrame) -> None:
     """Add a per-episode reward column in place.
 
@@ -132,7 +128,9 @@ def add_reward(df: pd.DataFrame) -> None:
     negatively, since they are costs the agent is penalized for. The noise term
     uses the clipped variant so it matches the training reward (clip_noise_reward).
     """
-    success_term = df["success"].map({True: SUCCESS_BONUS, False: FAILURE_PENALTY})
+    success_bonus = 5.0
+    failure_penalty = -1.0
+    success_term = df["success"].map({True: success_bonus, False: failure_penalty})
     df["reward"] = success_term - df["normalized_fuel"] - df["normalized_noise_clipped"]
 
 
