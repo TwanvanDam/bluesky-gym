@@ -186,7 +186,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot mean reward for trained run(s).")
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
     parser.add_argument("--smoothing", type=int, default=100)
-    parser.add_argument("--output_dir", type=Path, default=Path("plots/run_rewards"), help=f"Output directory for the plots")
+    parser.add_argument("--output_dir", type=Path, default=Path("plots/reward-plots"), help=f"Output directory for the plots")
     args = parser.parse_args()
 
     runs = [resolve_run(r) for r in args.run_refs]
