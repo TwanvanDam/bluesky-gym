@@ -125,13 +125,26 @@ def seed_legend(ax, color_map: dict) -> None:
     ax.legend(handles=handles, frameon=False)
 
 def find_csv(run_dir: Path, runway: str) -> Path | None:
-    """Return the single trajectory CSV for runway, or None."""
+    """Return the preferred trajectory CSV for runway, or None.
+
+    When multiple CSVs match, prefers the exact {runway}_map_best directory
+    over variants such as {runway}_map_best_modified.
+    """
     csvs = find_csvs(run_dir, runway)
     if not csvs:
         return None
-    if len(csvs) > 1:
-        print(f"More than one CSV found for {runway} in {run_dir.name}")
-    return csvs[0]
+    if len(csvs) == 1:
+        return csvs[0]
+
+    print(f"  [{run_dir.name}] Multiple CSVs for '{runway}':")
+    for csv in sorted(csvs):
+        print(f"    {csv.parent.name}/trajectories.csv")
+
+    preferred_name = f"{runway}_map_best"
+    exact = [csv for csv in csvs if csv.parent.name == preferred_name]
+    chosen = exact[0] if exact else sorted(csvs)[0]
+    print(f"  → Using: {chosen.parent.name}/trajectories.csv")
+    return chosen
 
 
 def find_run_dirs(run_pattern: None | list[str], runs_root: Path) -> Generator:

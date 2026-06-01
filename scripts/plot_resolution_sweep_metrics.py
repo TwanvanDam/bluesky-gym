@@ -158,9 +158,16 @@ if __name__ == '__main__':
     if baseline_metrics is not None and not baseline_metrics.empty:
         add_reward(baseline_metrics)
 
-    plot_metric_boxplot(run_metrics, baseline_metrics, "fuel", "fuel [kg]", args.runway, output_dir)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "noise", "noise [W·s]", args.runway, output_dir)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_fuel", "normalized fuel", args.runway, output_dir)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "normalized_noise", "normalized noise", args.runway, output_dir)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "combined", "normalized fuel + noise", args.runway, output_dir)
-    plot_metric_boxplot(run_metrics, baseline_metrics, "reward", "reward", args.runway, output_dir)
+    for metric, ylabel in [
+        ("fuel", "fuel [kg]"),
+        ("noise", "noise [W·s]"),
+        ("normalized_fuel", "normalized fuel"),
+        ("normalized_noise", "normalized noise"),
+        ("combined", "normalized fuel + noise"),
+        ("reward", "reward"),
+    ]:
+        plot_metric_boxplot(
+            run_metrics, baseline_metrics, metric, ylabel,
+            args.runway, runs_root.name, output_dir,
+        )
+
