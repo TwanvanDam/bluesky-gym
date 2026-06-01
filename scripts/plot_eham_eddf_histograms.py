@@ -102,7 +102,7 @@ def main():
 
     # ECDF on linear axes — read percentiles straight off the y-axis.
     # x clipped to the 90th percentile of the densest region so the bulk is legible.
-    x_max = float(np.percentile(eham_vals, 90))
+    x_max = max(eham_vals)
     for name, vals, color in regions:
         sorted_v = np.sort(vals)
         ecdf = np.arange(1, len(sorted_v) + 1) / len(sorted_v)
@@ -123,13 +123,13 @@ def main():
     ax.axhline(0.75, color="gray", linestyle=":", linewidth=1.0, alpha=0.6)
     ax.text(x_max * 0.985, 0.76, "75th percentile", ha="right", va="bottom", fontsize=9, color="gray")
 
-    ax.set_xlim(0, x_max)
+    ax.set_xlim(1, x_max)
     ax.set_ylim(0, 1.0)
     ax.set_xlabel("Population per km²")
     ax.set_ylabel("Fraction of pixels ≤ value  (empirical CDF)")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="lower right", fontsize=9, framealpha=0.95)
-
+    ax.semilogx()
     # Short interpretive caption rather than a verbose stats table.
     ratio = float(np.median(eham_vals) / max(np.median(sim_vals), 1e-9))
     caption = (
