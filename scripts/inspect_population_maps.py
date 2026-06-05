@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 import rasterio.enums
+from rasterio.warp import calculate_default_transform, reproject, Resampling
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from pyproj import Transformer
@@ -37,23 +38,24 @@ def wgs84_bounds(dataset):
         return None
 
 
-def wgs84_to_pixel(lat, lon, ds_crs, ds_transform, img_w, orig_w, img_h, orig_h):
-    """Convert WGS84 lat/lon to (col, row) in the displayed (possibly downsampled) image."""
-    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
-    x, y = transformer.transform(lon, lat)
-    col_orig = (x - ds_transform.c) / ds_transform.a
-    row_orig = (y - ds_transform.f) / ds_transform.e
-    return col_orig * img_w / orig_w, row_orig * img_h / orig_h
+def wgs84_corners(dataset):
+    """Return WGS84 (lon, lat) of each native-bounds corner.
 
-
-def km_to_pixel_radius(lat, lon, radius_km, ds_crs, ds_transform, img_w, orig_w):
-    """Convert radius_km to pixel radius in the displayed image via eastward offset."""
-    lon_offset = lon + radius_km / (111.0 * np.cos(np.deg2rad(lat)))
-    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
-    x0, _ = transformer.transform(lon, lat)
-    x1, _ = transformer.transform(lon_offset, lat)
-    r_orig = abs(x1 - x0) / abs(ds_transform.a)
-    return r_orig * img_w / orig_w
+    The four corners are transformed individually because a projected CRS
+    (e.g. EPSG:3035) has curved edges in lon/lat, so they do not share
+    common longitudes/latitudes.
+    """
+    try:
+        transformer = Transformer.from_crs(dataset.crs, "EPSG:4326", always_xy=True)
+        b = dataset.bounds
+        return {
+            "top-left": transformer.transform(b.left, b.top),
+            "top-right": transformer.transform(b.right, b.top),
+            "bottom-left": transformer.transform(b.left, b.bottom),
+            "bottom-right": transformer.transform(b.right, b.bottom),
+        }
+    except Exception:
+        return None
 
 
 def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = None) -> dict:
@@ -87,25 +89,76 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         }
         info["bounds_wgs84"] = wgs84_bounds(ds)
 
-        # Plot
-        display = np.where(np.isfinite(data) & (data > 0), np.log1p(data), np.nan)
-        img_h, img_w = display.shape
-        fig, ax = plt.subplots(figsize=(10, 6))
-        im = ax.imshow(display, cmap="Blues", origin="upper", aspect="auto")
+        # Reproject the (downsampled) array to Web Mercator for display
+        src_transform = ds.transform * rasterio.Affine.scale(
+            ds.width / data.shape[1], ds.height / data.shape[0]
+        )
+        dst_crs = "EPSG:3857"
+        dst_transform, dst_w, dst_h = calculate_default_transform(
+            ds.crs, dst_crs, data.shape[1], data.shape[0], *ds.bounds
+        )
+        merc = np.full((dst_h, dst_w), np.nan, dtype=np.float64)
+        reproject(
+            source=data, destination=merc,
+            src_transform=src_transform, src_crs=ds.crs,
+            dst_transform=dst_transform, dst_crs=dst_crs,
+            src_nodata=np.nan, dst_nodata=np.nan,
+            resampling=Resampling.average,
+        )
+
+        # Plot (Web Mercator; axes annotated with a lon/lat graticule)
+        display = np.where(np.isfinite(merc) & (merc > 0), np.log1p(merc), np.nan)
+        left = dst_transform.c
+        top = dst_transform.f
+        right = left + dst_w * dst_transform.a
+        bottom = top + dst_h * dst_transform.e
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(
+            display, cmap="Blues", origin="upper",
+            extent=(left, right, bottom, top), aspect="equal",
+        )
         plt.colorbar(im, ax=ax, label="log(1 + population density)")
+
+        # lon/lat graticule (Mercator x depends only on lon, y only on lat)
+        to_merc = Transformer.from_crs("EPSG:4326", dst_crs, always_xy=True)
+        lon_ticks = list(range(-30, 60, 10))
+        lat_ticks = list(range(30, 70, 10))
+        ax.set_xticks([to_merc.transform(lon, 0)[0] for lon in lon_ticks])
+        ax.set_xticklabels([f"{lon}°" for lon in lon_ticks])
+        ax.set_yticks([to_merc.transform(0, lat)[1] for lat in lat_ticks])
+        ax.set_yticklabels([f"{lat}°" for lat in lat_ticks])
+        ax.set_xlim(left, right)
+        ax.set_ylim(bottom, top)
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+
+        # Annotate the WGS84 lon/lat of each native-bounds corner, placed at
+        # the corner's true Mercator position (data edges are tilted here)
+        corners = wgs84_corners(ds)
+        if corners:
+            align = {
+                "top-left": ("left", "bottom"),
+                "top-right": ("right", "bottom"),
+                "bottom-left": ("left", "top"),
+                "bottom-right": ("right", "top"),
+            }
+            for name, (lon, lat) in corners.items():
+                x, y = to_merc.transform(lon, lat)
+                ha, va = align[name]
+                ax.annotate(
+                    f"{lat:.2f}°N, {lon:.2f}°E",
+                    xy=(x, y), xycoords="data",
+                    ha=ha, va=va, fontsize=8, color="black",
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="0.5", alpha=0.8),
+                )
 
         if exclusion_zones:
             for zone in exclusion_zones:
-                col, row = wgs84_to_pixel(
-                    zone.lat, zone.lon, ds.crs, ds.transform,
-                    img_w, ds.width, img_h, ds.height,
-                )
-                r_px = km_to_pixel_radius(
-                    zone.lat, zone.lon, zone.radius_km, ds.crs, ds.transform,
-                    img_w, ds.width,
-                )
+                x, y = to_merc.transform(zone.lon, zone.lat)
+                # Web Mercator inflates ground distance by 1/cos(lat)
+                r = zone.radius_km * 1000.0 / np.cos(np.deg2rad(zone.lat))
                 circle = mpatches.Circle(
-                    (col, row), r_px,
+                    (x, y), r,
                     facecolor="red", edgecolor="darkred",
                     alpha=0.35, linewidth=1.5,
                 )
