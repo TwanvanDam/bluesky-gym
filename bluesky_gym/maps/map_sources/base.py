@@ -20,6 +20,11 @@ class MapSource(ABC):
     def __init__(self, source_unit: Literal["people_per_pixel", "people_per_km2"] | None = None):
         self._source_unit = source_unit
         self._conversion_factor: float | None = None
+        # Reference-statistic caches (mean / percentile of the reference dataset).
+        # Valid as long as the reference dataset is unchanged; sources whose map
+        # changes each episode call _invalidate_reference_cache() in regenerate().
+        self._mean_cache: float | None = None
+        self._norm_cache: dict[float, float] = {}
 
     @property
     @abstractmethod
@@ -39,15 +44,47 @@ class MapSource(ABC):
         ...
 
     @abstractmethod
+    def close(self): ...
+
+    # --- reference statistics --------------------------------------------------
+    # mean_value and get_normalization_value are computed from the *reference*
+    # dataset: the dataset used as the constant normalization reference. For most
+    # sources that is the live ``dataset``; TransformedTiffMapSource points it at
+    # the untransformed base raster so the reference stays fixed under the
+    # per-episode transform.
+
+    @property
+    @abstractmethod
+    def _reference_dataset(self) -> rasterio.DatasetReader:
+        """Dataset that mean_value / get_normalization_value are computed from."""
+        ...
+
+    @property
+    def _reference_conversion(self) -> float:
+        """people/km² conversion factor for the reference dataset."""
+        return self.conversion_factor
+
+    @property
+    def mean_value(self) -> float:
+        """Mean population density (people/km²) of the reference dataset."""
+        if self._mean_cache is None:
+            self._mean_cache = self._mean(self._reference_dataset, self._reference_conversion)
+        return self._mean_cache
+
     def get_normalization_value(self, percentile: float) -> float:
-        """Return the map value at the given percentile (0–100), in people/km².
+        """Reference-dataset value at the given percentile (0–100), in people/km².
 
         Used as the normalization divisor for the policy observation.
         """
-        ...
+        if percentile not in self._norm_cache:
+            self._norm_cache[percentile] = self._percentile(
+                self._reference_dataset, self._reference_conversion, percentile)
+        return self._norm_cache[percentile]
 
-    @abstractmethod
-    def close(self): ...
+    def _invalidate_reference_cache(self) -> None:
+        """Drop cached reference statistics (call when the reference dataset changes)."""
+        self._mean_cache = None
+        self._norm_cache.clear()
 
     @property
     def conversion_factor(self) -> float:
@@ -65,11 +102,23 @@ class MapSource(ABC):
             raise RuntimeError("Dataset must be initialized before computing conversion factor.")
         pixel_area_km2 = self._pixel_area_m2(self.dataset) / 1_000_000.0
         self._conversion_factor = 1 / pixel_area_km2
-        print(f"Conversion factor (people_per_pixel -> people_per_km2): {self._conversion_factor:.2f}" )
 
-    def _filter_valid_data(self, data: np.ndarray) -> np.ndarray:
-        nodata = self.dataset.nodata
+    @staticmethod
+    def _valid_pixels(dataset: rasterio.DatasetReader) -> np.ndarray:
+        """Band-1 pixels with the nodata sentinel removed, as float64."""
+        data = dataset.read(1).astype(np.float64)
+        nodata = dataset.nodata
         return data[data != nodata] if nodata is not None else data
+
+    @staticmethod
+    def _mean(dataset: rasterio.DatasetReader, conversion: float) -> float:
+        """Mean of the valid pixels, in people/km²."""
+        return float(np.mean(MapSource._valid_pixels(dataset))) * conversion
+
+    @staticmethod
+    def _percentile(dataset: rasterio.DatasetReader, conversion: float, percentile: float) -> float:
+        """Value at the given percentile (0–100) of the valid pixels, in people/km²."""
+        return float(np.percentile(MapSource._valid_pixels(dataset), percentile)) * conversion
 
     @staticmethod
     def _pixel_area_m2(dataset: rasterio.DatasetReader) -> float:

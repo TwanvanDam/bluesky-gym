@@ -46,8 +46,7 @@ class GammaCorrection(ValueTransform):
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray], np.ndarray]:
         gamma = rng.uniform(*self.gamma)
-        offset =self.calculate_offset(gamma)
-        print(f"gamma: {gamma}, offset: {offset}")
+        offset = self.calculate_offset(gamma)
         return lambda values: np.power(values, gamma) * offset
 
 

@@ -74,8 +74,6 @@ class TransformedTiffMapSource(MapSource):
         self._memfile: MemoryFile | None = None
         self._dataset: rasterio.DatasetReader | None = None
         self._transform: Affine | None = None
-        self._norm_cache: dict[float, float] = {}
-        self._mean_cache: float | None = None
 
         # Resolve any percentile-based Clip bounds against the (constant) base map, so a
         # config can clip at e.g. the base p99.9 exactly like the legacy map_source_max.
@@ -84,24 +82,15 @@ class TransformedTiffMapSource(MapSource):
                 clip_value = self.get_normalization_value(transform.percentile)
                 transform.upper = (clip_value, clip_value)
 
-    # --- reference values from the untransformed base raster -------------------
-    def _filter_base_valid(self, data: np.ndarray) -> np.ndarray:
-        nodata = self._base.nodata
-        return data[data != nodata] if nodata is not None else data
+    # Reference statistics come from the untransformed base raster, so the reward
+    # reference and observation divisor stay constant under the per-episode transform.
+    @property
+    def _reference_dataset(self):
+        return self._base
 
     @property
-    def mean_value(self) -> float:
-        if not self._mean_cache:
-            data = self._base.read(1).astype(np.float64)
-            self._mean_cache = float(np.mean(self._filter_base_valid(data))) * self._base_conversion
-        return self._mean_cache
-
-    def get_normalization_value(self, percentile: float) -> float:
-        if percentile not in self._norm_cache:
-            data = self._base.read(1).astype(np.float64)
-            self._norm_cache[percentile] = float(
-                np.percentile(self._filter_base_valid(data), percentile)) * self._base_conversion
-        return self._norm_cache[percentile]
+    def _reference_conversion(self) -> float:
+        return self._base_conversion
 
     # --- per-episode working raster --------------------------------------------
     def regenerate(self, rng: np.random.Generator | None = None):
@@ -178,10 +167,6 @@ class TransformedTiffMapSource(MapSource):
     @property
     def dataset(self):
         return self._dataset
-
-    def refresh_conversion_factor(self):
-        # Working raster is already people/km²; its conversion is the identity.
-        self._conversion_factor = 1.0
 
     def close(self):
         if self._dataset is not None:

@@ -90,16 +90,13 @@ class RandomMapSource(MapSource):
     def dataset(self):
         return self._dataset
 
-    def get_normalization_value(self, percentile: float) -> float:
-        data = self._dataset.read(1).astype(np.float64)
-        return float(np.percentile(self._filter_valid_data(data), percentile)) * self.conversion_factor
-
     @property
-    def mean_value(self) -> float:
-        data = self._dataset.read(1).astype(np.float64)
-        return float(np.mean(self._filter_valid_data(data))) * self.conversion_factor
+    def _reference_dataset(self):
+        return self._dataset
 
     def regenerate(self, rng: np.random.Generator | None = None):
+        # The reference dataset is the live map, which is about to change.
+        self._invalidate_reference_cache()
         new_transform, new_shape, new_range = compute_random_map_layout(self._env, self._resolution_m)
         self._random_map_generator.update_layout(new_shape, new_range)
 
