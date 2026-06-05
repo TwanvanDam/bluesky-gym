@@ -27,7 +27,7 @@ class PopulationConfig(BaseModel):
     # Fuel weight determines how much the noise penalty should factor into the overall reward, with 1.0 meaning only fuel consumption matters and 0.0 meaning only noise matters.
     # This allows for easy tuning of the reward function to find the right balance between fuel efficiency and noise reduction.
     fuel_weight: float = Field(default=0.5, ge=0.0, le=1.0)
-    resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "cubic_spline"
+    resampling: Literal["cubic_spline", "average", "sum", "min", "max", "bilinear", "cubic"] = "average"
     normalization_percentile: float = Field(default=99.9, ge=0.0, le=100.0)
     clip_noise_reward: bool = False
     observation_normalization: Literal["log", "min_max", "min-max"] = "log"
