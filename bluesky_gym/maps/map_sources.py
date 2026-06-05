@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Dict, Any, Literal, Annotated
+from typing import Optional, Dict, Any, Literal, Annotated, List
 
 import numpy as np
 import pyproj
@@ -45,6 +45,69 @@ class TiffMapSourceConfig(MapSourceConfig):
     def build(self, env=None) -> TiffMapSource:
         return TiffMapSource(self.file_path, source_unit=self.source_unit)
 
+class ValueTransform(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        raise NotImplementedError("transform() must be implemented by subclasses of ValueTransform")
+
+
+class GammaCorrection(ValueTransform):
+    type: Literal["gamma_correction"] = "gamma_correction"
+    gamma: float
+    offset: float
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        return np.power(map, self.gamma) + self.offset
+
+class FloorRaise(ValueTransform):
+    type: Literal["floor_raise"] = "floor_raise"
+    floor: float
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        return map + self.floor
+
+class ScaleValues(ValueTransform):
+    type: Literal["scale_values"] = "scale_values"
+    factor: float
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        return map * self.factor
+
+class Clip(ValueTransform):
+    type: Literal["clip"] = "clip"
+    upper: float
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        return np.clip(map, None, self.upper)
+
+class SpatialTransform(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    def transform(self, map:np.ndarray) -> np.ndarray:
+        raise NotImplementedError("transform() must be implemented by subclasses of SpatialTransform")
+
+class Zoom(SpatialTransform):
+    type: Literal["zoom"] = "zoom"
+    factor: float
+
+class Flip(SpatialTransform):
+    type: Literal["flip"] = "flip"
+    axis: Literal["ns", "ew", "both"]
+
+
+MapTransformationType = Annotated[GammaCorrection | FloorRaise | ScaleValues, Field(discriminator="type")]
+
+
+
+class TransformedTiffMapSourceConfig(MapSourceConfig):
+    type: Literal["transformed"] = "transformed"
+    file_path: str | Path
+    transformations: List[MapTransformationType]
+    source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"
+
+    def build(self, env=None) -> MapSource:
+        return TransformedTiffMapSource(filepath=self.file_path, source_unit=self.source_unit, transformations=self.transformations)
 
 class RandomMapSourceConfig(MapSourceConfig):
     type: Literal["cities", "polygon", "population_density", "zero"]
@@ -155,7 +218,6 @@ class MapSource(ABC):
 
 
 class TiffMapSource(MapSource):
-    """Loads a real GeoTIFF population map."""
 
     def __init__(self, filepath: str | Path, source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"):
         super().__init__(source_unit=source_unit)
@@ -175,6 +237,7 @@ class TiffMapSource(MapSource):
     @property
     def dataset(self):
         return self._dataset
+
     @property
     def mean_value(self) -> float:
         if not self._mean_cache:
@@ -193,6 +256,55 @@ class TiffMapSource(MapSource):
 
     def close(self):
         self._dataset.close()
+
+class TransformedTiffMapSource(MapSource):
+    """Loads a real GeoTIFF population map, and applies transformations to it."""
+
+    def __init__(self, filepath: str | Path, transformations: List[MapTransformationType], source_unit: Literal["people_per_pixel", "people_per_km2"] = "people_per_pixel"):
+        super().__init__(source_unit=source_unit)
+        self._base = rasterio.open(filepath)
+        self._dataset: MemoryFile
+        self.refresh_conversion_factor()
+        self._norm_cache: dict[float, float] = {}
+        self._mean_cache: float | None = None
+        self._transformations = transformations
+
+    @property
+    def mean_value(self) -> float:
+        if not self._mean_cache:
+            data = self._base.read(1).astype(np.float64)
+            self._mean_cache = float(np.mean(self._filter_valid_data(data))) * self.conversion_factor
+        return self._mean_cache
+
+    def get_normalization_value(self, percentile: float) -> float:
+        if percentile not in self._norm_cache:
+            data = self._base.read(1).astype(np.float64)
+            self._norm_cache[percentile] = float(np.percentile(self._filter_valid_data(data), percentile)) * self.conversion_factor
+        return self._norm_cache[percentile]
+
+    def regenerate(self, rng: np.random.Generator | None = None):
+        dataset = self._dataset.read(1).astype(np.float64)
+        for transformation in self._transformations:
+            dataset = transformation.transform(dataset)
+        # Save dataset to the self._dataset MemoryFile
+        pass
+
+    @property
+    def crs(self):
+        return self._dataset.crs
+
+    @property
+    def transform(self) -> Affine:
+        return self._dataset.transform
+
+    @property
+    def dataset(self):
+        return self._dataset
+
+
+
+    def close(self):
+        self._base.close()
 
 
 class RandomMapSource(MapSource):
