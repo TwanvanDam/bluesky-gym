@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from scripts.common.colors import REGION_COLORS
 
 TIF_PATH = Path(__file__).parent / "population_maps" / "europe_3035_1km.tif"
-OUT_PATH = Path(__file__).parent / "population_maps" / "histograms_eham_eddf_sim.png"
+OUT_PATH = Path("plots") / "population_maps" / "histograms_eham_eddf_sim.png"
 
 SIM_HALF_KM = 400.0  # half-extent in km; full box is 2 * SIM_HALF_KM on a side
 EHAM = (52.308, 4.764)
