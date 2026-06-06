@@ -17,7 +17,7 @@ from typing import Callable, Literal, Optional, Annotated, List
 
 import numpy as np
 from affine import Affine
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 class ValueTransform(BaseModel):
@@ -36,17 +36,30 @@ class ValueTransform(BaseModel):
 
 
 class GammaCorrection(ValueTransform):
-    """Power law: compress the range of values (lift countryside toward cities)."""
+    """Power law: compress the range of values (lift countryside toward cities).
+
+    ``percentile`` sets the identity point: the base-map value at this percentile
+    is the fixed point of the curve (f(x)=x). Call ``resolve(value)`` with the
+    precomputed people/km² value before sampling (handled by TransformedTiffMapSource)."""
     type: Literal["gamma_correction"] = "gamma_correction"
     gamma: tuple[float, float]
-    identity_intersect: float
+    percentile: float = Field(ge=0.0, le=100.0)
+    _identity_intersect: Optional[float] = PrivateAttr(default=None)
 
-    def calculate_offset(self, gamma: float) -> float:
-        return self.identity_intersect / (self.identity_intersect ** gamma)
+    def resolve(self, value: float) -> None:
+        self._identity_intersect = value
+
+    def _calculate_offset(self, gamma: float) -> float:
+        assert self._identity_intersect is not None
+        return self._identity_intersect / (self._identity_intersect ** gamma)
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray], np.ndarray]:
+        assert self._identity_intersect is not None, (
+            "GammaCorrection.percentile must be resolved before sampling — call resolve(value) first "
+            "(handled by TransformedTiffMapSource)."
+        )
         gamma = rng.uniform(*self.gamma)
-        offset = self.calculate_offset(gamma)
+        offset = self._calculate_offset(gamma)
         return lambda values: np.power(values, gamma) * offset
 
 
@@ -72,27 +85,23 @@ class Clip(ValueTransform):
     """Clip values to ``[0, upper]`` (people/km²). Applied last; this is the
     cross-resolution consistency mechanism, so keep ``p=1.0``.
 
-    Provide exactly one of:
-      * ``upper``      — an explicit ``[low, high]`` range (people/km²), sampled per episode.
-      * ``percentile`` — clip at this percentile of the *base* map (e.g. 99.9), matching
-                         the legacy ``map_source_max`` clipping. Resolved once by the source
-                         (constant, since the base raster never changes)."""
+    ``percentile`` — clip at this percentile of the *base* map (e.g. 99.9), matching
+    the legacy ``map_source_max`` clipping. Call ``resolve(base_array)`` once after
+    loading the base raster (handled by TransformedTiffMapSource); the resolved upper
+    bound is constant across episodes since the base raster never changes."""
     type: Literal["clip"] = "clip"
-    upper: Optional[tuple[float, float]] = None
-    percentile: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    percentile: float = Field(ge=0.0, le=100.0)
+    _upper_limit: Optional[float] = PrivateAttr(default=None)
 
-    @model_validator(mode="after")
-    def _exactly_one(self) -> "Clip":
-        if (self.upper is None) == (self.percentile is None):
-            raise ValueError("Clip requires exactly one of 'upper' or 'percentile'.")
-        return self
+    def resolve(self, upper_value: float) -> None:
+        self._upper_limit = upper_value
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray], np.ndarray]:
-        assert self.upper is not None, (
-            "Clip.percentile must be resolved to 'upper' before sampling "
+        assert self._upper_limit is not None, (
+            "Clip.percentile must be resolved before sampling — call resolve(base_array) first "
             "(handled by TransformedTiffMapSource)."
         )
-        upper = rng.uniform(*self.upper)
+        upper = self._upper_limit
         return lambda values: np.clip(values, 0.0, upper)
 
 
@@ -146,16 +155,21 @@ class Flip(SpatialTransform):
     """Mirror the window array, keeping the geographic extent (Affine) unchanged —
     a reflection of the field about the window centre."""
     type: Literal["flip"] = "flip"
-    axis: Literal["ns", "ew", "both", "random"] = "random"
+    axis: Literal["ns", "ew", "combination"] = "combination"
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray, Affine], tuple[np.ndarray, Affine]]:
-        axis = self.axis if self.axis != "random" else rng.choice(["ns", "ew", "both"])
+        if self.axis in ("ns", "ew"):
+            flips = [self.axis]
+        elif self.axis == "combination":
+            flips = rng.choice(["ns", "ew", "both"])
+            flips = [str(flips)] if flips != "both" else ["ns", "ew"]
 
         def apply(array: np.ndarray, transform: Affine) -> tuple[np.ndarray, Affine]:
-            if axis in ("ns", "both"):
-                array = np.flipud(array)
-            if axis in ("ew", "both"):
-                array = np.fliplr(array)
+            for flip in flips:
+                if flip == "ns":
+                    array = np.flipud(array)
+                if flip == "ew":
+                    array = np.fliplr(array)
             return np.ascontiguousarray(array), transform
 
         return apply
@@ -199,3 +213,12 @@ class SpatialPipeline:
         zoom-in (magnify) still covers the window. 1.0 when there are no zooms."""
         zooms = [t.max_factor for t in self._transforms if isinstance(t, Zoom)]
         return max([1.0, *zooms])
+
+if __name__ == '__main__':
+    base_array = np.linspace(1, 16, 16).reshape((4,4))
+    print(base_array)
+    rng = np.random.default_rng(4)
+    pipeline = SpatialPipeline([Flip(p=1, type="flip", axis="combination")])
+    pipeline.sample(rng)
+    result = pipeline.apply(base_array, transform=Affine(0.5, 0.5, 0,0,0,0))
+    print(result)

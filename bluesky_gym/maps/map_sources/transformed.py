@@ -11,7 +11,7 @@ from affine import Affine
 
 from bluesky_gym.maps.map_sources.base import MapSourceConfig, MapSource
 from bluesky_gym.maps.map_transforms import ValueTransformType, SpatialTransformType, ValuePipeline, SpatialPipeline, \
-    Clip
+    Clip, GammaCorrection
 
 
 class TransformedTiffMapSourceConfig(MapSourceConfig):
@@ -75,12 +75,10 @@ class TransformedTiffMapSource(MapSource):
         self._dataset: rasterio.DatasetReader | None = None
         self._transform: Affine | None = None
 
-        # Resolve any percentile-based Clip bounds against the (constant) base map, so a
-        # config can clip at e.g. the base p99.9 exactly like the legacy map_source_max.
+        # Resolve percentile-based parameters against the (constant) base map.
         for transform in value_transforms:
-            if isinstance(transform, Clip) and transform.percentile is not None:
-                clip_value = self.get_normalization_value(transform.percentile)
-                transform.upper = (clip_value, clip_value)
+            if isinstance(transform, (Clip, GammaCorrection)):
+                transform.resolve(self.get_normalization_value(transform.percentile))
 
     # Reference statistics come from the untransformed base raster, so the reward
     # reference and observation divisor stay constant under the per-episode transform.
