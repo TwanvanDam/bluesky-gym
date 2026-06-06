@@ -225,7 +225,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot multi-scale sweep results.")
     parser.add_argument("runs_root", type=str, help="path to runs root")
     parser.add_argument("--baseline", type=Path, default=None, help="Baseline run directory")
-    parser.add_argument("--runway", help="Runway identifier used to select trajectory CSVs")
+    parser.add_argument("--runway", required=True, help="Runway identifier used to select trajectory CSVs")
     parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"),
                         help="Output directory for the plots")
     args = parser.parse_args()

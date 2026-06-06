@@ -168,6 +168,6 @@ if __name__ == '__main__':
     ]:
         plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
-            args.runway, runs_root.name, output_dir,
+            args.runway,  output_dir,
         )
 
