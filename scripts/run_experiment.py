@@ -160,6 +160,7 @@ def train_model(
         "config_stem": experiment_config_path.stem,
         "created_at": datetime.datetime.now().isoformat(),
         "status": "running",
+        "convergence_fix" : "applied"
     }
     if slurm_job_id:
         metadata["slurm_job_id"] = slurm_job_id

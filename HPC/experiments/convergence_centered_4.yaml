@@ -75,11 +75,11 @@ navigation_config:
   map_sampling_config:
     aircraft_lat_sampling:
       distribution: normal
-      mean: 0
+      mean: 0.0
       std: 2.0
     aircraft_lon_sampling:
       distribution: normal
-      mean: 0
+      mean: 0.0
       std: 2.0
     aircraft_position_mode: relative
     destination_hdg_sampling:
@@ -113,18 +113,11 @@ population_config:
   map_observation_configs:
   - position: centered
     range:
-      - 64000.0
-      - 64000.0
+    - 64000.0
+    - 64000.0
     shape:
-      - 16
-      - 16
-  - position: forward
-    range:
-      - 128000.0
-      - 128000.0
-    shape:
-      - 16
-      - 16
+    - 16
+    - 16
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
