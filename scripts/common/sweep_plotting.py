@@ -50,7 +50,7 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
         "success": success,
     })
 
-def add_reward(df: pd.DataFrame) -> None:
+def add_reward(df: pd.DataFrame, fuel_weight: float = 0.5) -> None:
     """Add a per-episode reward column in place.
 
     Reward = (+5 if success else -1) with normalized fuel and noise entering
@@ -60,7 +60,7 @@ def add_reward(df: pd.DataFrame) -> None:
     success_bonus = 5.0
     failure_penalty = -1.0
     success_term = df["success"].map({True: success_bonus, False: failure_penalty})
-    df["reward"] = success_term - df["normalized_fuel"] - df["normalized_noise_clipped"]
+    df["reward"] = success_term - (fuel_weight * df["normalized_fuel"]) - ((1 - fuel_weight) * df["normalized_noise_clipped"])
 
 
 def draw_boxplot(ax, data, position, color, box_width) -> None:
