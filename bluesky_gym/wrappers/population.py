@@ -182,7 +182,7 @@ class Population(gym.Wrapper):
                                                                              orientation=0,
                                                                              observation_config=self.noise_kernel_observation)
         if self.config.clip_noise_reward:
-            # Works by clipping the population map extract that is used to generate the noise reward by the self.map_source_max
+            # Legacy downstream clip for TiffMapSource / RandomMapSource
             population_map_extract = np.clip(population_map_extract, 0, self.map_source_max)
 
         step_normalized_noise = self.noise_model.step_normalized_noise(population_map_extract=population_map_extract,
