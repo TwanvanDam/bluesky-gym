@@ -36,6 +36,14 @@ class RasterSampler:
 
     def __post_init__(self) -> None:
         self.wgs84_to_dest = pyproj.Transformer.from_crs("wgs84", self.destination_crs, always_xy=True)
+        self.dest_proj = pyproj.Proj(self.destination_crs)
+
+    def _meridian_convergence(self, lon: float, lat: float) -> float:
+        """Grid convergence gamma at (lon, lat): the angle between grid-north and true-north,
+        in degrees. The destination CRS (e.g. EPSG:3035) is not north-up away from its central
+        meridian, so a true compass heading must be rotated by -gamma before being used as a grid
+        angle. ~0 deg on the central meridian, growing toward the edges of the projection."""
+        return self.dest_proj.get_factors(lon, lat).meridian_convergence
 
     def _get_dst_transform_from_center(self, center_position: Position, orientation: float,
                                        observation_config: MapObservationConfig) -> Affine:
@@ -46,9 +54,15 @@ class RasterSampler:
         res_x = observation_config.range[0] / cols
         res_y = observation_config.range[1] / rows
 
+        # orientation is a true compass heading; convert it to a grid angle by removing the
+        # local meridian convergence so the sampled window aligns with where the aircraft
+        # actually points rather than with grid-north.
+        gamma = self._meridian_convergence(center_position.lon, center_position.lat)
+        grid_orientation = orientation - gamma
+
         dst_transform = (
                 Affine.translation(*center_xy) *
-                Affine.rotation(- orientation) *
+                Affine.rotation(- grid_orientation) *
                 Affine.scale(res_x, -res_y) *
                 Affine.translation(- cols / 2, -(rows / 2 + observation_config.position_row_offset))
         )
