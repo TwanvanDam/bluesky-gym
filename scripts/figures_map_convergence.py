@@ -74,10 +74,7 @@ def window_corners(lat, lon, hdg, corrected: bool):
 # Figure 1: the cause
 # --------------------------------------------------------------------------------------
 def fig_cause(out: Path):
-    fig = plt.figure(figsize=(13, 6.2))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.35, 1.0], wspace=0.18)
-    ax = fig.add_subplot(gs[0, 0])
-    axc = fig.add_subplot(gs[0, 1])
+    fig, ax = plt.subplots(figsize=(7, 5.5))
 
     # --- graticule of Europe in EPSG:3035 ---
     lons = np.arange(-20, 41, 5)
@@ -93,73 +90,40 @@ def fig_cause(out: Path):
 
     # central meridian highlighted
     xs, ys = WGS84_TO_DEST.transform(np.full_like(lat_dense, 10.0), lat_dense)
-    ax.plot(xs, ys, color=BLUE, lw=2.2, zorder=2, label="central meridian (10°E)\ngrid-N = true-N here")
+    ax.plot(xs, ys, color=BLUE, lw=2.2, zorder=2, label="central meridian (10°E) — grid-N = true-N here")
 
+    # Per-site label offsets to avoid overlap (dx, dy in metres, text ha)
+    site_offsets = {
+        "Schiphol":  (-1_100_000,  80_000, "left"),
+        "Frankfurt": (   100_000,  80_000, "left"),
+        "Crimea":    (   100_000,  80_000, "left"),
+    }
     sites = [("Schiphol", 52.31, 4.76), ("Frankfurt", 50.11, 8.68), ("Crimea", 45.0, 34.0)]
     for name, lat, lon in sites:
         x, y = WGS84_TO_DEST.transform(lon, lat)
         gamma = SAMPLER._meridian_convergence(lon, lat)
         L = 850_000
         tn = true_north_vec_dest(lat, lon, L)
-        # grid north is straight up in dest CRS
         ax.annotate("", xy=(x, y + L), xytext=(x, y),
                     arrowprops=dict(arrowstyle="-|>", color=RED, lw=2.0), zorder=4)
         ax.annotate("", xy=(x + tn[0], y + tn[1]), xytext=(x, y),
                     arrowprops=dict(arrowstyle="-|>", color=BLUE, lw=2.0), zorder=4)
         ax.scatter([x], [y], s=45, color="black", zorder=5)
-        ax.text(x + 90_000, y + 60_000, f"{name}\nγ = {gamma:+.0f}°",
-                fontsize=10, fontweight="bold", zorder=6)
+        dx, dy, ha = site_offsets[name]
+        ax.text(x + dx, y + dy, f"{name}\nγ = {gamma:+.0f}°",
+                fontsize=10, fontweight="bold", ha=ha, zorder=6)
 
     ax.plot([], [], color=RED, lw=2.0, label="grid-north (straight up on flat map)")
     ax.plot([], [], color=BLUE, lw=2.0, label="true-north (toward the pole)")
-    ax.set_title("EPSG:3035 graticule — meridians fan out\n"
-                 "grid-north ≠ true-north away from 10°E", fontsize=12, fontweight="bold")
+    ax.set_title("WGS84 graticule in EPSG:3035\ngrid-north ≠ true-north away from 10°E",
+                 fontsize=12, fontweight="bold")
     ax.set_aspect("equal")
     ax.set_xticks([]); ax.set_yticks([])
-    ax.legend(loc="lower left", fontsize=8.5, framealpha=0.95)
+    ax.set_xlabel("EPSG:3035 (ETRS89-LAEA Europe, central meridian 10°E)",
+                  fontsize=8.5, color=GREY)
+    ax.legend(loc="lower right", fontsize=8.5, framealpha=0.95)
 
-    # --- compass inset: the twist at Crimea ---
-    lat, lon, hdg = 45.0, 34.0, 50.0
-    gamma = SAMPLER._meridian_convergence(lon, lat)
-    tn = true_north_vec_dest(lat, lon, 1.0)
-    hd_true = heading_vec_dest(lat, lon, hdg, 1.0)
-    # grid-space version of the heading (what the buggy code sampled): rotate heading by +gamma
-    # in grid -> equivalently the grid 'up' the old window used. Show its direction.
-    theta_grid_wrong = np.radians(hdg)  # old code treated heading as a grid angle from grid-N(+y)
-    hd_wrong = np.array([np.sin(theta_grid_wrong), np.cos(theta_grid_wrong)])
-
-    axc.annotate("", xy=(0, 1), xytext=(0, 0),
-                 arrowprops=dict(arrowstyle="-|>", color=RED, lw=2.4))
-    axc.text(0.03, 1.02, "grid-north", color=RED, fontsize=10, fontweight="bold")
-    axc.annotate("", xy=(tn[0], tn[1]), xytext=(0, 0),
-                 arrowprops=dict(arrowstyle="-|>", color=BLUE, lw=2.4))
-    axc.text(tn[0] - 0.62, tn[1] + 0.02, "true-north", color=BLUE, fontsize=10, fontweight="bold")
-
-    # wedge for gamma between grid-N and true-N
-    ang_grid = 90.0
-    ang_true = np.degrees(np.arctan2(tn[1], tn[0]))
-    axc.add_patch(Wedge((0, 0), 0.32, min(ang_grid, ang_true), max(ang_grid, ang_true),
-                        facecolor=GREY, alpha=0.4))
-    axc.text(0.16, 0.40, f"γ = {gamma:.0f}°", fontsize=11, fontweight="bold")
-
-    # heading: where the plane actually flies (true) vs where the old window pointed (grid)
-    axc.annotate("", xy=(hd_true[0] * 0.82, hd_true[1] * 0.82), xytext=(0, 0),
-                 arrowprops=dict(arrowstyle="-|>", color=GREEN, lw=2.4))
-    axc.text(hd_true[0] * 0.86, hd_true[1] * 0.86, "flight\nheading", color=GREEN, fontsize=9,
-             fontweight="bold", ha="left")
-    axc.annotate("", xy=(hd_wrong[0] * 0.82, hd_wrong[1] * 0.82), xytext=(0, 0),
-                 arrowprops=dict(arrowstyle="-|>", color=RED, lw=2.0, ls="--"))
-    axc.text(hd_wrong[0] * 0.86, hd_wrong[1] * 0.70, "where the\nwindow looked\n(old code)",
-             color=RED, fontsize=9, ha="left")
-
-    axc.set_xlim(-1.15, 1.15); axc.set_ylim(-0.25, 1.2)
-    axc.set_aspect("equal")
-    axc.set_xticks([]); axc.set_yticks([])
-    axc.set_title("Compass at Crimea (γ = 18°)\nthe old window was aimed γ off the heading",
-                  fontsize=12, fontweight="bold")
-
-    fig.suptitle("CAUSE — a flat map of a round Earth is twisted; the twist (γ) grows toward the edges",
-                 fontsize=13, fontweight="bold", y=1.0)
+    fig.tight_layout()
     fig.savefig(out, dpi=130, bbox_inches="tight")
     plt.close(fig)
     return out
@@ -180,7 +144,7 @@ def draw_window(ax, lat, lon, hdg, corrected, color, label):
 
 
 def fig_effect(out: Path):
-    fig, (axw, axe) = plt.subplots(1, 2, figsize=(13, 6.0))
+    fig, axw = plt.subplots(figsize=(6.5, 6.0))
 
     # --- window before vs after at Crimea ---
     lat, lon, hdg = 45.0, 34.0, 50.0
@@ -199,49 +163,13 @@ def fig_effect(out: Path):
     axw.text(6000, -9000, "aircraft", fontsize=9)
 
     axw.set_aspect("equal")
-    axw.set_xlabel("metres east of aircraft (grid)")
-    axw.set_ylabel("metres north of aircraft (grid)")
-    axw.set_title(f"EFFECT — the 'look-ahead' window at Crimea\n"
-                  f"old code points it {gamma:.0f}° off the real flight path",
+    axw.set_xlabel("metres east of aircraft (EPSG:3035 grid)")
+    axw.set_ylabel("metres north of aircraft (EPSG:3035 grid)")
+    axw.set_title(f"Forward window at Crimea (34°E)\n"
+                  f"old code aims it {abs(gamma):.0f}° off the flight path",
                   fontsize=12, fontweight="bold")
     axw.legend(loc="lower center", fontsize=9, framealpha=0.95)
     axw.grid(alpha=0.25)
-
-    # --- alignment error vs longitude, before vs after ---
-    lon_sweep = np.linspace(-15, 35, 120)
-    lat_ref = 50.0
-    err_before, err_after = [], []
-    for lo in lon_sweep:
-        g = SAMPLER._meridian_convergence(lo, lat_ref)
-        # use heading 90 (E-W) where the non-conformal residual is largest, worst-case after
-        def measured(orient):
-            t = SAMPLER._get_dst_transform_from_center(pos(lat_ref, lo), orient, OBS)
-            cols, rows = OBS.shape
-            cx, cy = t * (cols / 2, rows / 2)
-            fx, fy = t * (cols / 2, rows / 2 - 1)
-            clon, clat = DEST_TO_WGS84.transform(cx, cy)
-            flon, flat = DEST_TO_WGS84.transform(fx, fy)
-            return get_hdg(np.array([clat, clon]), np.array([flat, flon]))
-        def aerr(a, b):
-            return abs((a - b + 180) % 360 - 180)
-        err_before.append(aerr(measured(90.0 + g), 90.0))
-        err_after.append(aerr(measured(90.0), 90.0))
-
-    axe.plot(lon_sweep, err_before, color=RED, lw=2.4, label="before fix")
-    axe.plot(lon_sweep, err_after, color=GREEN, lw=2.4, label="after fix")
-    axe.axvline(10.0, color=BLUE, ls="--", lw=1.2)
-    axe.text(10.3, axe.get_ylim()[1] * 0.92 if False else 17, "10°E\n(central)", color=BLUE, fontsize=8)
-    for name, lo in [("Frankfurt", 8.68), ("Schiphol", 4.76)]:
-        g = SAMPLER._meridian_convergence(lo, lat_ref)
-        axe.scatter([lo], [abs(g)], color="black", zorder=5, s=30)
-        axe.annotate(f"{name}\n(eval site)", (lo, abs(g)), textcoords="offset points",
-                     xytext=(-2, 8), fontsize=8, ha="right")
-    axe.set_xlabel("longitude (°E)  —  training spanned all of Europe")
-    axe.set_ylabel("window mis-alignment (degrees)")
-    axe.set_title("Mis-alignment vs longitude\nbug is ~0 in the centre, large at the edges",
-                  fontsize=12, fontweight="bold")
-    axe.legend(loc="upper center", fontsize=9)
-    axe.grid(alpha=0.25)
 
     fig.tight_layout()
     fig.savefig(out, dpi=130, bbox_inches="tight")
