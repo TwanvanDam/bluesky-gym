@@ -318,7 +318,7 @@ if __name__ == "__main__":
     parser.add_argument("--noise-clip-percentile", type=float, default=99.9)
     parser.add_argument("--mean-episode-length", type=float, default=1400.0,
                         help="Reference episode length in seconds used for metric normalisation")
-    parser.add_argument("--output-dir", type=Path, default=Path("plots/alignment_comparison"),
+    parser.add_argument("--output-dir", type=Path, default=Path("plots/sweep_overview_plots/alignment_comparison"),
                         help="Output directory for figures")
     parser.add_argument("--fuel-weight", type=float, default=0.5,
                         help="Fuel weight in reward = success_term - fw*norm_fuel - (1-fw)*norm_noise_clipped")
