@@ -88,7 +88,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         info["bounds_wgs84"] = wgs84_bounds(ds)
 
         # Plot
-        display = np.where(np.isfinite(data) & (data > 0), np.log1p(data), np.nan)
+        display = np.where(np.isfinite(data) & (data >= 0), np.log1p(data), np.nan)
         img_h, img_w = display.shape
         fig, ax = plt.subplots(figsize=(10, 6))
         im = ax.imshow(display, cmap="Blues", origin="upper", aspect="auto")
