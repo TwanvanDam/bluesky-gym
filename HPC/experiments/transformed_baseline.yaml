@@ -121,10 +121,7 @@ population_config:
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
-    spatial_transforms:
-      - type: flip
-        axis: combination
-        p: 0.5
+    spatial_transforms: []
     type: transformed
     value_transforms:
       - type: clip

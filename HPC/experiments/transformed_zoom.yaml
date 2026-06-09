@@ -124,9 +124,9 @@ population_config:
     spatial_transforms:
       - type: zoom
         factor:
+          - 0.5
           - 1
-          - 5
-        p: 1
+        p: 0.5
     type: transformed
     value_transforms:
       - type: clip

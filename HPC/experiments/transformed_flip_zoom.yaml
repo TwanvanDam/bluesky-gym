@@ -125,6 +125,11 @@ population_config:
       - type: flip
         axis: combination
         p: 0.5
+      - type: zoom
+        factor:
+          - 0.5
+          - 1
+        p: 0.5
     type: transformed
     value_transforms:
       - type: clip
