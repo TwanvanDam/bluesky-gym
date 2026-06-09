@@ -320,7 +320,7 @@
     },
     "GammaCorrection": {
       "additionalProperties": false,
-      "description": "Power law: compress the range of values (lift countryside toward cities).\n\n``percentile`` sets the identity point: the base-map value at this percentile\nis the fixed point of the curve (f(x)=x). Call ``resolve(value)`` with the\nprecomputed people/km\u00b2 value before sampling (handled by TransformedTiffMapSource).",
+      "description": "Power law: compress the range of values (lift countryside toward cities).\n\nUses the median-matched multiplier ``c = target_value / base_median^\u03b3`` so the\ntransformed field's median equals ``target_value``\n``percentile`` selects the base-map statistic that represents the\n\"base median\"; call ``resolve(value)`` with the precomputed people/km\u00b2 value\nbefore sampling (handled by TransformedTiffMapSource).",
       "properties": {
         "p": {
           "default": 1.0,
@@ -354,11 +354,17 @@
           "minimum": 0.0,
           "title": "Percentile",
           "type": "number"
+        },
+        "target_value": {
+          "exclusiveMinimum": 0.0,
+          "title": "Target Value",
+          "type": "number"
         }
       },
       "required": [
         "gamma",
-        "percentile"
+        "percentile",
+        "target_value"
       ],
       "title": "GammaCorrection",
       "type": "object"
