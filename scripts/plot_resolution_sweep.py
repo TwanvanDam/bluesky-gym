@@ -1,13 +1,17 @@
 """
-Plot success rate vs. observation resolution for the forward/centered sweep.
+Plot episode-outcome breakdown vs. observation resolution for the
+forward/centered sweep.
 
 Expects runs under runs/PopulationWrapper-v0/ named:
   {forward|centered}_{resolution}_seed{NN}
 
 where {resolution} is km/pixel (1, 2, 4, 8, 16, 32).
 
-Success rate is computed from trajectory CSVs (requires generate_trajectories.py
-to have been run first with the termination_reason column present).
+Each bar is stacked by termination reason (success / failed approach / max
+steps / out of bounds), so the success segment height is the arrival rate and
+the segments above it show *why* the remaining episodes failed. Computed from
+trajectory CSVs (requires generate_trajectories.py to have been run first with
+the termination_reason column present).
 """
 
 import argparse
@@ -18,71 +22,28 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-DEFAULT_RUNS_ROOT = Path(__file__).parent.parent / "runs" / "resolution_sweep_2"
-DEFAULT_BASELINE_NAME = "sweep_2_no_map_seed00"
-DEFAULT_RUNWAY = "EDDF_RW25R"
-RUN_PATTERN = re.compile(r"^(forward|centered)_(\d+)_seed(\d+)$")
-SUCCESS_REASON = "success"
+from scripts.common.colors import (
+    BASELINE_COLOR,
+    FALLBACK_REASON_COLOR,
+    MODE_COLORS,
+    REASON_COLORS,
+)
+from scripts.common.sweep_plotting import (
+    REASON_LABELS,
+    SUCCESS_REASON,
+    compute_baseline,
+    compute_episode_length,
+    compute_success_rate,
+    compute_termination_breakdown,
+    mean_breakdowns,
+    seed_color_map,
+    seed_legend,
+)
 
-FORWARD_COLOR = "#2196F3"
-CENTERED_COLOR = "#FF6B35"
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 BAR_ALPHA = 0.6
 BAR_WIDTH = 0.5
-SEED_COLORS = ["#4CAF50", "#9C27B0", "#FF9800", "#E91E63", "#00BCD4", "#795548"]
-BASELINE_COLOR = "#555555"
-
-
-def compute_success_rate(run_dir: Path, runway: str) -> float | None:
-    """Mean success rate across all *_map trajectory CSVs in a run."""
-    traj_root = run_dir / "trajectories"
-    if not traj_root.exists():
-        return None
-
-    map_csvs = list(traj_root.glob(f"*{runway}_map*/trajectories.csv"))
-    if not map_csvs:
-        return None
-
-    episodes = []
-    for csv_path in map_csvs:
-        df = pd.read_csv(csv_path)
-        if "termination_reason" not in df.columns:
-            print(f"  Warning: no termination_reason column in {csv_path}, skipping")
-            continue
-        # One row per timestep; termination_reason is constant within an episode.
-        per_episode = df.groupby("start_angle")["termination_reason"].last()
-        episodes.append(per_episode)
-
-    if not episodes:
-        return None
-
-    all_episodes = pd.concat(episodes)
-    return (all_episodes == SUCCESS_REASON).mean()
-
-
-def compute_episode_length(run_dir: Path, runway: str) -> pd.Series | None:
-    """Episode lengths (seconds) across all *_map trajectory CSVs in a run."""
-    traj_root = run_dir / "trajectories"
-    if not traj_root.exists():
-        return None
-
-    map_csvs = list(traj_root.glob(f"*{runway}_map*/trajectories.csv"))
-    if not map_csvs:
-        return None
-
-    episodes = []
-    for csv_path in map_csvs:
-        df = pd.read_csv(csv_path)
-        # One row per timestep; termination_reason is constant within an episode.
-        per_episode = df.groupby("start_angle")["sim_dt"].sum()
-        episodes.append(per_episode)
-
-    if not episodes:
-        return None
-
-    return pd.concat(episodes)
-
 
 def collect_data(runs_root: Path, runway: str) -> pd.DataFrame:
     records = []
@@ -100,29 +61,10 @@ def collect_data(runs_root: Path, runway: str) -> pd.DataFrame:
             "resolution": resolution,
             "seed": seed,
             "success_rate": rate,
+            "breakdown": compute_termination_breakdown(run_dir, runway),
             "length": compute_episode_length(run_dir, runway),
         })
     return pd.DataFrame(records)
-
-
-def compute_baseline(baseline_dir: Path, runway: str) -> tuple[float | None, float | None]:
-    """Return (success_rate, mean_episode_length_s) for the baseline run."""
-    lengths = compute_episode_length(baseline_dir, runway)
-    return compute_success_rate(baseline_dir, runway), (lengths.mean() if lengths is not None else None)
-
-
-def _seed_color_map(df: pd.DataFrame) -> dict:
-    all_seeds = sorted(df["seed"].unique())
-    return {seed: SEED_COLORS[i % len(SEED_COLORS)] for i, seed in enumerate(all_seeds)}
-
-
-def _seed_legend(ax, color_map: dict) -> None:
-    handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c,
-                   markersize=8, label=f"Seed {s}")
-        for s, c in color_map.items()
-    ]
-    ax.legend(handles=handles, frameon=False)
 
 
 def _draw_baseline(ax, value: float | None, label: str) -> None:
@@ -132,17 +74,23 @@ def _draw_baseline(ax, value: float | None, label: str) -> None:
         ax.legend(frameon=False)
 
 
-def plot_mode(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | None = None) -> None:
+def plot_episode_success(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | None = None) -> None:
     resolutions = sorted(df["resolution"].unique())
     x = np.arange(len(resolutions))
-    colors = _seed_color_map(df)
+    colors = seed_color_map(df)
 
+    # Stacked outcome bars (success at the bottom, in the mode colour).
+    ordered, means = mean_breakdowns(df, resolutions)
+    bottom = np.zeros(len(resolutions))
+    for reason in ordered:
+        bar_color = color if reason == SUCCESS_REASON else REASON_COLORS.get(reason, FALLBACK_REASON_COLOR)
+        ax.bar(x, means[reason], width=BAR_WIDTH, bottom=bottom,
+               color=bar_color, alpha=BAR_ALPHA, label=REASON_LABELS.get(reason, reason))
+        bottom += means[reason]
+
+    # Per-seed success rate dots overlaid on the success segment.
     for i, res in enumerate(resolutions):
-        res_df = df[df["resolution"] == res]
-        seed_rates = {row["seed"]: row["success_rate"] for _, row in res_df.iterrows()}
-
-        ax.bar(x[i], np.mean(list(seed_rates.values())), width=BAR_WIDTH, color=color, alpha=BAR_ALPHA)
-
+        seed_rates = {row["seed"]: row["success_rate"] for _, row in df[df["resolution"] == res].iterrows()}
         seeds = sorted(seed_rates)
         jitter = np.linspace(-0.08, 0.08, len(seeds))
         for xi, seed in zip(jitter, seeds):
@@ -150,23 +98,38 @@ def plot_mode(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | Non
                        color=colors[seed], s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
                        edgecolors="white", linewidths=0.8)
 
+    if baseline is not None:
+        ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
+                   label=f"Baseline success ({baseline:.0%})", zorder=4)
+
     ax.set_xticks(x)
     ax.set_xticklabels([f"{r} km/px" for r in resolutions])
     ax.set_xlabel("Observation resolution")
-    ax.set_ylabel("Success rate")
+    ax.set_ylabel("Episode outcome fraction")
     ax.set_ylim(0, 1.05)
     ax.set_title(f"{mode.capitalize()} observation window")
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    _seed_legend(ax, colors)
-    _draw_baseline(ax, baseline, f"{baseline:.0%}" if baseline is not None else "")
+
+    # Two legends outside the axes: outcome categories + baseline, then seeds.
+    outcome_handles, outcome_labels = ax.get_legend_handles_labels()
+    leg1 = ax.legend(outcome_handles, outcome_labels, frameon=False, fontsize=8,
+                     title="Episode outcome", loc="upper left", bbox_to_anchor=(1.01, 1.0))
+    ax.add_artist(leg1)
+    seed_handles = [
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c,
+                   markersize=8, label=f"Seed {s}")
+        for s, c in colors.items()
+    ]
+    ax.legend(handles=seed_handles, frameon=False, fontsize=8,
+              title="Seed (success rate)", loc="lower left", bbox_to_anchor=(1.01, 0.0))
 
 
 def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: float | None = None) -> None:
     resolutions = sorted(df["resolution"].unique())
     x = np.arange(len(resolutions))
-    colors = _seed_color_map(df)
+    colors = seed_color_map(df)
 
     for i, res in enumerate(resolutions):
         res_df = df[df["resolution"] == res]
@@ -196,37 +159,25 @@ def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: floa
     ax.set_title(f"{mode.capitalize()} observation window — episode length")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    _seed_legend(ax, colors)
+    seed_legend(ax, colors)
     _draw_baseline(ax, baseline, f"{baseline:.0f} s" if baseline is not None else "")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
-    parser.add_argument(
-        "runs_root", nargs="?", type=Path, default=DEFAULT_RUNS_ROOT,
-        help=f"Directory containing sweep run folders (default: {DEFAULT_RUNS_ROOT})",
-    )
-    parser.add_argument(
-        "--baseline", type=Path, default=None,
-        help=f"Baseline run directory (default: <runs_root>/{DEFAULT_BASELINE_NAME})",
-    )
-    parser.add_argument(
-        "--runway", default=DEFAULT_RUNWAY,
-        help=f"Runway identifier used to filter trajectory CSVs (default: {DEFAULT_RUNWAY})",
-    )
-    args = parser.parse_args()
-
-    runs_root: Path = args.runs_root
-    baseline_dir: Path = args.baseline or runs_root / DEFAULT_BASELINE_NAME
-    runway: str = args.runway
-
+def main(runs_root: Path, output_dir: Path, baseline_dir: Path, runway: str) -> None:
     df = collect_data(runs_root, runway)
     if df.empty:
         print("No data found. Run generate_trajectories.py on the sweep runs first.")
         return
 
     baseline_rate, baseline_length = compute_baseline(baseline_dir, runway)
-    print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
+    if baseline_rate is None or baseline_length is None:
+        if not baseline_dir.exists():
+            print(f"Baseline — directory not found: {baseline_dir} (plotting without baseline)")
+        else:
+            print(f"Baseline — no usable '{runway}_map' trajectory data in {baseline_dir} "
+                  "(plotting without baseline)")
+    else:
+        print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
 
     for mode in ("forward", "centered"):
         mode_df = df[df["mode"] == mode]
@@ -234,24 +185,37 @@ def main() -> None:
             print(f"No data for mode '{mode}', skipping.")
             continue
 
-        color = FORWARD_COLOR if mode == "forward" else CENTERED_COLOR
+        color = MODE_COLORS[mode]
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
-        plot_mode(ax, mode_df, mode, color, baseline=baseline_rate)
+        plot_episode_success(ax, mode_df, mode, color, baseline=baseline_rate)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_{runway}.png"
+        out_path = output_dir / f"episode_success_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
-        plt.show()
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
         fig.tight_layout()
-        out_path = Path(__file__).parent / f"{runs_root.name}_{mode}_length_{runway}.png"
+        out_path = output_dir / f"episode_length_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
-        plt.show()
 
 
 if __name__ == "__main__":
-    main()
+    RUN_PATTERN = re.compile(r"^(?:sweep_\d+_)?(forward|centered)_(\d+)_seed(\d+)$")
+
+    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
+    parser.add_argument("runs_root", type=str, help="path to runs root for comparison")
+    parser.add_argument("--baseline", type=Path, default=None, help=f"Baseline run directory")
+    parser.add_argument("--runway",help=f"Runway identifier used to select trajectory CSVs")
+    parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"), help=f"Output directory for the plots")
+    args = parser.parse_args()
+
+    runs_root = Path(args.runs_root)
+    output_dir = args.output_dir / runs_root.name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    baseline_dir = args.baseline
+    runway = args.runway
+
+    main(runs_root, output_dir, baseline_dir, runway)

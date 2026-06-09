@@ -10,24 +10,19 @@ from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
 
-# Population-density percentile used to cap the noise reward during training
-# (matches PopulationWrapper's normalization_percentile default).
-NOISE_CLIP_PERCENTILE = 99.9
-
-
-def build_metric_fn(map_path: Path) -> Callable[[pd.DataFrame], pd.DataFrame]:
+def build_metric_fn(map_path: Path, noise_clip_percentile: float = 99.9) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """Initialise models once and return a calculate_metrics(df) function."""
     map_source = TiffMapSourceConfig(file_path=map_path).build()
     raster_sampler = RasterSampler(
         map_source=map_source,
-        resampling="cubic_spline",
+        resampling="average",
         destination_crs="epsg:3035",
     )
     noise_model = NoiseConfig().build()
     fuel_model = FuelModel("a320")
     # Upper cap on population density applied to the reward-matching noise, same
     # as the clip_noise_reward path in PopulationWrapper.
-    pop_clip_value = map_source.get_normalization_value(NOISE_CLIP_PERCENTILE)
+    pop_clip_value = map_source.get_normalization_value(noise_clip_percentile)
 
     def _fuel(altitude, tas, sim_dt, mass):
         return fuel_model.step_fuel_flow(mass=mass, tas=tas, altitude=altitude) * sim_dt

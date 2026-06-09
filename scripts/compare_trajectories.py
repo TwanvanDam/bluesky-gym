@@ -28,6 +28,7 @@ from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
+from scripts.common.colors import COMPARE_COLORS
 from scripts.common.run_paths import resolve_run, RunPaths
 
 MAP_PATH = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
@@ -87,7 +88,7 @@ def _add_trajectory_overlay(
     ax.scatter(*dest_xy, marker="x", s=60, color="black", zorder=5)
 
     for i, (df, color, label) in enumerate(
-            [(df_a, "tab:orange", label_a), (df_b, "limegreen", label_b)]
+            [(df_a, COMPARE_COLORS[0], label_a), (df_b, COMPARE_COLORS[1], label_b)]
     ):
         for j, (_, group) in enumerate(df.groupby("start_angle")):
             ax.plot(group["x"], group["y"], color=color, linewidth=2.0,
@@ -101,8 +102,8 @@ def _add_trajectory_overlay(
 
 def _draw_fuel_abs(ax, x, angles, fuel_a, fuel_b, label_a, label_b):
     w = 0.4
-    ax.bar([i - w / 2 for i in x], fuel_a.values, width=w, label=label_a, color="tab:orange")
-    ax.bar([i + w / 2 for i in x], fuel_b.values, width=w, label=label_b, color="limegreen")
+    ax.bar([i - w / 2 for i in x], fuel_a.values, width=w, label=label_a, color=COMPARE_COLORS[0])
+    ax.bar([i + w / 2 for i in x], fuel_b.values, width=w, label=label_b, color=COMPARE_COLORS[1])
     ax.set_xticks(list(x))
     ax.set_xticklabels(angles, rotation=45)
     ax.set_title("Fuel consumption (kg)")
@@ -112,8 +113,8 @@ def _draw_fuel_abs(ax, x, angles, fuel_a, fuel_b, label_a, label_b):
 
 def _draw_noise_abs(ax, x, angles, noise_a, noise_b, label_a, label_b):
     w = 0.4
-    ax.bar([i - w / 2 for i in x], noise_a.values, width=w, label=label_a, color="tab:orange")
-    ax.bar([i + w / 2 for i in x], noise_b.values, width=w, label=label_b, color="limegreen")
+    ax.bar([i - w / 2 for i in x], noise_a.values, width=w, label=label_a, color=COMPARE_COLORS[0])
+    ax.bar([i + w / 2 for i in x], noise_b.values, width=w, label=label_b, color=COMPARE_COLORS[1])
     ax.set_xticks(list(x))
     ax.set_xticklabels(angles, rotation=45)
     ax.set_title("Noise exposure")

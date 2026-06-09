@@ -4,12 +4,21 @@ from gymnasium import spaces
 
 
 class MapObservationNormalizer(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env, mode: str = "log") -> None:
+    def __init__(self, env: gym.Env, mode: str = "log", clip: bool = True) -> None:
+        """
+        mode: 'log' or 'min-max'
+        clip: bool
+        When clip is True the normalised value is clamped to [0, 1] (legacy behaviour). When clip is False
+        the map source is expected to clip internally (e.g. via the Clip value transform in
+        TransformedTiffMapSource).
+        """
         super().__init__(env)
 
         if not hasattr(env, "map_source_max"):
             raise ValueError("Underlying environment must have map_source_max attribute for normalization")
         self.mode = mode
+
+        self.clip = clip
 
         # Check if underlying observation space is Dict
         assert isinstance(env.observation_space,
@@ -39,9 +48,22 @@ class MapObservationNormalizer(gym.ObservationWrapper):
                 value = np.nan_to_num(observation_copy[key], nan=0.0)
                 match self.mode:
                     case "log":
-                        observation_copy[key] = np.clip(np.log1p(value) / np.log1p(divisor), 0, 1)
+                        normalized = np.log1p(value) / np.log1p(divisor)
                     case "min-max" | "min_max":
-                        observation_copy[key] = np.clip(value / divisor, 0, 1)
+                        normalized = value / divisor
                     case _:
                         raise NotImplementedError(f"Normalization mode {self.mode} is not supported.")
+
+                if self.clip:
+                    observation_copy[key] = np.clip(normalized, 0, 1)
+                else:
+                    max_val = float(normalized.max())
+                    if max_val > 1.0 + 1e-6:
+                        raise ValueError(
+                            f"MapObservationNormalizer: map key '{key}' has a normalised value of "
+                            f"{max_val:.4f} > 1 (map_source_max / divisor = {divisor:.4f}). "
+                            "The map source must clip values before they reach the normalizer. "
+                            "Remedy: enable clip_noise_reward (legacy sources) or use a TransformedTiffMapSource pipeline"
+                        )
+                    observation_copy[key] = normalized
         return observation_copy

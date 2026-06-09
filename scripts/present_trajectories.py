@@ -71,10 +71,7 @@ def plot_trajectories(
     plt.close()
 
 
-DEFAULT_BACKGROUND_MAP_PATH = Path(__file__).parent / "population_maps" / "ESTAT_OBS-VALUE-T_2021_V2.tiff"
-
-
-def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
+def plot_trajectory_subdir(traj_dir: Path, background_map: Path, run_name: str = "") -> None:
     """Plot a single trajectory subdirectory (contains trajectories.csv + details.pkl)."""
     csv_path = traj_dir / "trajectories.csv"
     details_path = traj_dir / "details.pkl"
@@ -90,8 +87,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     agent_used_map = eval_details["map_path"] is not None
     # Always use the real population map as the plot background, even for runs where
     # the agent flew without a population map in its observation.
-    background_map_path = eval_details["map_path"] or DEFAULT_BACKGROUND_MAP_PATH
-    map_config = TiffMapSourceConfig(file_path=background_map_path)
+    map_config = TiffMapSourceConfig(file_path=background_map)
 
     save_path = traj_dir / f"plot.png"
 
@@ -101,7 +97,7 @@ def plot_trajectory_subdir(traj_dir: Path, run_name: str = "") -> None:
     plot_trajectories(df, map_config, runway=runway, run_name=run_name, agent_used_map=agent_used_map, save_path=save_path)
 
 
-def present_for_run(run_paths: RunPaths) -> None:
+def present_for_run(run_paths: RunPaths, background_map: Path) -> None:
     """Plot all trajectory subdirectories for a run (searches recursively)."""
     if not run_paths.trajectories_dir.exists():
         print(f"No trajectories found for {run_paths.run_id}")
@@ -111,12 +107,14 @@ def present_for_run(run_paths: RunPaths) -> None:
     for csv_path in sorted(run_paths.trajectories_dir.rglob("trajectories.csv")):
         traj_dir = csv_path.parent
         if (traj_dir / "details.pkl").exists():
-            plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id)
+            plot_trajectory_subdir(traj_dir, run_name=run_paths.run_id, background_map=background_map)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s).")
+    parser = argparse.ArgumentParser(description="Plot trajectories for trained run(s). PNG's are saved to CSV directory.")
     parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
+    parser.add_argument("--background_map_path", type=str, default="./scripts/population_maps/europe_3035_1km.tif",
+                        help="Path to map to use as the background of the plots.")
     args = parser.parse_args()
 
     # Legacy: if a single arg is a CSV file, plot that directly
@@ -126,6 +124,6 @@ if __name__ == '__main__':
     else:
         runs = [resolve_run(r) for r in args.run_refs]
         bs.init()
-        for run_paths in tqdm(runs, desc="Runs"):
-            print(f"\nPlotting trajectories for: {run_paths.run_id}")
-            present_for_run(run_paths)
+        for run_path in tqdm(runs, desc="Runs"):
+            print(f"\nPlotting trajectories for: {run_path.run_id}")
+            present_for_run(run_path, Path(args.background_map_path))
