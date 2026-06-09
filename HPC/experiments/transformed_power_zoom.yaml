@@ -108,7 +108,7 @@ navigation_config:
   successful_approach_reward: 5.0
   use_sin_cos_obs: true
 population_config:
-  clip_noise_reward: true
+  clip_noise_reward: false
   fuel_weight: 0.5
   map_observation_configs:
   - position: centered
@@ -135,6 +135,7 @@ population_config:
           - 0.700
         target_value: 46.3
         percentile: 50
+        p: 0.5
       - type: clip
         percentile: 99.9
     window_margin_m: 0
