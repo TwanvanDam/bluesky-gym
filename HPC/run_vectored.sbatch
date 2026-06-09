@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:1             # 1 GPU shared by all background processes
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16       # 2 configs × 3 seeds × ~2 CPU/seed + spare
-#SBATCH --mem=64G                # 2 configs × 3 seeds × ~8G/seed
-#SBATCH --time=20:00:00
+#SBATCH --mem=80G                # 2 configs × 3 seeds × ~8G/seed
+#SBATCH --time=24:00:00
 #SBATCH --output=HPC/logs/out/slurm-%j.out
 #SBATCH --error=HPC/logs/err/slurm-%j.err
 
