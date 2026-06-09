@@ -108,36 +108,45 @@ navigation_config:
   successful_approach_reward: 5.0
   use_sin_cos_obs: true
 population_config:
-  clip_noise_reward: true
+  clip_noise_reward: false
   fuel_weight: 0.5
   map_observation_configs:
   - position: centered
     range:
-    - 32000.0
-    - 32000.0
+    - 64000.0
+    - 64000.0
     shape:
     - 16
     - 16
-  - position: centered
-    range:
-      - 64000.0
-      - 64000.0
-    shape:
-      - 16
-      - 16
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
-    type: tiff
+    spatial_transforms:
+      - type: zoom
+        factor:
+          - 0.5
+          - 1
+        p: 0.5
+    type: transformed
+    value_transforms:
+      - type: gamma_correction
+        gamma:
+          - 0.520
+          - 0.700
+        target_value: 46.3
+        percentile: 50
+        p: 0.5
+      - type: clip
+        percentile: 99.9
+    window_margin_m: 0
   noise_model_config:
     base_distance: 304.8
     noise_base_dba: 85.0
     noise_cutoff_dba: 55.0
     noise_resolution_m: 1000.0
     w_0: 1.0e-12
-  normalization_percentile: 99.9
   observation_normalization: log
-  resampling: cubic_spline
+  resampling: average
 training_config:
   n_envs: 4
   save_frequency: 50000

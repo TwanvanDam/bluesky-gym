@@ -19,6 +19,36 @@
       "title": "ActivationLayerConfig",
       "type": "object"
     },
+    "Clip": {
+      "additionalProperties": false,
+      "description": "Clip values to ``[0, upper]`` (people/km\u00b2). Applied last; this is the\ncross-resolution consistency mechanism, so keep ``p=1.0``.\n\n``percentile`` \u2014 clip at this percentile of the *base* map (e.g. 99.9), matching\nthe legacy ``map_source_max`` clipping. Call ``resolve(base_array)`` once after\nloading the base raster (handled by TransformedTiffMapSource); the resolved upper\nbound is constant across episodes since the base raster never changes.",
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "clip",
+          "default": "clip",
+          "title": "Type",
+          "type": "string"
+        },
+        "percentile": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Percentile",
+          "type": "number"
+        }
+      },
+      "required": [
+        "percentile"
+      ],
+      "title": "Clip",
+      "type": "object"
+    },
     "ConvolutionLayerConfig": {
       "additionalProperties": false,
       "properties": {
@@ -218,6 +248,125 @@
         "value"
       ],
       "title": "FixedSamplingConfig",
+      "type": "object"
+    },
+    "Flip": {
+      "additionalProperties": false,
+      "description": "Mirror the window array, keeping the geographic extent (Affine) unchanged \u2014\na reflection of the field about the window centre.",
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "flip",
+          "default": "flip",
+          "title": "Type",
+          "type": "string"
+        },
+        "axis": {
+          "default": "combination",
+          "enum": [
+            "ns",
+            "ew",
+            "combination"
+          ],
+          "title": "Axis",
+          "type": "string"
+        }
+      },
+      "title": "Flip",
+      "type": "object"
+    },
+    "FloorRaise": {
+      "additionalProperties": false,
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "floor_raise",
+          "default": "floor_raise",
+          "title": "Type",
+          "type": "string"
+        },
+        "floor": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Floor",
+          "type": "array"
+        }
+      },
+      "required": [
+        "floor"
+      ],
+      "title": "FloorRaise",
+      "type": "object"
+    },
+    "GammaCorrection": {
+      "additionalProperties": false,
+      "description": "Power law: compress the range of values (lift countryside toward cities).\n\nUses the median-matched multiplier ``c = target_value / base_median^\u03b3`` so the\ntransformed field's median equals ``target_value``\n``percentile`` selects the base-map statistic that represents the\n\"base median\"; call ``resolve(value)`` with the precomputed people/km\u00b2 value\nbefore sampling (handled by TransformedTiffMapSource).",
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "gamma_correction",
+          "default": "gamma_correction",
+          "title": "Type",
+          "type": "string"
+        },
+        "gamma": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Gamma",
+          "type": "array"
+        },
+        "percentile": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Percentile",
+          "type": "number"
+        },
+        "target_value": {
+          "exclusiveMinimum": 0.0,
+          "title": "Target Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "gamma",
+        "percentile",
+        "target_value"
+      ],
+      "title": "GammaCorrection",
       "type": "object"
     },
     "GlobalPoolingLayerConfig": {
@@ -724,6 +873,7 @@
               "polygon": "#/$defs/RandomMapSourceConfig",
               "population_density": "#/$defs/RandomMapSourceConfig",
               "tiff": "#/$defs/TiffMapSourceConfig",
+              "transformed": "#/$defs/TransformedTiffMapSourceConfig",
               "zero": "#/$defs/RandomMapSourceConfig"
             },
             "propertyName": "type"
@@ -731,6 +881,9 @@
           "oneOf": [
             {
               "$ref": "#/$defs/TiffMapSourceConfig"
+            },
+            {
+              "$ref": "#/$defs/TransformedTiffMapSourceConfig"
             },
             {
               "$ref": "#/$defs/RandomMapSourceConfig"
@@ -753,7 +906,7 @@
           "type": "number"
         },
         "resampling": {
-          "default": "cubic_spline",
+          "default": "average",
           "enum": [
             "cubic_spline",
             "average",
@@ -941,6 +1094,43 @@
       "title": "SB3ModelConfig",
       "type": "object"
     },
+    "ScaleValues": {
+      "additionalProperties": false,
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "scale_values",
+          "default": "scale_values",
+          "title": "Type",
+          "type": "string"
+        },
+        "factor": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Factor",
+          "type": "array"
+        }
+      },
+      "required": [
+        "factor"
+      ],
+      "title": "ScaleValues",
+      "type": "object"
+    },
     "TiffMapSourceConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1017,6 +1207,98 @@
       "title": "TrainingConfig",
       "type": "object"
     },
+    "TransformedTiffMapSourceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "transformed",
+          "default": "transformed",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "path",
+              "type": "string"
+            }
+          ],
+          "title": "File Path"
+        },
+        "source_unit": {
+          "default": "people_per_pixel",
+          "enum": [
+            "people_per_pixel",
+            "people_per_km2"
+          ],
+          "title": "Source Unit",
+          "type": "string"
+        },
+        "value_transforms": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "clip": "#/$defs/Clip",
+                "floor_raise": "#/$defs/FloorRaise",
+                "gamma_correction": "#/$defs/GammaCorrection",
+                "scale_values": "#/$defs/ScaleValues"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/GammaCorrection"
+              },
+              {
+                "$ref": "#/$defs/FloorRaise"
+              },
+              {
+                "$ref": "#/$defs/ScaleValues"
+              },
+              {
+                "$ref": "#/$defs/Clip"
+              }
+            ]
+          },
+          "title": "Value Transforms",
+          "type": "array"
+        },
+        "spatial_transforms": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "flip": "#/$defs/Flip",
+                "zoom": "#/$defs/Zoom"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Zoom"
+              },
+              {
+                "$ref": "#/$defs/Flip"
+              }
+            ]
+          },
+          "title": "Spatial Transforms",
+          "type": "array"
+        },
+        "window_margin_m": {
+          "default": 100000.0,
+          "title": "Window Margin M",
+          "type": "number"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "title": "TransformedTiffMapSourceConfig",
+      "type": "object"
+    },
     "UniformSamplingConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1040,6 +1322,44 @@
         "high"
       ],
       "title": "UniformSamplingConfig",
+      "type": "object"
+    },
+    "Zoom": {
+      "additionalProperties": false,
+      "description": "Scale the field about the window centre by factor ``z``: z>1 magnifies\n(bigger cities), z<1 compresses. Rescales the window's Affine pixel size about\nits centre; ``regenerate`` reads enough base data to cover the magnified footprint.",
+      "properties": {
+        "p": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "P",
+          "type": "number"
+        },
+        "type": {
+          "const": "zoom",
+          "default": "zoom",
+          "title": "Type",
+          "type": "string"
+        },
+        "factor": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Factor",
+          "type": "array"
+        }
+      },
+      "required": [
+        "factor"
+      ],
+      "title": "Zoom",
       "type": "object"
     }
   },

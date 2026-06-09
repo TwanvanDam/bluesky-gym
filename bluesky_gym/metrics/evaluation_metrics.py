@@ -15,7 +15,7 @@ def build_metric_fn(map_path: Path, noise_clip_percentile: float = 99.9) -> Call
     map_source = TiffMapSourceConfig(file_path=map_path).build()
     raster_sampler = RasterSampler(
         map_source=map_source,
-        resampling="cubic_spline",
+        resampling="average",
         destination_crs="epsg:3035",
     )
     noise_model = NoiseConfig().build()
