@@ -128,8 +128,8 @@ class SpatialTransform(BaseModel):
 
 
 class Zoom(SpatialTransform):
-    """Scale the field about the window centre by factor ``z``: z>1 magnifies
-    (bigger cities), z<1 compresses. Rescales the window's Affine pixel size about
+    """Scale the field about the window centre by factor ``z``: z<1 magnifies
+    (bigger cities), z>1 compresses. Rescales the window's Affine pixel size about
     its centre; ``regenerate`` reads enough base data to cover the magnified footprint."""
     type: Literal["zoom"] = "zoom"
     factor: tuple[float, float]
