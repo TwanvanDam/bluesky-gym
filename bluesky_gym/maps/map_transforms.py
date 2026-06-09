@@ -16,6 +16,7 @@
 from typing import Callable, Literal, Optional, Annotated, List
 
 import numpy as np
+from scipy.stats import loguniform
 from affine import Affine
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -38,29 +39,32 @@ class ValueTransform(BaseModel):
 class GammaCorrection(ValueTransform):
     """Power law: compress the range of values (lift countryside toward cities).
 
-    ``percentile`` sets the identity point: the base-map value at this percentile
-    is the fixed point of the curve (f(x)=x). Call ``resolve(value)`` with the
-    precomputed people/km² value before sampling (handled by TransformedTiffMapSource)."""
+    Uses the median-matched multiplier ``c = target_value / base_median^γ`` so the
+    transformed field's median equals ``target_value``
+    ``percentile`` selects the base-map statistic that represents the
+    "base median"; call ``resolve(value)`` with the precomputed people/km² value
+    before sampling (handled by TransformedTiffMapSource)."""
     type: Literal["gamma_correction"] = "gamma_correction"
     gamma: tuple[float, float]
     percentile: float = Field(ge=0.0, le=100.0)
-    _identity_intersect: Optional[float] = PrivateAttr(default=None)
+    target_value: float = Field(gt=0.0)
+    _base_value: Optional[float] = PrivateAttr(default=None)
 
     def resolve(self, value: float) -> None:
-        self._identity_intersect = value
+        self._base_value = value
 
-    def _calculate_offset(self, gamma: float) -> float:
-        assert self._identity_intersect is not None
-        return self._identity_intersect / (self._identity_intersect ** gamma)
+    def _calculate_c(self, gamma: float) -> float:
+        assert self._base_value is not None
+        return self.target_value / (self._base_value ** gamma)
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray], np.ndarray]:
-        assert self._identity_intersect is not None, (
+        assert self._base_value is not None, (
             "GammaCorrection.percentile must be resolved before sampling — call resolve(value) first "
             "(handled by TransformedTiffMapSource)."
         )
-        gamma = rng.uniform(*self.gamma)
-        offset = self._calculate_offset(gamma)
-        return lambda values: np.power(values, gamma) * offset
+        gamma = float(rng.uniform(*self.gamma))
+        c = self._calculate_c(gamma)
+        return lambda values: np.power(values, gamma) * c
 
 
 class FloorRaise(ValueTransform):
@@ -131,7 +135,7 @@ class Zoom(SpatialTransform):
     factor: tuple[float, float]
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray, Affine], tuple[np.ndarray, Affine]]:
-        z = rng.uniform(*self.factor)
+        z = loguniform.rvs(self.factor[0], self.factor[1], size=1, random_state=rng)[0]
 
         def apply(array: np.ndarray, transform: Affine) -> tuple[np.ndarray, Affine]:
             rows, cols = array.shape
@@ -161,8 +165,9 @@ class Flip(SpatialTransform):
         if self.axis in ("ns", "ew"):
             flips = [self.axis]
         elif self.axis == "combination":
-            flips = rng.choice(["ns", "ew", "both"])
-            flips = [str(flips)] if flips != "both" else ["ns", "ew"]
+            # NS and EW are equivalent under rotation, so one random single-axis flip is enough.
+            # "both" = 180° rotation, already in the training distribution — excluded.
+            flips = [str(rng.choice(["ns", "ew"]))]
 
         def apply(array: np.ndarray, transform: Affine) -> tuple[np.ndarray, Affine]:
             for flip in flips:
