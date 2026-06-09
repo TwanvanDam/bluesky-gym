@@ -214,7 +214,8 @@ class SpatialPipeline:
     @property
     def max_read_expansion(self) -> float:
         """How much larger than the env bounds the base read must be so that
-        zoom-in (magnify) still covers the window. 1.0 when there are no zooms."""
+        zoom-out (z>1, larger footprint) still covers the window. 1.0 when there
+        are no zooms (and for zoom-in only, z<1, which samples a smaller footprint)."""
         zooms = [t.max_factor for t in self._transforms if isinstance(t, Zoom)]
         return max([1.0, *zooms])
 
