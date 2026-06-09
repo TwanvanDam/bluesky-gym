@@ -167,14 +167,13 @@ class Flip(SpatialTransform):
         elif self.axis == "combination":
             # NS and EW are equivalent under rotation, so one random single-axis flip is enough.
             # "both" = 180° rotation, already in the training distribution — excluded.
-            flips = [str(rng.choice(["ns", "ew"]))]
+            flip = str(rng.choice(["ns", "ew"]))
 
         def apply(array: np.ndarray, transform: Affine) -> tuple[np.ndarray, Affine]:
-            for flip in flips:
-                if flip == "ns":
-                    array = np.flipud(array)
-                if flip == "ew":
-                    array = np.fliplr(array)
+            if flip == "ns":
+                array = np.flipud(array)
+            if flip == "ew":
+                array = np.fliplr(array)
             return np.ascontiguousarray(array), transform
 
         return apply
