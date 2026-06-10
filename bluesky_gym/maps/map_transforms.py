@@ -163,7 +163,7 @@ class Flip(SpatialTransform):
 
     def _sample(self, rng: np.random.Generator) -> Callable[[np.ndarray, Affine], tuple[np.ndarray, Affine]]:
         if self.axis in ("ns", "ew"):
-            flips = [self.axis]
+            flip = [self.axis]
         elif self.axis == "combination":
             # NS and EW are equivalent under rotation, so one random single-axis flip is enough.
             # "both" = 180° rotation, already in the training distribution — excluded.
