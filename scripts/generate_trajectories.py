@@ -18,7 +18,9 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.envs.common import functions
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
-from bluesky_gym.maps.map_sources import TiffMapSourceConfig, RandomMapSourceConfig
+from bluesky_gym.maps.map_sources import TiffMapSourceConfig, RandomMapSourceConfig, TransformedTiffMapSource, \
+    TransformedTiffMapSourceConfig
+from bluesky_gym.maps.map_transforms import Clip
 from scripts.common.run_paths import resolve_run, RunPaths
 
 
@@ -82,7 +84,7 @@ def simulate_trajectories(
     return pd.DataFrame(all_records)
 
 
-def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfig]) -> None:
+def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfig], clipped_map: bool = False) -> None:
     for eval_config in tqdm(eval_configs, desc=f"Configs [{run_paths.run_name}]"):
         runway_id = eval_config.runway.replace("/", "_")
         map_suffix = "map" if eval_config.map_path else "no_map"
@@ -99,11 +101,15 @@ def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfi
         with open(trajectory_folder / "details.pkl", "wb") as f:
             pickle.dump(dataclasses.asdict(eval_config), f)
 
-        validation_map = (
-            TiffMapSourceConfig(file_path=eval_config.map_path)
-            if eval_config.map_path
-            else RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
-        )
+        if eval_config.map_path:
+            if clipped_map:
+                validation_map = TransformedTiffMapSourceConfig(file_path=eval_config.map_path,
+                                                               source_unit="people_per_pixel", spatial_transforms=[],
+                                                                value_transforms=[Clip(percentile=99.9)], window_margin_m=0)
+            else:
+                validation_map = TiffMapSourceConfig(file_path=eval_config.map_path)
+        else:
+            validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
 
         env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map, model_type=eval_config.model)
         trajectories = simulate_trajectories(
@@ -123,6 +129,7 @@ if __name__ == '__main__':
     parser.add_argument("run_refs", nargs="+",
                         help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     parser.add_argument("--model", default="best", nargs=1, type=str, help="Trained model: 'best' or 'final', default='best'")
+    parser.add_argument("--clipped_map", action="store_true", help="Clipped map (if applicable)")
     args = parser.parse_args()
 
     maps_base_path = Path(__file__).parent / "population_maps"
@@ -153,4 +160,4 @@ if __name__ == '__main__':
 
     for run_paths in tqdm(runs, desc="Runs"):
         print(f"\nGenerating trajectories for: {run_paths.run_id}")
-        generate_for_run(run_paths, eval_configs)
+        generate_for_run(run_paths, eval_configs, args.clipped_map)

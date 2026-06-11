@@ -14,7 +14,7 @@ echo "== backfill_best_model =="
 uv run scripts/backfill_best_model.py "$@"
 
 echo "== generate_trajectories =="
-uv run scripts/generate_trajectories.py "$@"
+uv run scripts/generate_trajectories.py "$@" --clipped_map
 
 echo "== present_trajectories =="
 uv run scripts/present_trajectories.py "$@"

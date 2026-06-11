@@ -167,7 +167,7 @@ def plot_cdf(distributions: list[tuple[str, np.ndarray, str]], clip: float) -> N
     ax.set_ylabel("Fraction of pixels ≤ value  (empirical CDF)")
     ax.set_title("Population density distribution — effect of value transform")
     ax.legend(loc="lower right", fontsize=9, framealpha=0.95)
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, which="both", alpha=0.3)
     plt.tight_layout()
     plt.savefig("plots/augmentation/transformed_cdf.png")
     plt.show()
@@ -178,15 +178,15 @@ def plot_tone_curves(transforms: list[tuple[object, str]], sim_median: float,
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(x, x, label="Identity", color="black")
+    ax.plot(x, x, label="Identity (sim)", color="C0")
     for transform, color in transforms:
         high = param_range(transform)[1]
         ax.plot(x, value_fn_at(transform, high)(x), color=color,
                 label=f"{transform.type} (max={high:.2g})")
-    ax.scatter([sim_median], [target_median], zorder=5,
+    ax.scatter([sim_median], [target_median], color="C1", zorder=5,
                label=f"f(sim_median)=target ({sim_median:.1f}→{target_median:.1f})")
-    ax.axvline(sim_median, color="gray", linewidth=0.8)
-    ax.axhline(target_median, color="gray", linewidth=0.8)
+    ax.axvline(sim_median, color="C0", linewidth=0.8)
+    ax.axhline(target_median, color="C1", linewidth=0.8)
     ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})")
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
     ax.set_title("Value-transform tone curves")
