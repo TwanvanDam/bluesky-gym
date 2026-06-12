@@ -1,13 +1,15 @@
 """
-Plot episode-outcome breakdown for the multi-scale observation sweep.
+Plot the multi-scale observation sweep: noise/fuel metric boxplots and/or
+episode-outcome breakdown for runs named multi_scale_{group}{variant}_seed{NN}
+(group 1-5, variant a/b).
 
-Expects runs under runs/multi-scale-sweep/ named:
-  multi_scale_{group}{variant}_seed{NN}
+    python -m scripts.plot_multi_scale_sweep <runs_root> --baseline <C4_run>
+    python -m scripts.plot_multi_scale_sweep <runs_root> --plots breakdown
 
-where group is 1-5 and variant is a or b.
+--plots {both,metrics,breakdown} selects the views (default both). Only the
+metrics view needs BlueSky + the noise/fuel metric fn.
 """
 
-import argparse
 import re
 from pathlib import Path
 
@@ -24,18 +26,21 @@ from scripts.common.colors import (
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
-    compute_baseline,
-    compute_episode_length,
-    compute_success_rate,
-    compute_termination_breakdown,
+    draw_boxplot,
     mean_breakdowns,
+    run_sweep_cli,
     seed_color_map,
 )
 
+BOX_WIDTH = 0.6
+BAR_WIDTH = 0.7
+GROUP_GAP = 0.5  # extra x-space inserted between groups
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 BAR_ALPHA = 0.6
-BAR_WIDTH = 0.7
+
+# {multi_scale_}{group}{variant}_seed{NN}, group 1-5, variant a/b
+PATTERN = re.compile(r"^(?:multi_scale_)?(?P<group_num>\d)(?P<variant>[ab])_seed(?P<seed>\d+)$")
 
 VARIANT_TO_OBSERVATION = {
     "1a": "C2 + C4",
@@ -53,6 +58,15 @@ VARIANT_TO_OBSERVATION = {
 # One color per group; variant b gets a lighter shade.
 _GROUP_BASE_COLORS = {g: qual(i) for i, g in enumerate(range(1, 6))}
 
+METRICS = [
+    ("fuel", "fuel [kg]"),
+    ("noise", "noise [W·s]"),
+    ("normalized_fuel", "normalized fuel"),
+    ("normalized_noise", "normalized noise"),
+    ("combined", "normalized fuel + noise"),
+    ("reward", "reward"),
+]
+
 
 def _group_color(group_num: int, variant: str) -> tuple:
     base = _GROUP_BASE_COLORS[group_num]
@@ -61,31 +75,108 @@ def _group_color(group_num: int, variant: str) -> tuple:
     return base
 
 
-def collect_data(runs_root: Path, runway: str) -> pd.DataFrame:
-    records = []
-    for run_dir in sorted(runs_root.iterdir()):
-        match = RUN_PATTERN.match(run_dir.name)
-        if not match:
-            continue
-        group_num, variant, seed = int(match.group(1)), match.group(2), int(match.group(3))
-        rate = compute_success_rate(run_dir, runway)
-        if rate is None:
-            print(f"  Skipping {run_dir.name}: no usable trajectory data")
-            continue
-        records.append({
-            "group_num": group_num,
-            "variant": variant,
-            "config_id": f"{group_num}{variant}",
-            "seed": seed,
-            "success_rate": rate,
-            "breakdown": compute_termination_breakdown(run_dir, runway),
-            "length": compute_episode_length(run_dir, runway),
-        })
-    return pd.DataFrame(records)
+def _config_ids(df: pd.DataFrame) -> list[str]:
+    return sorted(df["config_id"].dropna().unique(), key=lambda c: (int(c[:-1]), c[-1]))
 
+
+def _add_config_id(df: pd.DataFrame) -> pd.DataFrame:
+    """config_id is the composite of the group_num / variant named groups."""
+    df["config_id"] = df["group_num"].astype(str) + df["variant"]
+    return df
+
+
+def _tick_labels(config_ids: list[str]) -> list[str]:
+    return [f"{cid}\n{VARIANT_TO_OBSERVATION.get(cid, cid)}" for cid in config_ids]
+
+
+# ---------------------------------------------------------------------------- metrics
+
+def _config_x_positions(config_ids: list[str]) -> dict[str, float]:
+    """Assign x positions with a gap between each group pair."""
+    positions = {}
+    x = 1.0
+    prev_group = None
+    for cid in config_ids:
+        group = int(cid[:-1])
+        if prev_group is not None and group != prev_group:
+            x += GROUP_GAP
+        positions[cid] = x
+        x += 1.0
+        prev_group = group
+    return positions
+
+
+def plot_metric_boxplot(
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    metric: str,
+    ylabel: str,
+    runway: str,
+    runs_name: str,
+    output_dir: Path,
+) -> None:
+    config_ids = _config_ids(df)
+    x_pos = _config_x_positions(config_ids)
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    legend_handles = []
+
+    # Baseline box + reference lines
+    if baseline_df is not None and not baseline_df.empty:
+        draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
+        legend_handles.append(
+            plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="Baseline (C4)")
+        )
+        q1, median, q3 = baseline_df[metric].quantile([0.25, 0.5, 0.75])
+        for val, ls in [(median, "--"), (q1, ":"), (q3, ":")]:
+            ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
+
+    # Per-config boxes
+    prev_group = None
+    for cid in config_ids:
+        group_num = int(cid[:-1])
+        variant = cid[-1]
+        xp = x_pos[cid]
+
+        # Vertical divider between groups
+        if prev_group is not None and group_num != prev_group:
+            ax.axvline(xp - (1.0 + GROUP_GAP) / 2, color="#cccccc", linewidth=0.8, zorder=0)
+        prev_group = group_num
+
+        data = df[df["config_id"] == cid][metric].values
+        if len(data) == 0:
+            continue
+        draw_boxplot(ax, data, position=xp, color=_group_color(group_num, variant), box_width=BOX_WIDTH)
+
+    tick_x = [0] + [x_pos[cid] for cid in config_ids]
+    ax.set_xticks(tick_x)
+    ax.set_xticklabels(["Baseline\n(C4)"] + _tick_labels(config_ids), fontsize=8)
+    ax.set_ylabel(ylabel)
+    ax.legend(handles=legend_handles, frameon=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{metric}_{runs_name}_{runway}.png"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"Saved → {out_path}")
+    plt.close(fig)
+
+
+def plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir):
+    _add_config_id(run_metrics)
+    for metric, ylabel in METRICS:
+        plot_metric_boxplot(
+            run_metrics, baseline_metrics, metric, ylabel,
+            runway, runs_root.name, output_dir,
+        )
+
+
+# --------------------------------------------------------------------------- breakdown
 
 def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
-    config_ids = sorted(df["config_id"].unique(), key=lambda c: (int(c[:-1]), c[-1]))
+    config_ids = _config_ids(df)
     x = np.arange(len(config_ids))
     seed_colors = seed_color_map(df)
 
@@ -116,9 +207,8 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
         ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
                    label=f"Baseline success ({baseline:.0%})", zorder=4)
 
-    tick_labels = [f"{cid}\n{VARIANT_TO_OBSERVATION.get(cid, cid)}" for cid in config_ids]
     ax.set_xticks(x)
-    ax.set_xticklabels(tick_labels, fontsize=8)
+    ax.set_xticklabels(_tick_labels(config_ids), fontsize=8)
     ax.set_ylabel("Episode outcome fraction")
     ax.set_ylim(0, 1.05)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
@@ -139,7 +229,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
 
 
 def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
-    config_ids = sorted(df["config_id"].unique(), key=lambda c: (int(c[:-1]), c[-1]))
+    config_ids = _config_ids(df)
     x = np.arange(len(config_ids))
     seed_colors = seed_color_map(df)
 
@@ -164,17 +254,16 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
                        color=seed_colors[row["seed"]], s=DOT_SIZE * 0.5, zorder=5,
                        alpha=DOT_ALPHA, edgecolors="none")
         if all_lengths:
-            color = _group_color(int(cid[:-1]), cid[-1])
-            ax.bar(x[i], np.mean(all_lengths), width=BAR_WIDTH, color=color, alpha=BAR_ALPHA)
+            ax.bar(x[i], np.mean(all_lengths), width=BAR_WIDTH,
+                   color=_group_color(int(cid[:-1]), cid[-1]), alpha=BAR_ALPHA)
 
     if baseline is not None:
         ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
                    label=f"Baseline ({baseline:.0f} s)", zorder=3)
         ax.legend(frameon=False)
 
-    tick_labels = [f"{cid}\n{VARIANT_TO_OBSERVATION.get(cid, cid)}" for cid in config_ids]
     ax.set_xticks(x)
-    ax.set_xticklabels(tick_labels, fontsize=8)
+    ax.set_xticklabels(_tick_labels(config_ids), fontsize=8)
     ax.set_ylabel("Mean episode length (s)")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -188,22 +277,11 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
               title="Seed", loc="upper right")
 
 
-def main(runs_root: Path, output_dir: Path, baseline_dir: Path | None, runway: str) -> None:
-    df = collect_data(runs_root, runway)
-    if df.empty:
-        print("No data found. Run generate_trajectories.py on the sweep runs first.")
-        return
-
-    baseline_rate, baseline_length = None, None
-    if baseline_dir is not None:
-        baseline_rate, baseline_length = compute_baseline(baseline_dir, runway)
-        if baseline_rate is None:
-            print(f"Baseline — no usable trajectory data in {baseline_dir} (plotting without baseline)")
-        else:
-            print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
+def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir):
+    _add_config_id(breakdown)
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    plot_episode_success(ax, df, baseline=baseline_rate)
+    plot_episode_success(ax, breakdown, baseline=baseline_rate)
     fig.tight_layout()
     out_path = output_dir / f"episode_success_{runs_root.name}_{runway}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -211,7 +289,7 @@ def main(runs_root: Path, output_dir: Path, baseline_dir: Path | None, runway: s
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    plot_episode_length(ax, df, baseline=baseline_length)
+    plot_episode_length(ax, breakdown, baseline=baseline_length)
     fig.tight_layout()
     out_path = output_dir / f"episode_length_{runs_root.name}_{runway}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -220,18 +298,4 @@ def main(runs_root: Path, output_dir: Path, baseline_dir: Path | None, runway: s
 
 
 if __name__ == "__main__":
-    RUN_PATTERN = re.compile(r"^(?:multi_scale_)?(\d)([ab])_seed(\d+)$")
-
-    parser = argparse.ArgumentParser(description="Plot multi-scale sweep results.")
-    parser.add_argument("runs_root", type=str, help="path to runs root")
-    parser.add_argument("--baseline", type=Path, default=None, help="Baseline run directory")
-    parser.add_argument("--runway", required=True, help="Runway identifier used to select trajectory CSVs")
-    parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"),
-                        help="Output directory for the plots")
-    args = parser.parse_args()
-
-    runs_root = Path(args.runs_root)
-    output_dir = args.output_dir / runs_root.name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    main(runs_root, output_dir, args.baseline, args.runway)
+    run_sweep_cli(PATTERN, plot_metrics=plot_metrics, plot_breakdown=plot_breakdown)

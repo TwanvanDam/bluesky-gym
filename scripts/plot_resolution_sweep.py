@@ -1,20 +1,19 @@
 """
-Plot episode-outcome breakdown vs. observation resolution for the
-forward/centered sweep.
+Plot the forward/centered resolution sweep: noise/fuel metric boxplots and/or
+episode-outcome breakdown for runs named {forward|centered}_{resolution}_seed{NN}
+(resolution in km/pixel: 1, 2, 4, 8, 16, 32).
 
-Expects runs under runs/PopulationWrapper-v0/ named:
-  {forward|centered}_{resolution}_seed{NN}
+    python -m scripts.plot_resolution_sweep <runs_root> --baseline <no_map_run>
+    python -m scripts.plot_resolution_sweep <runs_root> --plots breakdown
 
-where {resolution} is km/pixel (1, 2, 4, 8, 16, 32).
+--plots {both,metrics,breakdown} selects the views (default both). Only the
+metrics view needs BlueSky + the noise/fuel metric fn.
 
-Each bar is stacked by termination reason (success / failed approach / max
-steps / out of bounds), so the success segment height is the arrival rate and
-the segments above it show *why* the remaining episodes failed. Computed from
-trajectory CSVs (requires generate_trajectories.py to have been run first with
-the termination_reason column present).
+The breakdown stacks each bar by termination reason (success / failed approach /
+max steps / out of bounds), so the success segment height is the arrival rate and
+the segments above show *why* the rest failed.
 """
 
-import argparse
 import re
 from pathlib import Path
 
@@ -31,41 +30,96 @@ from scripts.common.colors import (
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
-    compute_baseline,
-    compute_episode_length,
-    compute_success_rate,
-    compute_termination_breakdown,
+    draw_boxplot,
     mean_breakdowns,
+    run_sweep_cli,
     seed_color_map,
     seed_legend,
 )
 
+BOX_OFFSET = 0.2
+BOX_WIDTH = 0.35
+BAR_WIDTH = 0.5
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 BAR_ALPHA = 0.6
-BAR_WIDTH = 0.5
 
-def collect_data(runs_root: Path, runway: str) -> pd.DataFrame:
-    records = []
-    for run_dir in sorted(runs_root.iterdir()):
-        m = RUN_PATTERN.match(run_dir.name)
-        if not m:
-            continue
-        mode, resolution, seed = m.group(1), int(m.group(2)), int(m.group(3))
-        rate = compute_success_rate(run_dir, runway)
-        if rate is None:
-            print(f"  Skipping {run_dir.name}: no usable trajectory data")
-            continue
-        records.append({
-            "mode": mode,
-            "resolution": resolution,
-            "seed": seed,
-            "success_rate": rate,
-            "breakdown": compute_termination_breakdown(run_dir, runway),
-            "length": compute_episode_length(run_dir, runway),
-        })
-    return pd.DataFrame(records)
+# {sweep_N_}{forward|centered}_{resolution}_seed{NN}
+PATTERN = re.compile(r"^(?:sweep_\d+_)?(?P<mode>forward|centered)_(?P<resolution>\d+)_seed(?P<seed>\d+)$")
 
+METRICS = [
+    ("fuel", "fuel [kg]"),
+    ("noise", "noise [W·s]"),
+    ("normalized_fuel", "normalized fuel"),
+    ("normalized_noise", "normalized noise"),
+    ("combined", "normalized fuel + noise"),
+    ("reward", "reward"),
+]
+
+
+# ---------------------------------------------------------------------------- metrics
+
+def plot_metric_boxplot(
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    metric: str,
+    ylabel: str,
+    runway: str,
+    runs_name: str,
+    output_dir: Path,
+) -> None:
+    resolutions = sorted(df["resolution"].dropna().unique())
+    # baseline at 0, resolutions start at 1
+    x_positions = {res: i + 1 for i, res in enumerate(resolutions)}
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    legend_handles = []
+
+    if baseline_df is not None and not baseline_df.empty:
+        draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
+        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="No-map baseline"))
+        q1, median, q3 = baseline_df[metric].quantile([0.25, 0.5, 0.75])
+        for val, ls in [(median, "--"), (q1, ":"), (q3, ":")]:
+            ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
+
+    mode_config = [
+        ("centered", MODE_COLORS["centered"], -BOX_OFFSET),
+        ("forward",  MODE_COLORS["forward"],  +BOX_OFFSET),
+    ]
+    for mode, color, offset in mode_config:
+        mode_df = df[df["mode"] == mode]
+        for res in resolutions:
+            data = mode_df[mode_df["resolution"] == res][metric].values
+            if len(data) == 0:
+                continue
+            draw_boxplot(ax, data, position=x_positions[res] + offset, color=color, box_width=BOX_WIDTH)
+        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=color, alpha=0.6, label=mode.capitalize()))
+
+    ax.set_xticks([0] + list(range(1, len(resolutions) + 1)))
+    ax.set_xticklabels(["No map"] + [f"{r} km/px" for r in resolutions])
+    ax.set_xlabel("Observation resolution")
+    ax.set_ylabel(ylabel)
+    ax.legend(handles=legend_handles, frameon=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{metric}_{runs_name}_{runway}.png"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"Saved → {out_path}")
+    plt.close(fig)
+
+
+def plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir):
+    for metric, ylabel in METRICS:
+        plot_metric_boxplot(
+            run_metrics, baseline_metrics, metric, ylabel,
+            runway, runs_root.name, output_dir,
+        )
+
+
+# --------------------------------------------------------------------------- breakdown
 
 def _draw_baseline(ax, value: float | None, label: str) -> None:
     if value is not None:
@@ -163,24 +217,9 @@ def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: floa
     _draw_baseline(ax, baseline, f"{baseline:.0f} s" if baseline is not None else "")
 
 
-def main(runs_root: Path, output_dir: Path, baseline_dir: Path, runway: str) -> None:
-    df = collect_data(runs_root, runway)
-    if df.empty:
-        print("No data found. Run generate_trajectories.py on the sweep runs first.")
-        return
-
-    baseline_rate, baseline_length = compute_baseline(baseline_dir, runway)
-    if baseline_rate is None or baseline_length is None:
-        if not baseline_dir.exists():
-            print(f"Baseline — directory not found: {baseline_dir} (plotting without baseline)")
-        else:
-            print(f"Baseline — no usable '{runway}_map' trajectory data in {baseline_dir} "
-                  "(plotting without baseline)")
-    else:
-        print(f"Baseline — success rate: {baseline_rate:.1%}, mean episode length: {baseline_length:.1f} s")
-
+def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir):
     for mode in ("forward", "centered"):
-        mode_df = df[df["mode"] == mode]
+        mode_df = breakdown[breakdown["mode"] == mode]
         if mode_df.empty:
             print(f"No data for mode '{mode}', skipping.")
             continue
@@ -193,6 +232,7 @@ def main(runs_root: Path, output_dir: Path, baseline_dir: Path, runway: str) -> 
         out_path = output_dir / f"episode_success_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
+        plt.close(fig)
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
@@ -200,22 +240,8 @@ def main(runs_root: Path, output_dir: Path, baseline_dir: Path, runway: str) -> 
         out_path = output_dir / f"episode_length_{runs_root.name}_{mode}_{runway}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
+        plt.close(fig)
 
 
 if __name__ == "__main__":
-    RUN_PATTERN = re.compile(r"^(?:sweep_\d+_)?(forward|centered)_(\d+)_seed(\d+)$")
-
-    parser = argparse.ArgumentParser(description="Plot resolution sweep results.")
-    parser.add_argument("runs_root", type=str, help="path to runs root for comparison")
-    parser.add_argument("--baseline", type=Path, default=None, help=f"Baseline run directory")
-    parser.add_argument("--runway",help=f"Runway identifier used to select trajectory CSVs")
-    parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"), help=f"Output directory for the plots")
-    args = parser.parse_args()
-
-    runs_root = Path(args.runs_root)
-    output_dir = args.output_dir / runs_root.name
-    output_dir.mkdir(parents=True, exist_ok=True)
-    baseline_dir = args.baseline
-    runway = args.runway
-
-    main(runs_root, output_dir, baseline_dir, runway)
+    run_sweep_cli(PATTERN, plot_metrics=plot_metrics, plot_breakdown=plot_breakdown)

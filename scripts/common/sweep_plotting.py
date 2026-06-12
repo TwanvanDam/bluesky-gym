@@ -1,9 +1,11 @@
+import re
 from pathlib import Path
-from typing import Generator
+from typing import Callable, Generator
 
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 from scripts.common.colors import SEED_COLORS
 
@@ -201,5 +203,188 @@ def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolutio
     return ordered_reasons, means
 
 
+# =====================================================================================
+# Generic, regex-driven data collection
+#
+# A "sweep" is just the set of runs whose directory name matches one regex. The regex's
+# named groups become DataFrame columns: e.g.
+#   r"^transformed_(?P<variant>.+)_seed(?P<seed>\d+)$"
+# yields columns "variant" and "seed". All-digit groups are cast to int. Everything
+# cosmetic — ordering, colors, x-layout, labels, savefig — lives in the per-sweep
+# plotting script, NOT here.
+# =====================================================================================
+
+
+def _coerce(value: str | None):
+    """Cast an all-digit regex group to int; leave everything else as-is."""
+    return int(value) if value is not None and value.isdigit() else value
+
+
+def collect_run_metrics(
+    runs_root: Path,
+    pattern: re.Pattern,
+    runway: str,
+    calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame],
+    mean_episode_length: float,
+) -> pd.DataFrame:
+    """Per-episode metrics for every run whose name matches `pattern`.
+
+    Each named group of `pattern` is added as a column (all-digit groups become ints).
+    """
+    frames = []
+    for run_dir in tqdm(sorted(runs_root.iterdir())):
+        match = pattern.search(run_dir.name)
+        if not match:
+            continue
+        csv = find_csv(run_dir, runway)
+        if not csv:
+            print(f"  Skipping {run_dir.name}: no CSV found")
+            continue
+        df = calculate_metrics(pd.read_csv(csv))
+        metrics = compute_episode_metrics(df, mean_episode_length)
+        for key, value in match.groupdict().items():
+            metrics[key] = _coerce(value)
+        frames.append(metrics)
+    return pd.concat(frames).reset_index(drop=True) if frames else pd.DataFrame()
+
+
+def collect_baseline_metrics(
+    baseline_runs: list[Path],
+    runway: str,
+    calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame],
+    mean_episode_length: float,
+) -> pd.DataFrame:
+    """Per-episode metrics pooled across the reference baseline run(s)."""
+    frames = []
+    for baseline_run in baseline_runs:
+        seed_match = re.search(r"seed(\d+)", baseline_run.name)
+        csv = find_csv(baseline_run, runway)
+        if not csv:
+            print(f"  Skipping {baseline_run.name}: no CSV found")
+            continue
+        df = calculate_metrics(pd.read_csv(csv))
+        metrics = compute_episode_metrics(df, mean_episode_length)
+        metrics["seed"] = int(seed_match.group(1)) if seed_match else 0
+        frames.append(metrics)
+    return pd.concat(frames).reset_index(drop=True) if frames else pd.DataFrame()
+
+
+def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, runway: str) -> pd.DataFrame:
+    """Success rate, termination breakdown and episode lengths per matching run.
+
+    Named groups of `pattern` become columns, same as collect_run_metrics. Does not
+    need the metric fn (reads only termination_reason / sim_dt), so it is cheap to call
+    straight from a plotting script that wants the outcome / length panels.
+    """
+    records = []
+    for run_dir in sorted(runs_root.iterdir()):
+        match = pattern.search(run_dir.name)
+        if not match:
+            continue
+        rate = compute_success_rate(run_dir, runway)
+        if rate is None:
+            print(f"  Skipping {run_dir.name}: no usable trajectory data")
+            continue
+        record = {key: _coerce(value) for key, value in match.groupdict().items()}
+        record["success_rate"] = rate
+        record["breakdown"] = compute_termination_breakdown(run_dir, runway)
+        record["length"] = compute_episode_length(run_dir, runway)
+        records.append(record)
+    return pd.DataFrame(records)
+
+
+def run_sweep_cli(
+    pattern: re.Pattern,
+    *,
+    plot_metrics: Callable | None = None,
+    plot_breakdown: Callable | None = None,
+) -> None:
+    """Shared CLI for a sweep that has a metrics view and/or an outcome-breakdown view.
+
+    `--plots {both,metrics,breakdown}` (default both) selects which to draw. Only the
+    metrics path needs BlueSky + the noise/fuel metric fn, so a breakdown-only run is
+    dependency-free and fast. Each per-sweep script supplies the cosmetics through:
+
+        plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir)
+        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir)
+
+    A view the script doesn't provide is silently skipped. `--baseline` is shared: the
+    full list is pooled into the metric reference boxes, its first entry supplies the
+    breakdown success-rate / episode-length reference lines.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Plot sweep metrics and/or outcome breakdown")
+    parser.add_argument("runs_root", type=str, help="path to runs root (e.g. runs/transforms)")
+    parser.add_argument("--plots", choices=["both", "metrics", "breakdown"], default="both",
+                        help="which views to draw (default: both)")
+    parser.add_argument("--baseline", nargs="+", type=Path, default=None,
+                        help="baseline run directory/-ies (pooled for the metric boxes; "
+                             "the first is used for the breakdown reference lines)")
+    parser.add_argument("--runway", type=str, default="EHAM_RW27")
+    parser.add_argument("--map-path", type=str, default="./scripts/population_maps/europe_3035_1km.tif")
+    parser.add_argument("--cache", action="store_true", default=False)
+    parser.add_argument("--noise_clip_percentile", type=float, default=99.9)
+    parser.add_argument("--mean_episode_length", type=float, default=1400.0)
+    parser.add_argument("--output_dir", type=Path, default=Path("plots/sweep_overview_plots"))
+    args = parser.parse_args()
+
+    selected = {"metrics", "breakdown"} if args.plots == "both" else {args.plots}
+    if "metrics" in selected and plot_metrics is None:
+        print("This sweep has no metrics view; skipping it.")
+        selected.discard("metrics")
+    if "breakdown" in selected and plot_breakdown is None:
+        print("This sweep has no breakdown view; skipping it.")
+        selected.discard("breakdown")
+    if not selected:
+        return
+
+    runs_root = Path(args.runs_root)
+    output_dir = args.output_dir / runs_root.name
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if "metrics" in selected:
+        import bluesky as bs
+        from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
+
+        bs.init()
+        calculate_metrics = build_metric_fn(Path(args.map_path), args.noise_clip_percentile)
+
+        cache_path = runs_root / f"cached_metrics_{args.runway}.csv"
+        if args.cache and cache_path.exists():
+            print("Using cached metrics...")
+            run_metrics = pd.read_csv(cache_path)
+        else:
+            run_metrics = collect_run_metrics(
+                runs_root, pattern, args.runway, calculate_metrics, args.mean_episode_length)
+            if args.cache:
+                print(f"Saving metrics to {cache_path} ...")
+                run_metrics.to_csv(cache_path, index=False)
+
+        baseline_metrics = None
+        if args.baseline:
+            baseline_metrics = collect_baseline_metrics(
+                list(args.baseline), args.runway, calculate_metrics, args.mean_episode_length)
+
+        for frame in (run_metrics, baseline_metrics):
+            if frame is not None and not frame.empty:
+                frame["combined"] = frame["normalized_fuel"] + frame["normalized_noise"]
+                add_reward(frame)
+
+        plot_metrics(run_metrics, baseline_metrics, runs_root, args.runway, output_dir)
+
+    if "breakdown" in selected:
+        breakdown = collect_breakdown_data(runs_root, pattern, args.runway)
+        if breakdown.empty:
+            print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")
+            return
+        baseline_rate = baseline_length = None
+        if args.baseline:
+            baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.runway)
+            if baseline_rate is None:
+                print(f"Baseline — no usable trajectory data in {args.baseline[0]} (plotting without baseline)")
+            else:
+                print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
+        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.runway, output_dir)
 
 
