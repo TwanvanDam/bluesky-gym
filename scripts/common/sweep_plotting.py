@@ -19,9 +19,16 @@ REASON_LABELS = {
     "out_of_bounds": "Out of bounds",
 }
 
-def find_csvs(run_dir: Path, runway: str) -> list[Path]:
-    """All trajectory CSVs matching *{runway}_map* under run_dir."""
-    return list(run_dir.glob(f"trajectories/*{runway}_map*/trajectories.csv"))
+def find_csv(run_dir: Path, scenario: str) -> Path | None:
+    """Trajectory CSV for one exact evaluation scenario, or None.
+
+    `scenario` is the trajectory subdir name written by generate_trajectories,
+    i.e. {runway}_{label}_{model} (e.g. "EHAM_RW27_map_best",
+    "EHAM_RW18R_scaling_best"). Selection is exact: the scenario label is the
+    key, so multiple scenarios for the same runway never collide.
+    """
+    csv = run_dir / "trajectories" / scenario / "trajectories.csv"
+    return csv if csv.exists() else None
 
 
 def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.DataFrame:
@@ -81,33 +88,29 @@ def draw_boxplot(ax, data, position, color, box_width) -> None:
 
 
 
-def per_episode_reasons(run_dir: Path, runway: str) -> pd.Series | None:
-    """Per-episode termination_reason pooled across all *_map CSVs in a run."""
-    csvs = find_csvs(run_dir, runway)
-    if not csvs:
+def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
+    """Per-episode termination_reason for the run's `scenario` trajectory CSV."""
+    csv_path = find_csv(run_dir, scenario)
+    if csv_path is None:
         return None
-    episodes = []
-    for csv_path in csvs:
-        df = pd.read_csv(csv_path)
-        if "termination_reason" not in df.columns:
-            print(f"  Warning: no termination_reason column in {csv_path}, skipping")
-            continue
-        per_episode = df.groupby("start_angle")["termination_reason"].last()
-        episodes.append(per_episode)
-    return pd.concat(episodes) if episodes else None
+    df = pd.read_csv(csv_path)
+    if "termination_reason" not in df.columns:
+        print(f"  Warning: no termination_reason column in {csv_path}, skipping")
+        return None
+    return df.groupby("start_angle")["termination_reason"].last()
 
 
-def compute_success_rate(run_dir: Path, runway: str) -> float | None:
-    """Mean success rate across all *_map trajectory CSVs in a run."""
-    reasons = per_episode_reasons(run_dir, runway)
+def compute_success_rate(run_dir: Path, scenario: str) -> float | None:
+    """Mean success rate for the run's `scenario` trajectory CSV."""
+    reasons = per_episode_reasons(run_dir, scenario)
     if reasons is None:
         return None
     return (reasons == SUCCESS_REASON).mean()
 
 
-def compute_termination_breakdown(run_dir: Path, runway: str) -> pd.Series | None:
-    """Fraction of episodes per termination reason, pooled across *_map CSVs."""
-    reasons = per_episode_reasons(run_dir, runway)
+def compute_termination_breakdown(run_dir: Path, scenario: str) -> pd.Series | None:
+    """Fraction of episodes per termination reason for the run's `scenario` CSV."""
+    reasons = per_episode_reasons(run_dir, scenario)
     if reasons is None:
         return None
     return reasons.value_counts(normalize=True)
@@ -126,29 +129,6 @@ def seed_legend(ax, color_map: dict) -> None:
     ]
     ax.legend(handles=handles, frameon=False)
 
-def find_csv(run_dir: Path, runway: str) -> Path | None:
-    """Return the preferred trajectory CSV for runway, or None.
-
-    When multiple CSVs match, prefers the exact {runway}_map_best directory
-    over variants such as {runway}_map_best_modified.
-    """
-    csvs = find_csvs(run_dir, runway)
-    if not csvs:
-        return None
-    if len(csvs) == 1:
-        return csvs[0]
-
-    print(f"  [{run_dir.name}] Multiple CSVs for '{runway}':")
-    for csv in sorted(csvs):
-        print(f"    {csv.parent.name}/trajectories.csv")
-
-    preferred_name = f"{runway}_map_best"
-    exact = [csv for csv in csvs if csv.parent.name == preferred_name]
-    chosen = exact[0] if exact else sorted(csvs)[0]
-    print(f"  → Using: {chosen.parent.name}/trajectories.csv")
-    return chosen
-
-
 def find_run_dirs(run_pattern: None | list[str], runs_root: Path) -> Generator:
     """Yield sorted run directories, optionally filtered by name patterns."""
     for run_dir in sorted(runs_root.iterdir()):
@@ -159,23 +139,18 @@ def find_run_dirs(run_pattern: None | list[str], runs_root: Path) -> Generator:
         yield run_dir
 
 
-def compute_episode_length(run_dir: Path, runway: str) -> pd.Series | None:
-    """Episode lengths (seconds) across all *_map trajectory CSVs in a run."""
-    csvs = find_csvs(run_dir, runway)
-    if not csvs:
+def compute_episode_length(run_dir: Path, scenario: str) -> pd.Series | None:
+    """Episode lengths (seconds) for the run's `scenario` trajectory CSV."""
+    csv_path = find_csv(run_dir, scenario)
+    if csv_path is None:
         return None
-    episodes = []
-    for csv_path in csvs:
-        df = pd.read_csv(csv_path)
-        per_episode = df.groupby("start_angle")["sim_dt"].sum()
-        episodes.append(per_episode)
-    return pd.concat(episodes) if episodes else None
+    return pd.read_csv(csv_path).groupby("start_angle")["sim_dt"].sum()
 
 
-def compute_baseline(baseline_dir: Path, runway: str) -> tuple[float | None, float | None]:
+def compute_baseline(baseline_dir: Path, scenario: str) -> tuple[float | None, float | None]:
     """Return (success_rate, mean_episode_length_s) for a baseline run directory."""
-    lengths = compute_episode_length(baseline_dir, runway)
-    return compute_success_rate(baseline_dir, runway), (lengths.mean() if lengths is not None else None)
+    lengths = compute_episode_length(baseline_dir, scenario)
+    return compute_success_rate(baseline_dir, scenario), (lengths.mean() if lengths is not None else None)
 
 
 def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolution") -> tuple[list, dict]:
@@ -223,7 +198,7 @@ def _coerce(value: str | None):
 def collect_run_metrics(
     runs_root: Path,
     pattern: re.Pattern,
-    runway: str,
+    scenario: str,
     calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame],
     mean_episode_length: float,
 ) -> pd.DataFrame:
@@ -232,11 +207,13 @@ def collect_run_metrics(
     Each named group of `pattern` is added as a column (all-digit groups become ints).
     """
     frames = []
-    for run_dir in tqdm(sorted(runs_root.iterdir())):
+    pbar = tqdm(sorted(runs_root.iterdir()))
+    for run_dir in pbar:
+        pbar.set_description(f"Processing {run_dir.name}")
         match = pattern.search(run_dir.name)
         if not match:
             continue
-        csv = find_csv(run_dir, runway)
+        csv = find_csv(run_dir, scenario)
         if not csv:
             print(f"  Skipping {run_dir.name}: no CSV found")
             continue
@@ -250,15 +227,17 @@ def collect_run_metrics(
 
 def collect_baseline_metrics(
     baseline_runs: list[Path],
-    runway: str,
+    scenario: str,
     calculate_metrics: Callable[[pd.DataFrame], pd.DataFrame],
     mean_episode_length: float,
 ) -> pd.DataFrame:
     """Per-episode metrics pooled across the reference baseline run(s)."""
     frames = []
-    for baseline_run in baseline_runs:
+    pbar = tqdm(baseline_runs)
+    for baseline_run in pbar:
+        pbar.set_description(f"Processing {baseline_run.name}")
         seed_match = re.search(r"seed(\d+)", baseline_run.name)
-        csv = find_csv(baseline_run, runway)
+        csv = find_csv(baseline_run, scenario)
         if not csv:
             print(f"  Skipping {baseline_run.name}: no CSV found")
             continue
@@ -269,7 +248,7 @@ def collect_baseline_metrics(
     return pd.concat(frames).reset_index(drop=True) if frames else pd.DataFrame()
 
 
-def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, runway: str) -> pd.DataFrame:
+def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) -> pd.DataFrame:
     """Success rate, termination breakdown and episode lengths per matching run.
 
     Named groups of `pattern` become columns, same as collect_run_metrics. Does not
@@ -281,14 +260,14 @@ def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, runway: str) ->
         match = pattern.search(run_dir.name)
         if not match:
             continue
-        rate = compute_success_rate(run_dir, runway)
+        rate = compute_success_rate(run_dir, scenario)
         if rate is None:
             print(f"  Skipping {run_dir.name}: no usable trajectory data")
             continue
         record = {key: _coerce(value) for key, value in match.groupdict().items()}
         record["success_rate"] = rate
-        record["breakdown"] = compute_termination_breakdown(run_dir, runway)
-        record["length"] = compute_episode_length(run_dir, runway)
+        record["breakdown"] = compute_termination_breakdown(run_dir, scenario)
+        record["length"] = compute_episode_length(run_dir, scenario)
         records.append(record)
     return pd.DataFrame(records)
 
@@ -305,12 +284,18 @@ def run_sweep_cli(
     metrics path needs BlueSky + the noise/fuel metric fn, so a breakdown-only run is
     dependency-free and fast. Each per-sweep script supplies the cosmetics through:
 
-        plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir)
-        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir)
+        plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
+        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir)
 
     A view the script doesn't provide is silently skipped. `--baseline` is shared: the
     full list is pooled into the metric reference boxes, its first entry supplies the
     breakdown success-rate / episode-length reference lines.
+
+    `--scenario` is the exact evaluation-scenario subdir to read, i.e. the
+    {runway}_{label}_{model} folder generate_trajectories writes under each run's
+    trajectories/. It is the sole selection key, so multiple scenarios for the same
+    runway (e.g. a density-scaled map) stay separate, and it is woven into the output
+    filenames so they never overwrite each other.
     """
     import argparse
 
@@ -321,7 +306,10 @@ def run_sweep_cli(
     parser.add_argument("--baseline", nargs="+", type=Path, default=None,
                         help="baseline run directory/-ies (pooled for the metric boxes; "
                              "the first is used for the breakdown reference lines)")
-    parser.add_argument("--runway", type=str, default="EHAM_RW27")
+    parser.add_argument("--scenario", type=str, default="EHAM_RW27_map_best",
+                        help="evaluation-scenario trajectory subdir to read, exactly as "
+                             "named by generate_trajectories: {runway}_{label}_{model} "
+                             "(e.g. EHAM_RW27_map_best, EHAM_RW18R_scaling_best)")
     parser.add_argument("--map-path", type=str, default="./scripts/population_maps/europe_3035_1km.tif")
     parser.add_argument("--cache", action="store_true", default=False)
     parser.add_argument("--noise_clip_percentile", type=float, default=99.9)
@@ -350,13 +338,13 @@ def run_sweep_cli(
         bs.init()
         calculate_metrics = build_metric_fn(Path(args.map_path), args.noise_clip_percentile)
 
-        cache_path = runs_root / f"cached_metrics_{args.runway}.csv"
+        cache_path = runs_root / f"cached_metrics_{args.scenario}.csv"
         if args.cache and cache_path.exists():
             print("Using cached metrics...")
             run_metrics = pd.read_csv(cache_path)
         else:
             run_metrics = collect_run_metrics(
-                runs_root, pattern, args.runway, calculate_metrics, args.mean_episode_length)
+                runs_root, pattern, args.scenario, calculate_metrics, args.mean_episode_length)
             if args.cache:
                 print(f"Saving metrics to {cache_path} ...")
                 run_metrics.to_csv(cache_path, index=False)
@@ -364,27 +352,27 @@ def run_sweep_cli(
         baseline_metrics = None
         if args.baseline:
             baseline_metrics = collect_baseline_metrics(
-                list(args.baseline), args.runway, calculate_metrics, args.mean_episode_length)
+                list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
 
         for frame in (run_metrics, baseline_metrics):
             if frame is not None and not frame.empty:
                 frame["combined"] = frame["normalized_fuel"] + frame["normalized_noise"]
                 add_reward(frame)
 
-        plot_metrics(run_metrics, baseline_metrics, runs_root, args.runway, output_dir)
+        plot_metrics(run_metrics, baseline_metrics, runs_root, args.scenario, output_dir)
 
     if "breakdown" in selected:
-        breakdown = collect_breakdown_data(runs_root, pattern, args.runway)
+        breakdown = collect_breakdown_data(runs_root, pattern, args.scenario)
         if breakdown.empty:
             print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")
             return
         baseline_rate = baseline_length = None
         if args.baseline:
-            baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.runway)
+            baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.scenario)
             if baseline_rate is None:
                 print(f"Baseline — no usable trajectory data in {args.baseline[0]} (plotting without baseline)")
             else:
                 print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
-        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.runway, output_dir)
+        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)
 
 

@@ -64,7 +64,7 @@ def plot_metric_boxplot(
     baseline_df: pd.DataFrame | None,
     metric: str,
     ylabel: str,
-    runway: str,
+    scenario: str,
     runs_name: str,
     output_dir: Path,
 ) -> None:
@@ -105,17 +105,17 @@ def plot_metric_boxplot(
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runs_name}_{runway}.png"
+    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
 
 
-def plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir):
+def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     for metric, ylabel in METRICS:
         plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
-            runway, runs_root.name, output_dir,
+            scenario, runs_root.name, output_dir,
         )
 
 
@@ -217,7 +217,7 @@ def plot_mode_length(ax, df: pd.DataFrame, mode: str, color: str, baseline: floa
     _draw_baseline(ax, baseline, f"{baseline:.0f} s" if baseline is not None else "")
 
 
-def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir):
+def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir):
     for mode in ("forward", "centered"):
         mode_df = breakdown[breakdown["mode"] == mode]
         if mode_df.empty:
@@ -229,7 +229,7 @@ def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway,
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_episode_success(ax, mode_df, mode, color, baseline=baseline_rate)
         fig.tight_layout()
-        out_path = output_dir / f"episode_success_{runs_root.name}_{mode}_{runway}.png"
+        out_path = output_dir / f"episode_success_{runs_root.name}_{mode}_{scenario}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.close(fig)
@@ -237,7 +237,7 @@ def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway,
         fig, ax = plt.subplots(figsize=(7, 4.5))
         plot_mode_length(ax, mode_df, mode, color, baseline=baseline_length)
         fig.tight_layout()
-        out_path = output_dir / f"episode_length_{runs_root.name}_{mode}_{runway}.png"
+        out_path = output_dir / f"episode_length_{runs_root.name}_{mode}_{scenario}.png"
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved → {out_path}")
         plt.close(fig)

@@ -111,7 +111,7 @@ def plot_metric_boxplot(
     baseline_df: pd.DataFrame | None,
     metric: str,
     ylabel: str,
-    runway: str,
+    scenario: str,
     runs_name: str,
     output_dir: Path,
 ) -> None:
@@ -158,18 +158,18 @@ def plot_metric_boxplot(
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runs_name}_{runway}.png"
+    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
 
 
-def plot_metrics(run_metrics, baseline_metrics, runs_root, runway, output_dir):
+def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     _add_config_id(run_metrics)
     for metric, ylabel in METRICS:
         plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
-            runway, runs_root.name, output_dir,
+            scenario, runs_root.name, output_dir,
         )
 
 
@@ -277,13 +277,13 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
               title="Seed", loc="upper right")
 
 
-def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway, output_dir):
+def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir):
     _add_config_id(breakdown)
 
     fig, ax = plt.subplots(figsize=(12, 5))
     plot_episode_success(ax, breakdown, baseline=baseline_rate)
     fig.tight_layout()
-    out_path = output_dir / f"episode_success_{runs_root.name}_{runway}.png"
+    out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
@@ -291,7 +291,7 @@ def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, runway,
     fig, ax = plt.subplots(figsize=(12, 5))
     plot_episode_length(ax, breakdown, baseline=baseline_length)
     fig.tight_layout()
-    out_path = output_dir / f"episode_length_{runs_root.name}_{runway}.png"
+    out_path = output_dir / f"episode_length_{runs_root.name}_{scenario}.png"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
