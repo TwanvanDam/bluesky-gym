@@ -1,6 +1,5 @@
 import argparse
 import dataclasses
-import pickle
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -9,7 +8,6 @@ import bluesky
 import gymnasium as gym
 import numpy as np
 import pandas as pd
-from bluesky.tools.aero import nm
 from bluesky.tools.position import Position
 from stable_baselines3 import SAC
 from tqdm import tqdm
@@ -18,10 +16,11 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv
 from bluesky_gym.envs.common import functions
 from bluesky_gym.envs.common.environment_factory import load_env_and_model
 from bluesky_gym.envs.common.functions import find_env_layer
-from bluesky_gym.maps.map_sources import TiffMapSourceConfig, RandomMapSourceConfig, TransformedTiffMapSource, \
-    TransformedTiffMapSourceConfig
-from bluesky_gym.maps.map_transforms import Clip
-from scripts.common.run_paths import resolve_run, RunPaths
+from bluesky_gym.maps.map_sources import TiffMapSourceConfig, RandomMapSourceConfig, \
+    TransformedTiffMapSourceConfig, MapSourceConfigType
+from bluesky_gym.maps.map_transforms import Clip, ScaleValues
+from scripts.common.run_paths import resolve_run, RunPaths, write_trajectory_details
+from scripts.config import ExperimentConfig
 
 
 @dataclass
@@ -34,6 +33,12 @@ class TrajectoryEvalConfig:
 
     # Force a runway starting position that is different from the bluesky database to ensure fair comparison to legacy models.
     destination_latlon: tuple[float, float] | None = None
+
+    # Label used in the trajectory subdirectory name; defaults to "map"/"no_map".
+    map_label: str | None = None
+
+    # Scale population density to change the ratio of fuel to noise.
+    scale_density: float | None = None
 
 
 def simulate_trajectories(
@@ -84,10 +89,32 @@ def simulate_trajectories(
     return pd.DataFrame(all_records)
 
 
-def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfig], clipped_map: bool = False) -> None:
+def eval_map_config(train_map_config: MapSourceConfigType, trajectory_config: TrajectoryEvalConfig) -> MapSourceConfigType:
+    """Reuse the training map pipeline, swapping only the file and making it deterministic."""
+    if isinstance(train_map_config, TransformedTiffMapSourceConfig):
+        value_transforms = [transform for transform in train_map_config.value_transforms
+                                     if isinstance(transform, Clip)]
+        if trajectory_config.scale_density:
+            value_transforms = [ScaleValues(factor=(trajectory_config.scale_density, trajectory_config.scale_density)), *value_transforms]
+        return train_map_config.model_copy(update={
+            "file_path" : str(trajectory_config.map_path),
+            "spatial_transforms": [],
+            "value_transforms": value_transforms
+        })
+    elif isinstance(train_map_config, TiffMapSourceConfig):
+        if trajectory_config.scale_density:
+            raise NotImplementedError("Scaling population density is not supported yet for legacy tiff files")
+        return train_map_config.model_copy(update={"file_path": str(trajectory_config.map_path)})
+    else:
+        raise ValueError(f"Invalid map config: {train_map_config}")
+
+
+def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfig]) -> None:
+    train_config = ExperimentConfig.load(run_paths.config)
+
     for eval_config in tqdm(eval_configs, desc=f"Configs [{run_paths.run_name}]"):
         runway_id = eval_config.runway.replace("/", "_")
-        map_suffix = "map" if eval_config.map_path else "no_map"
+        map_suffix = eval_config.map_label or ("map" if eval_config.map_path else "no_map")
         subdir_label = f"{runway_id}_{map_suffix}_{eval_config.model}"
 
         trajectory_folder = run_paths.trajectory_subdir(subdir_label)
@@ -98,16 +125,14 @@ def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfi
             print(f"Trajectory folder already exists, skipping: {trajectory_folder}")
             continue
 
-        with open(trajectory_folder / "details.pkl", "wb") as f:
-            pickle.dump(dataclasses.asdict(eval_config), f)
+        write_trajectory_details(trajectory_folder, dataclasses.asdict(eval_config))
 
         if eval_config.map_path:
-            if clipped_map:
-                validation_map = TransformedTiffMapSourceConfig(file_path=eval_config.map_path,
-                                                               source_unit="people_per_pixel", spatial_transforms=[],
-                                                                value_transforms=[Clip(percentile=99.9)], window_margin_m=0)
-            else:
-                validation_map = TiffMapSourceConfig(file_path=eval_config.map_path)
+            if train_config.population_config is None:
+                raise ValueError(
+                    f"Run {run_paths.run_id} has no population_config; cannot evaluate on a map."
+                )
+            validation_map = eval_map_config(train_config.population_config.map_source_config, eval_config)
         else:
             validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
 
@@ -128,28 +153,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Generate trajectories for trained run(s).")
     parser.add_argument("run_refs", nargs="+",
                         help="Run reference(s) (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
-    parser.add_argument("--model", default="best", nargs=1, type=str, help="Trained model: 'best' or 'final', default='best'")
-    parser.add_argument("--clipped_map", action="store_true", help="Clipped map (if applicable)")
+    parser.add_argument("--model", default="best", type=str, help="Trained model: 'best' or 'final', default='best'")
+    parser.add_argument("--runway", default="EHAM/RW27", type=str, help="Select the runway to use.")
+    parser.add_argument("--lat_lon", default=None, type=float, nargs=2, help="Force different Latitude/Longitude coordinates.")
+    parser.add_argument("--start_distance", default=250, type=int, help="Start distance in km.")
+    parser.add_argument("--map_path", default=Path("scripts/population_maps/europe_3035_1km.tif"), type=Path, help="Trained map path")
+    parser.add_argument("--label", default="", type=str, help="Map label to correctly identify trajectories")
+    parser.add_argument("--scale_density", type=float, help="Scale the density map.")
     args = parser.parse_args()
-
-    maps_base_path = Path(__file__).parent / "population_maps"
-    real_map_path = maps_base_path / "europe_3035_1km.tif"
 
     eval_configs = [
         TrajectoryEvalConfig(
-            runway="EHAM/RW27",
-            destination_latlon=(52.3322, 4.75),
-            map_path=real_map_path,
+            runway=args.runway,
+            destination_latlon=tuple(args.lat_lon) if args.lat_lon else None,
+            map_path=args.map_path,
             model=args.model,
-            start_distance=250,
-        ),
-        TrajectoryEvalConfig(
-            runway="EDDF/RW25R",
-            map_path=real_map_path,
-            model=args.model,
-            start_distance=250,
-        ),
-    ]
+            start_distance=args.start_distance,
+            map_label=args.label or None,
+            scale_density=args.scale_density
+        )]
 
     runs = [resolve_run(r) for r in args.run_refs]
     if not runs:
@@ -160,4 +182,4 @@ if __name__ == '__main__':
 
     for run_paths in tqdm(runs, desc="Runs"):
         print(f"\nGenerating trajectories for: {run_paths.run_id}")
-        generate_for_run(run_paths, eval_configs, args.clipped_map)
+        generate_for_run(run_paths, eval_configs)

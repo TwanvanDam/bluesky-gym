@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import pickle
 from pathlib import Path
 
 import bluesky as bs
@@ -29,7 +28,7 @@ from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
 from scripts.common.colors import COMPARE_COLORS
-from scripts.common.run_paths import resolve_run, RunPaths
+from scripts.common.run_paths import resolve_run, RunPaths, load_trajectory_details
 
 MAP_PATH = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
@@ -175,12 +174,8 @@ def _plot_comparison(
     fuel_diff = fuel_b - fuel_a
     noise_diff = noise_b - noise_a
 
-    # Load details for map rendering (optional)
-    details_path = csv_a.parent / "details.pkl"
-    details = {}
-    if details_path.exists():
-        with open(details_path, "rb") as f:
-            details = pickle.load(f)
+    # Load details for map rendering (optional); prefers JSON, falls back to legacy pickle.
+    details = load_trajectory_details(csv_a.parent) or {}
 
     x = range(len(angles))
     stem = save_path.stem
