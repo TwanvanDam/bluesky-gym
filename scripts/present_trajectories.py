@@ -9,12 +9,20 @@ from bluesky.tools.position import Position
 from matplotlib import pyplot as plt
 from matplotlib.colors import FuncNorm, Normalize
 from rasterio.plot import plotting_extent
-from sympy.printing.pretty.pretty_symbology import line_width
 from tqdm import tqdm
 
+from bluesky_gym.envs.common import functions as fn
 from bluesky_gym.maps.map_sources import MapSourceConfigType, TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from scripts.common.run_paths import resolve_run, RunPaths, load_trajectory_details
+
+# Successful-approach arc (the SINK polyline in BaseNavigationEnv._set_terminal_condition):
+# crossing it terminates the episode as "success". Hard-coded to match all recent
+# BaseNavigationEnv runs (config.yaml: faf_distance=0, iaf_angle=60, iaf_distance=37).
+FAF_DISTANCE_KM = 0.0
+IAF_ANGLE_DEG = 60.0
+IAF_DISTANCE_KM = 37.0
+ARC_NUM_POINTS = 36
 
 
 def plot_trajectories(
@@ -90,6 +98,17 @@ def plot_trajectories(
         plt.plot(group["x"], group["y"], color=color)
         plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green", linewidth=1,
                  label="Start" if start_angle == trajectories["start_angle"].min() else "")
+
+    # Successful-approach arc (SINK): same geometry as BaseNavigationEnv._set_terminal_condition.
+    back_bearing = fn.bound_angle_0_360(destination.refhdg + 180)
+    faf_lat, faf_lon = fn.get_point_at_distance(destination.lat, destination.lon, FAF_DISTANCE_KM, back_bearing)
+    arc_angles = np.linspace(back_bearing + IAF_ANGLE_DEG / 2, back_bearing - IAF_ANGLE_DEG / 2, ARC_NUM_POINTS)
+    arc_lat, arc_lon = fn.get_point_at_distance(faf_lat, faf_lon, IAF_DISTANCE_KM, arc_angles)
+    arc_x, arc_y = coordinate_transformer.transform(arc_lon, arc_lat)
+    arc_x = [destination_xy[0], * arc_x, destination_xy[0]]
+    arc_y = [destination_xy[1], * arc_y, destination_xy[1]]
+    plt.plot(arc_x, arc_y, color="green", linewidth=2, label="Success arc")
+
     plt.xlabel("X Coordinate (meters)")
     plt.ylabel("Y Coordinate (meters)")
     if save_path is not None:
