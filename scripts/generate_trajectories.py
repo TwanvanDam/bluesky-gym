@@ -114,8 +114,11 @@ def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfi
 
     for eval_config in tqdm(eval_configs, desc=f"Configs [{run_paths.run_name}]"):
         runway_id = eval_config.runway.replace("/", "_")
-        map_suffix = eval_config.map_label or ("map" if eval_config.map_path else "no_map")
-        subdir_label = f"{runway_id}_{map_suffix}_{eval_config.model}"
+        if eval_config.map_label is not None:
+            suffix =  f"_{eval_config.map_label}"
+        else:
+            suffix = ""
+        subdir_label = f"{runway_id}{suffix}"
 
         trajectory_folder = run_paths.trajectory_subdir(subdir_label)
 
@@ -160,20 +163,19 @@ if __name__ == '__main__':
     parser.add_argument("--map_path", default=Path("scripts/population_maps/europe_3035_1km.tif"), type=Path, help="Trained map path")
     parser.add_argument("--no_map", action="store_true",
                         help="Fly on a zeroed-out map (RandomMapSource 'zero'); ignored for runs without a population_config.")
-    parser.add_argument("--label", default="", type=str, help="Map label to correctly identify trajectories")
+    parser.add_argument("--label", default=None, type=str, help="Map label to correctly identify trajectories")
     parser.add_argument("--scale_density", type=float, help="Scale the density map.")
     args = parser.parse_args()
 
-    eval_configs = [
-        TrajectoryEvalConfig(
-            runway=args.runway,
-            destination_latlon=tuple(args.lat_lon) if args.lat_lon else None,
-            map_path=None if args.no_map else args.map_path,
-            model=args.model,
-            start_distance=args.start_distance,
-            map_label=args.label or None,
-            scale_density=args.scale_density
-        )]
+    eval_config = TrajectoryEvalConfig(
+        runway=args.runway,
+        destination_latlon=tuple(args.lat_lon) if args.lat_lon else None,
+        map_path=None if args.no_map else args.map_path,
+        model=args.model,
+        start_distance=args.start_distance,
+        map_label=args.label,
+        scale_density=args.scale_density
+        )
 
     runs = [resolve_run(r) for r in args.run_refs]
     if not runs:
@@ -184,4 +186,4 @@ if __name__ == '__main__':
 
     for run_paths in tqdm(runs, desc="Runs"):
         print(f"\nGenerating trajectories for: {run_paths.run_id}")
-        generate_for_run(run_paths, eval_configs)
+        generate_for_run(run_paths, eval_config)
