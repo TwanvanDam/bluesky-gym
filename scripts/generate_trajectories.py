@@ -158,6 +158,8 @@ if __name__ == '__main__':
     parser.add_argument("--lat_lon", default=None, type=float, nargs=2, help="Force different Latitude/Longitude coordinates.")
     parser.add_argument("--start_distance", default=250, type=int, help="Start distance in km.")
     parser.add_argument("--map_path", default=Path("scripts/population_maps/europe_3035_1km.tif"), type=Path, help="Trained map path")
+    parser.add_argument("--no_map", action="store_true",
+                        help="Fly on a zeroed-out map (RandomMapSource 'zero'); ignored for runs without a population_config.")
     parser.add_argument("--label", default="", type=str, help="Map label to correctly identify trajectories")
     parser.add_argument("--scale_density", type=float, help="Scale the density map.")
     args = parser.parse_args()
@@ -166,7 +168,7 @@ if __name__ == '__main__':
         TrajectoryEvalConfig(
             runway=args.runway,
             destination_latlon=tuple(args.lat_lon) if args.lat_lon else None,
-            map_path=args.map_path,
+            map_path=None if args.no_map else args.map_path,
             model=args.model,
             start_distance=args.start_distance,
             map_label=args.label or None,
