@@ -109,47 +109,46 @@ def eval_map_config(train_map_config: MapSourceConfigType, trajectory_config: Tr
         raise ValueError(f"Invalid map config: {train_map_config}")
 
 
-def generate_for_run(run_paths: RunPaths, eval_configs: list[TrajectoryEvalConfig]) -> None:
+def generate_for_run(run_paths: RunPaths, eval_config: TrajectoryEvalConfig) -> None:
     train_config = ExperimentConfig.load(run_paths.config)
 
-    for eval_config in tqdm(eval_configs, desc=f"Configs [{run_paths.run_name}]"):
-        runway_id = eval_config.runway.replace("/", "_")
-        if eval_config.map_label is not None:
-            suffix =  f"_{eval_config.map_label}"
-        else:
-            suffix = ""
-        subdir_label = f"{runway_id}{suffix}"
+    runway_id = eval_config.runway.replace("/", "_")
+    if eval_config.map_label is not None:
+        suffix =  f"_{eval_config.map_label}"
+    else:
+        suffix = ""
+    subdir_label = f"{runway_id}{suffix}"
 
-        trajectory_folder = run_paths.trajectory_subdir(subdir_label)
+    trajectory_folder = run_paths.trajectory_subdir(subdir_label)
 
-        try:
-            trajectory_folder.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            print(f"Trajectory folder already exists, skipping: {trajectory_folder}")
-            continue
+    try:
+        trajectory_folder.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"Trajectory folder already exists, skipping: {trajectory_folder}")
+        return
 
-        write_trajectory_details(trajectory_folder, dataclasses.asdict(eval_config))
+    write_trajectory_details(trajectory_folder, dataclasses.asdict(eval_config))
 
-        if eval_config.map_path:
-            if train_config.population_config is None:
-                raise ValueError(
-                    f"Run {run_paths.run_id} has no population_config; cannot evaluate on a map."
-                )
-            validation_map = eval_map_config(train_config.population_config.map_source_config, eval_config)
-        else:
-            validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
+    if eval_config.map_path:
+        if train_config.population_config is None:
+            raise ValueError(
+                f"Run {run_paths.run_id} has no population_config; cannot evaluate on a map."
+            )
+        validation_map = eval_map_config(train_config.population_config.map_source_config, eval_config)
+    else:
+        validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
 
-        env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map, model_type=eval_config.model)
-        trajectories = simulate_trajectories(
-            env, model,
-            angle_interval=10,
-            distance=eval_config.start_distance,
-            seed=42,
-            runway=eval_config.runway,
-            destination_latlon=eval_config.destination_latlon,
-            progress_label=subdir_label,
-        )
-        trajectories.to_csv(trajectory_folder / "trajectories.csv", index=False)
+    env, model = load_env_and_model(run_paths, render_mode=None, map_config=validation_map, model_type=eval_config.model)
+    trajectories = simulate_trajectories(
+        env, model,
+        angle_interval=10,
+        distance=eval_config.start_distance,
+        seed=42,
+        runway=eval_config.runway,
+        destination_latlon=eval_config.destination_latlon,
+        progress_label=subdir_label,
+    )
+    trajectories.to_csv(trajectory_folder / "trajectories.csv", index=False)
 
 
 if __name__ == '__main__':
