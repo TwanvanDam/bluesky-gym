@@ -24,11 +24,12 @@ from rasterio.plot import plotting_extent
 
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
-from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
+from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers, bounds_from_df
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.metrics.noise_model import NoiseConfig
 from scripts.common.colors import COMPARE_COLORS
 from scripts.common.run_paths import resolve_run, RunPaths, load_trajectory_details
+from scripts.config import ExperimentConfig
 
 MAP_PATH = "/home/twanvandam/Thesis/scripts/population_maps/ESTAT_OBS-VALUE-T_2021_V2.tiff"
 
@@ -232,13 +233,29 @@ def _plot_comparison(
     _save_fig(fig_nd, save_path.parent / f"{stem}_noise_diff.png")
 
 
-def compare_runs(run_a: RunPaths, run_b: RunPaths, out_dir: Path, calculate_metrics) -> None:
+def _build_calculate_metrics(csv_path: Path, traj_dir: Path, population_config):
+    """Metric fn for one comparison subdir, using the eval map flown over it."""
+    details = load_trajectory_details(traj_dir) or {}
+    map_path = details.get("map_path")
+    base_cfg = population_config.map_source_config
+    map_config = base_cfg.model_copy(update={"file_path": map_path}) if map_path else base_cfg
+    bounds = bounds_from_df(pd.read_csv(csv_path))
+    samplers = make_pop_samplers(map_config, bounds,
+                                 clip_percentile=population_config.normalization_percentile,
+                                 train_resampling=population_config.resampling)
+    return build_metric_fn(samplers)
+
+
+def compare_runs(run_a: RunPaths, run_b: RunPaths, out_dir: Path) -> None:
     if not run_a.trajectories_dir.exists():
         print(f"No trajectories for {run_a.run_id}")
         return
     if not run_b.trajectories_dir.exists():
         print(f"No trajectories for {run_b.run_id}")
         return
+
+    # Both runs share the same eval map per subdir; reproduce it from run A's config.
+    population_config = ExperimentConfig.load(run_a.config).population_config
 
     subdirs_a = {p.parent.name: p for p in run_a.trajectories_dir.rglob("trajectories.csv")}
     subdirs_b = {p.parent.name: p for p in run_b.trajectories_dir.rglob("trajectories.csv")}
@@ -254,6 +271,7 @@ def compare_runs(run_a: RunPaths, run_b: RunPaths, out_dir: Path, calculate_metr
             print(f"Skipping (already exists): {save_path}")
             continue
         print(f"Comparing: {name}")
+        calculate_metrics = _build_calculate_metrics(subdirs_a[name], subdirs_a[name].parent, population_config)
         _plot_comparison(
             subdirs_a[name],
             subdirs_b[name],
@@ -284,5 +302,4 @@ if __name__ == "__main__":
         else Path("comparisons") / f"{rp_a.run_name}_vs_{rp_b.run_name}"
     )
 
-    calculate_metrics = build_metric_fn(MAP_PATH)
-    compare_runs(rp_a, rp_b, out_dir, calculate_metrics)
+    compare_runs(rp_a, rp_b, out_dir)
