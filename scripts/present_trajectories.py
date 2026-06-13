@@ -28,8 +28,7 @@ ARC_NUM_POINTS = 36
 def plot_trajectories(
         trajectories: pd.DataFrame,
         map_config: MapSourceConfigType,
-        runway: str = "EHAM/RW27",
-        agent_used_map: bool = False,
+        destination: Position,
         save_path: Path | None = None,
         normalization_mode: str = "min_max",
         normalization_percentile: float = 99.9,
@@ -37,8 +36,6 @@ def plot_trajectories(
     map_source = map_config.build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
     v_max = map_source.get_normalization_value(normalization_percentile)
-    destination = Position(name=runway, reflat=0, reflon=0)
-
     coordinate_transformer = pyproj.Transformer.from_crs("WGS84", raster_sampler.destination_crs, always_xy=True)
     destination_xy = coordinate_transformer.transform(destination.lon, destination.lat)
 
@@ -127,7 +124,11 @@ def plot_trajectory_subdir(traj_dir: Path, background_map: Path, normalization_p
 
     df = pd.read_csv(csv_path)
 
-    runway = eval_details["runway"]
+    runway = Position(name=eval_details["runway"], reflat=0, reflon=0)
+    if eval_details.get("destination_latlon", None):
+        runway.lat = eval_details["destination_latlon"][0]
+        runway.lon = eval_details["destination_latlon"][1]
+
     agent_used_map = eval_details["map_path"] is not None
     # Always use the real population map as the plot background, even for runs where
     # the agent flew without a population map in its observation.
@@ -138,7 +139,7 @@ def plot_trajectory_subdir(traj_dir: Path, background_map: Path, normalization_p
     if save_path.exists():
         print(f"Overwriting existing plot: {save_path}")
 
-    plot_trajectories(df, map_config, runway=runway, agent_used_map=agent_used_map, save_path=save_path,
+    plot_trajectories(df, map_config, destination=runway, save_path=save_path,
                       normalization_percentile=normalization_percentile, normalization_mode=normalization_mode)
 
 
