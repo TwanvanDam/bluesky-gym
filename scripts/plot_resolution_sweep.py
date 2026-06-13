@@ -32,9 +32,9 @@ from scripts.common.sweep_plotting import (
     SUCCESS_REASON,
     draw_boxplot,
     mean_breakdowns,
-    run_sweep_cli,
     seed_color_map,
-    seed_legend,
+    seed_legend, run_sweep_args_parser, collect_run_metrics, collect_baseline_metrics, add_reward,
+    collect_breakdown_data, compute_baseline,
 )
 
 BOX_OFFSET = 0.2
@@ -244,4 +244,58 @@ def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenari
 
 
 if __name__ == "__main__":
-    run_sweep_cli(PATTERN, plot_metrics=plot_metrics, plot_breakdown=plot_breakdown)
+    args, selected = run_sweep_args_parser()
+
+    runs_root = Path(args.runs_root)
+    output_dir = args.output_dir / runs_root.name
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if "metrics" in selected:
+        import bluesky as bs
+        from bluesky_gym.maps.map_sources import TiffMapSourceConfig
+        from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
+
+        bs.init()
+        # Fixed-map overview: legacy TiffMapSource branch ignores bounds and is shared
+        # across all sweep runs (post-resample clip at the given percentile).
+        samplers = make_pop_samplers(
+            TiffMapSourceConfig(file_path=args.map_path), bounds=None,
+            clip_percentile=args.noise_clip_percentile, train_resampling="cubic_spline", true_resampling="average")
+        calculate_metrics = build_metric_fn(samplers)
+
+        cache_path = runs_root / f"cached_metrics_{args.scenario}.csv"
+        if args.cache and cache_path.exists():
+            print("Using cached metrics...")
+            run_metrics = pd.read_csv(cache_path)
+        else:
+            run_metrics = collect_run_metrics(
+                runs_root, PATTERN, args.scenario, calculate_metrics, args.mean_episode_length)
+            if args.cache:
+                print(f"Saving metrics to {cache_path} ...")
+                run_metrics.to_csv(cache_path, index=False)
+
+        baseline_metrics = None
+        if args.baseline:
+            baseline_metrics = collect_baseline_metrics(
+                list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+
+        for frame in (run_metrics, baseline_metrics):
+            if frame is not None and not frame.empty:
+                frame["combined"] = frame["normalized_fuel"] + frame["normalized_noise"]
+                add_reward(frame)
+
+        plot_metrics(run_metrics, baseline_metrics, runs_root, args.scenario, output_dir)
+
+    if "breakdown" in selected:
+        breakdown = collect_breakdown_data(runs_root, PATTERN, args.scenario)
+        if not breakdown.empty:
+            baseline_rate = baseline_length = None
+            if args.baseline:
+                baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.scenario)
+                if baseline_rate is None:
+                    print(f"Baseline — no usable trajectory data in {args.baseline[0]} (plotting without baseline)")
+                else:
+                    print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
+            plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)
+        else:
+            print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")

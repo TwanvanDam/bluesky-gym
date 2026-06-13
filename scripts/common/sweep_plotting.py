@@ -1,4 +1,6 @@
+import argparse
 import re
+from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Generator
 
@@ -271,13 +273,7 @@ def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) 
         records.append(record)
     return pd.DataFrame(records)
 
-
-def run_sweep_cli(
-    pattern: re.Pattern,
-    *,
-    plot_metrics: Callable | None = None,
-    plot_breakdown: Callable | None = None,
-) -> None:
+def run_sweep_args_parser() -> tuple[Namespace, set]:
     """Shared CLI for a sweep that has a metrics view and/or an outcome-breakdown view.
 
     `--plots {both,metrics,breakdown}` (default both) selects which to draw. Only the
@@ -318,61 +314,8 @@ def run_sweep_cli(
     args = parser.parse_args()
 
     selected = {"metrics", "breakdown"} if args.plots == "both" else {args.plots}
-    if "metrics" in selected and plot_metrics is None:
-        print("This sweep has no metrics view; skipping it.")
-        selected.discard("metrics")
-    if "breakdown" in selected and plot_breakdown is None:
-        print("This sweep has no breakdown view; skipping it.")
-        selected.discard("breakdown")
-    if not selected:
-        return
+    return args, selected
 
-    runs_root = Path(args.runs_root)
-    output_dir = args.output_dir / runs_root.name
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if "metrics" in selected:
-        import bluesky as bs
-        from bluesky_gym.metrics.evaluation_metrics import build_metric_fn
-
-        bs.init()
-        calculate_metrics = build_metric_fn(Path(args.map_path), args.noise_clip_percentile)
-
-        cache_path = runs_root / f"cached_metrics_{args.scenario}.csv"
-        if args.cache and cache_path.exists():
-            print("Using cached metrics...")
-            run_metrics = pd.read_csv(cache_path)
-        else:
-            run_metrics = collect_run_metrics(
-                runs_root, pattern, args.scenario, calculate_metrics, args.mean_episode_length)
-            if args.cache:
-                print(f"Saving metrics to {cache_path} ...")
-                run_metrics.to_csv(cache_path, index=False)
-
-        baseline_metrics = None
-        if args.baseline:
-            baseline_metrics = collect_baseline_metrics(
-                list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
-
-        for frame in (run_metrics, baseline_metrics):
-            if frame is not None and not frame.empty:
-                frame["combined"] = frame["normalized_fuel"] + frame["normalized_noise"]
-                add_reward(frame)
-
-        plot_metrics(run_metrics, baseline_metrics, runs_root, args.scenario, output_dir)
-
-    if "breakdown" in selected:
-        breakdown = collect_breakdown_data(runs_root, pattern, args.scenario)
-        if breakdown.empty:
-            print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")
-            return
-        baseline_rate = baseline_length = None
-        if args.baseline:
-            baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.scenario)
-            if baseline_rate is None:
-                print(f"Baseline — no usable trajectory data in {args.baseline[0]} (plotting without baseline)")
-            else:
-                print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
-        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)
 
 
