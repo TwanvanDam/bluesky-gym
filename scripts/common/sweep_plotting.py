@@ -25,8 +25,8 @@ def find_csv(run_dir: Path, scenario: str) -> Path | None:
     """Trajectory CSV for one exact evaluation scenario, or None.
 
     `scenario` is the trajectory subdir name written by generate_trajectories,
-    i.e. {runway}_{label}_{model} (e.g. "EHAM_RW27_map_best",
-    "EHAM_RW18R_scaling_best"). Selection is exact: the scenario label is the
+    i.e. {runway}_{label} (e.g. "EHAM_RW27",
+    "EHAM_RW18R_scaling"). Selection is exact: the scenario label is the
     key, so multiple scenarios for the same runway never collide.
     """
     csv = run_dir / "trajectories" / scenario / "trajectories.csv"
@@ -55,6 +55,7 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
     return pd.DataFrame({
         "fuel": fuel,
         "noise": noise,
+        "noise_clipped": noise_clipped,
         "normalized_fuel": norm_fuel,
         "normalized_noise": norm_noise,
         "normalized_noise_clipped": norm_noise_clipped,
@@ -72,6 +73,7 @@ def add_reward(df: pd.DataFrame, fuel_weight: float = 0.5) -> None:
     failure_penalty = -1.0
     success_term = df["success"].map({True: success_bonus, False: failure_penalty})
     df["reward"] = success_term - (fuel_weight * df["normalized_fuel"]) - ((1 - fuel_weight) * df["normalized_noise_clipped"])
+    df["reward_unclipped"] = success_term - (fuel_weight * df["normalized_fuel"]) - ((1 - fuel_weight) * df["normalized_noise"])
 
 
 def draw_boxplot(ax, data, position, color, box_width) -> None:

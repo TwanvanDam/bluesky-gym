@@ -26,6 +26,7 @@ from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
     draw_boxplot,
+    find_csv,
     mean_breakdowns,
     seed_color_map, compute_baseline, collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
     run_sweep_args_parser,
@@ -62,6 +63,7 @@ METRICS = [
     ("normalized_noise", "normalized noise"),
     ("combined", "normalized fuel + noise"),
     ("reward", "reward"),
+    ("reward_unclipped", "reward (no noise clipping"),
 ]
 
 
@@ -254,11 +256,22 @@ if __name__ == "__main__":
         from bluesky_gym.maps.map_sources import TransformedTiffMapSourceConfig
         from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
 
+        from bluesky_gym.metrics.evaluation_metrics import bounds_from_df
+
         bs.init()
-        # Fixed-map overview: legacy TiffMapSource branch ignores bounds and is shared
-        # across all sweep runs (post-resample clip at the given percentile).
+        all_csvs = [
+            find_csv(run_dir, args.scenario)
+            for run_dir in runs_root.iterdir()
+            if PATTERN.search(run_dir.name)
+        ]
+        all_csvs = [p for p in all_csvs if p is not None]
+        if not all_csvs:
+            raise FileNotFoundError(f"No trajectory CSVs found under {runs_root} for scenario '{args.scenario}'")
+        combined_df = pd.concat([pd.read_csv(p) for p in all_csvs], ignore_index=True)
+        bounds = bounds_from_df(combined_df)
+
         samplers = make_pop_samplers(
-            TransformedTiffMapSourceConfig(file_path=args.map_path), bounds=None,
+            TransformedTiffMapSourceConfig(file_path=args.map_path), bounds=bounds,
             clip_percentile=args.noise_clip_percentile, train_resampling="average", true_resampling="average")
         calculate_metrics = build_metric_fn(samplers)
 

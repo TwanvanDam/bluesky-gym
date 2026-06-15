@@ -54,6 +54,7 @@ METRICS = [
     ("normalized_noise", "normalized noise"),
     ("combined", "normalized fuel + noise"),
     ("reward", "reward"),
+    ("reward_unclipped", "reward (no noise clipping"),
 ]
 
 
