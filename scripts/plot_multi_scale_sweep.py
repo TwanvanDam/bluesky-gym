@@ -346,9 +346,9 @@ if __name__ == "__main__":
         if not breakdown.empty:
             baseline_rate = baseline_length = None
             if args.baseline:
-                baseline_rate, baseline_length = compute_baseline(args.baseline[0], args.scenario)
+                baseline_rate, baseline_length = compute_baseline(args.baseline, args.scenario)
                 if baseline_rate is None:
-                    print(f"Baseline — no usable trajectory data in {args.baseline[0]} (plotting without baseline)")
+                    print(f"Baseline — no usable trajectory data in {args.baseline} (plotting without baseline)")
                 else:
                     print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
             plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)

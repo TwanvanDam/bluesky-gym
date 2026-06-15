@@ -1,4 +1,3 @@
-import argparse
 import re
 from argparse import Namespace
 from pathlib import Path
@@ -150,11 +149,22 @@ def compute_episode_length(run_dir: Path, scenario: str) -> pd.Series | None:
         return None
     return pd.read_csv(csv_path).groupby("start_angle")["sim_dt"].sum()
 
-
-def compute_baseline(baseline_dir: Path, scenario: str) -> tuple[float | None, float | None]:
-    """Return (success_rate, mean_episode_length_s) for a baseline run directory."""
-    lengths = compute_episode_length(baseline_dir, scenario)
-    return compute_success_rate(baseline_dir, scenario), (lengths.mean() if lengths is not None else None)
+def compute_baseline(baseline_dirs: list[Path], scenario: str) -> tuple[float | None, float | None]:
+    """Return (success_rate, mean_episode_length_s) pooled across all baseline run directories."""
+    all_reasons = []
+    all_lengths = []
+    for d in baseline_dirs:
+        reasons = per_episode_reasons(d, scenario)
+        if reasons is not None:
+            all_reasons.append(reasons)
+        lengths = compute_episode_length(d, scenario)
+        if lengths is not None:
+            all_lengths.append(lengths)
+    if not all_reasons:
+        return None, None
+    pooled_reasons = pd.concat(all_reasons)
+    pooled_lengths = pd.concat(all_lengths) if all_lengths else None
+    return (pooled_reasons == SUCCESS_REASON).mean(), (pooled_lengths.mean() if pooled_lengths is not None else None)
 
 
 def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolution") -> tuple[list, dict]:
@@ -286,8 +296,8 @@ def run_sweep_args_parser() -> tuple[Namespace, set]:
         plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir)
 
     A view the script doesn't provide is silently skipped. `--baseline` is shared: the
-    full list is pooled into the metric reference boxes, its first entry supplies the
-    breakdown success-rate / episode-length reference lines.
+    full list is pooled into the metric reference boxes AND into the breakdown
+    success-rate / episode-length reference lines.
 
     `--scenario` is the exact evaluation-scenario subdir to read, i.e. the
     {runway}_{label}_{model} folder generate_trajectories writes under each run's
@@ -302,8 +312,8 @@ def run_sweep_args_parser() -> tuple[Namespace, set]:
     parser.add_argument("--plots", choices=["both", "metrics", "breakdown"], default="both",
                         help="which views to draw (default: both)")
     parser.add_argument("--baseline", nargs="+", type=Path, default=None,
-                        help="baseline run directory/-ies (pooled for the metric boxes; "
-                             "the first is used for the breakdown reference lines)")
+                        help="baseline run directory/-ies (pooled for both metric boxes "
+                             "and breakdown success-rate / episode-length reference lines)")
     parser.add_argument("--scenario", type=str, default="EHAM_RW27_map_best",
                         help="evaluation-scenario trajectory subdir to read, exactly as "
                              "named by generate_trajectories: {runway}_{label}_{model} "
