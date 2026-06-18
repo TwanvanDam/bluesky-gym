@@ -93,7 +93,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         src_transform = ds.transform * rasterio.Affine.scale(
             ds.width / data.shape[1], ds.height / data.shape[0]
         )
-        dst_crs = "EPSG:3857"
+        dst_crs = "ESRI:54009"
         dst_transform, dst_w, dst_h = calculate_default_transform(
             ds.crs, dst_crs, data.shape[1], data.shape[0], *ds.bounds
         )
