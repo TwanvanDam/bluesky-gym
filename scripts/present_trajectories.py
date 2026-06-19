@@ -91,7 +91,11 @@ def plot_trajectories(
 
 
     for start_angle, group in trajectories.groupby("start_angle"):
-        color = "black" if group["termination_reason"].iloc[0] == "success" else "red"
+        if not "termination_reason" in group.columns:
+            color = "black"
+            print(f"No 'termination_reason' column found. Assuming 'success' everywhere")
+        else:
+            color = "black" if group["termination_reason"].iloc[0] == "success" else "red"
         plt.plot(group["x"], group["y"], color=color)
         plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green", linewidth=1,
                  label="Start" if start_angle == trajectories["start_angle"].min() else "")
