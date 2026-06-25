@@ -10,13 +10,13 @@ Run: ``python -m scripts.apply_transforms``
 """
 from pathlib import Path
 
-import numpy as np
-import rasterio
 import matplotlib.pyplot as plt
-from pyproj import Transformer
-from rasterio.windows import from_bounds
+import numpy as np
 
-from bluesky_gym.maps.map_transforms import GammaCorrection, FloorRaise, ScaleValues
+from bluesky_gym.maps.map_transforms import FloorRaise, GammaCorrection, ScaleValues
+from pyproj import Transformer
+import rasterio
+from rasterio.windows import from_bounds
 
 # --- Configuration ----------------------------------------------------------
 MAP_PATH = Path("scripts/population_maps/europe_3035_1km.tif")
@@ -173,27 +173,26 @@ def plot_cdf(distributions: list[tuple[str, np.ndarray, str]], clip: float) -> N
     plt.show()
 
 
-def plot_tone_curves(transforms: list[tuple[object, str]], sim_median: float,
+def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim_median: float,
                      target_median: float, clip: float) -> None:
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(x, x, label="Identity (sim)", color="C0")
-    for transform, color in transforms:
+    ax.plot(x, x, label=r"$y=x$", color="C0",linewidth=2)
+    ax.scatter([sim_median], [target_median], color="C1", zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
+    for (transform, color), label in zip(transforms, labels):
         high = param_range(transform)[1]
         ax.plot(x, value_fn_at(transform, high)(x), color=color,
-                label=f"{transform.type} (max={high:.2g})")
-    ax.scatter([sim_median], [target_median], color="C1", zorder=5,
-               label=f"f(sim_median)=target ({sim_median:.1f}→{target_median:.1f})")
-    ax.axvline(sim_median, color="C0", linewidth=0.8)
-    ax.axhline(target_median, color="C1", linewidth=0.8)
-    ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})")
+                label=label,linewidth=2)
+    ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})", linewidth=2)
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
-    ax.set_title("Value-transform tone curves")
-    ax.legend()
-    ax.grid(True, which="both", alpha=0.3)
+    ax.xaxis.label.set_size(14)
+    ax.yaxis.label.set_size(14)
+    ax.tick_params(axis="both", labelsize=12)
+    ax.legend(fontsize=12)
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("plots/augmentation/tone_curves.png")
+    plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True)
     plt.show()
 
 
@@ -227,9 +226,9 @@ def main() -> None:
 
     # name -> (transform, color), shared by both plots.
     transforms = {
-        "gamma correction": (gamma, "C2"),
-        "floor raise": (floor, "C3"),
-        "scale values": (scale, "C4"),
+        r"Power $\gamma=0.7$": (gamma, "C2"),
+        r"Floor $b=40.2$": (floor, "C3"),
+        r"Scale $c=7.59$": (scale, "C4"),
     }
 
     transformed = {name: apply_extreme(t, sim, clip) for name, (t, _) in transforms.items()}
@@ -237,12 +236,12 @@ def main() -> None:
         transformed_mean_clipped = np.mean(np.clip(vals, None, clip))
         print(f"transformed mean (clipped) ({name}): {transformed_mean_clipped:.1f}, reward inflation {transformed_mean_clipped / sim_mean_clipped}")
 
-    plot_cdf(
-        [("Sim (training field)", sim, "C0"), ("EDDF box", eddf, "C1")]
-        + [(f"Sim + {name}", transformed[name], color) for name, (_, color) in transforms.items()],
-        clip=clip,
-    )
-    plot_tone_curves(list(transforms.values()), sim_median, eddf_median, clip)
+    # plot_cdf(
+    #     [("Sim (training field)", sim, "C0"), ("EDDF box", eddf, "C1")]
+    #     + [(f"Sim + {name}", transformed[name], color) for name, (_, color) in transforms.items()],
+    #     clip=clip,
+    # )
+    plot_tone_curves(list(transforms.values()), list(transforms.keys()), sim_median, eddf_median, clip)
 
 
 if __name__ == "__main__":
