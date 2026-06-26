@@ -26,18 +26,23 @@ from scripts.common.colors import (
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
+    boxplot_stats,
     draw_boxplot,
     mean_breakdowns,
     seed_color_map, compute_baseline, collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
     run_sweep_args_parser,
 )
 
-BOX_WIDTH = 0.6
-BAR_WIDTH = 0.7
-GROUP_GAP = 0.5  # extra x-space inserted between groups
+plt.rcParams["font.size"] = 12
+
+BOX_WIDTH = 0.35
+BOX_OFFSET = 0.2  # half-gap between the two variants in a group
+BAR_WIDTH = 0.6
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 BAR_ALPHA = 0.6
+TICK_FONTSIZE = 12
+LABEL_FONTSIZE = 12
 
 # {multi_scale_}{group}{variant}_seed{NN}, group 1-5, variant a/b
 PATTERN = re.compile(r"^(?:multi_scale_)?(?P<group_num>\d)(?P<variant>[ab])_seed(?P<seed>\d+)$")
@@ -93,17 +98,12 @@ def _tick_labels(config_ids: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------- metrics
 
 def _config_x_positions(config_ids: list[str]) -> dict[str, float]:
-    """Assign x positions with a gap between each group pair."""
+    """Place variant 'a' at group_num - BOX_OFFSET, variant 'b' at group_num + BOX_OFFSET."""
     positions = {}
-    x = 1.0
-    prev_group = None
     for cid in config_ids:
         group = int(cid[:-1])
-        if prev_group is not None and group != prev_group:
-            x += GROUP_GAP
-        positions[cid] = x
-        x += 1.0
-        prev_group = group
+        offset = -BOX_OFFSET if cid[-1] == "a" else +BOX_OFFSET
+        positions[cid] = group + offset
     return positions
 
 
@@ -115,12 +115,13 @@ def plot_metric_boxplot(
     scenario: str,
     runs_name: str,
     output_dir: Path,
-) -> None:
+) -> list[dict]:
     config_ids = _config_ids(df)
     x_pos = _config_x_positions(config_ids)
 
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(9, 5))
     legend_handles = []
+    rows: list[dict] = []
 
     # Baseline box + reference lines
     if baseline_df is not None and not baseline_df.empty:
@@ -128,32 +129,36 @@ def plot_metric_boxplot(
         legend_handles.append(
             plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="Baseline (C4)")
         )
-        q1, median, q3 = baseline_df[metric].quantile([0.25, 0.5, 0.75])
-        for val, ls in [(median, "--"), (q1, ":"), (q3, ":")]:
+        s = boxplot_stats(baseline_df[metric].values)
+        print(f"  {'baseline':>8}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+        rows.append({"config_id": "baseline", "metric": metric, **s})
+        for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
             ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     # Per-config boxes
-    prev_group = None
     for cid in config_ids:
         group_num = int(cid[:-1])
         variant = cid[-1]
         xp = x_pos[cid]
-
-        # Vertical divider between groups
-        if prev_group is not None and group_num != prev_group:
-            ax.axvline(xp - (1.0 + GROUP_GAP) / 2, color="#cccccc", linewidth=0.8, zorder=0)
-        prev_group = group_num
-
         data = df[df["config_id"] == cid][metric].values
         if len(data) == 0:
             continue
+        s = boxplot_stats(data)
+        print(f"  {cid:>8}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+        rows.append({"config_id": cid, "metric": metric, **s})
         draw_boxplot(ax, data, position=xp, color=_group_color(group_num, variant), box_width=BOX_WIDTH)
 
+    # Vertical dividers: between baseline and group 1, and between each group
+    n_groups = max(int(cid[:-1]) for cid in config_ids)
+    # for g in range(n_groups):
+    #     ax.axvline(g + 0.5, color="#cccccc", linewidth=0.8, zorder=0)
+
     tick_x = [0] + [x_pos[cid] for cid in config_ids]
+    ax.grid(axis="y")
     ax.set_xticks(tick_x)
-    ax.set_xticklabels(["Baseline\n(C4)"] + _tick_labels(config_ids), fontsize=8)
-    ax.set_ylabel(ylabel)
-    ax.legend(handles=legend_handles, frameon=False)
+    ax.set_xticklabels(["Baseline\n(C4)"] + _tick_labels(config_ids), fontsize=TICK_FONTSIZE, rotation=45, ha="right")
+    ax.set_ylabel(ylabel, fontsize=LABEL_FONTSIZE)
+    # ax.legend(handles=legend_handles, frameon=False, fontsize=TICK_FONTSIZE)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -163,15 +168,20 @@ def plot_metric_boxplot(
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
+    return rows
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     _add_config_id(run_metrics)
+    all_rows: list[dict] = []
     for metric, ylabel in METRICS:
-        plot_metric_boxplot(
+        all_rows.extend(plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
             scenario, runs_root.name, output_dir,
-        )
+        ))
+    csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
+    pd.DataFrame(all_rows).to_csv(csv_path, index=False)
+    print(f"Saved → {csv_path}")
 
 
 # --------------------------------------------------------------------------- breakdown
@@ -209,15 +219,15 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
                    label=f"Baseline success ({baseline:.0%})", zorder=4)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(_tick_labels(config_ids), fontsize=8)
-    ax.set_ylabel("Episode outcome fraction")
-    ax.set_ylim(0, 1.05)
+    ax.set_xticklabels(_tick_labels(config_ids), fontsize=TICK_FONTSIZE, rotation=45, ha="right")
+    ax.set_ylabel("Episode outcome fraction", fontsize=LABEL_FONTSIZE)
+    ax.set_ylim(0.8, 1.01)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
     outcome_handles, outcome_labels_list = ax.get_legend_handles_labels()
-    leg1 = ax.legend(outcome_handles, outcome_labels_list, frameon=False, fontsize=8,
+    leg1 = ax.legend(outcome_handles, outcome_labels_list, frameon=False, fontsize=TICK_FONTSIZE,
                      title="Episode outcome", loc="upper left", bbox_to_anchor=(1.01, 1.0))
     ax.add_artist(leg1)
     seed_handles = [
@@ -225,7 +235,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
                    markersize=8, label=f"Seed {s}")
         for s, c in seed_colors.items()
     ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8,
+    ax.legend(handles=seed_handles, frameon=False, fontsize=TICK_FONTSIZE,
               title="Seed", loc="lower left", bbox_to_anchor=(1.01, 0.0))
 
 
@@ -264,8 +274,8 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
         ax.legend(frameon=False)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(_tick_labels(config_ids), fontsize=8)
-    ax.set_ylabel("Mean episode length (s)")
+    ax.set_xticklabels(_tick_labels(config_ids), fontsize=TICK_FONTSIZE)
+    ax.set_ylabel("Mean episode length (s)", fontsize=LABEL_FONTSIZE)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -274,7 +284,7 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
                    markersize=8, label=f"Seed {s}")
         for s, c in seed_colors.items()
     ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8,
+    ax.legend(handles=seed_handles, frameon=False, fontsize=TICK_FONTSIZE,
               title="Seed", loc="upper right")
 
 

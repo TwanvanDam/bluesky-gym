@@ -90,6 +90,26 @@ def draw_boxplot(ax, data, position, color, box_width) -> None:
     )
 
 
+def boxplot_stats(data) -> dict:
+    """Box statistics matching matplotlib's default boxplot (whis=1.5).
+
+    Returns the quartiles, the IQR, and the whisker caps — the most extreme data
+    points still within [Q1 - 1.5*IQR, Q3 + 1.5*IQR], exactly where draw_boxplot
+    renders the whiskers. NaNs are dropped; an all-empty input yields all-NaN.
+    """
+    data = np.asarray(data, dtype=float)
+    data = data[~np.isnan(data)]
+    if data.size == 0:
+        return {"q25": np.nan, "q50": np.nan, "q75": np.nan,
+                "iqr": np.nan, "whisker_lo": np.nan, "whisker_hi": np.nan}
+    q25, q50, q75 = np.percentile(data, [25, 50, 75])
+    iqr = q75 - q25
+    whisker_lo = data[data >= q25 - 1.5 * iqr].min()
+    whisker_hi = data[data <= q75 + 1.5 * iqr].max()
+    return {"q25": q25, "q50": q50, "q75": q75,
+            "iqr": iqr, "whisker_lo": whisker_lo, "whisker_hi": whisker_hi}
+
+
 
 def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
     """Per-episode termination_reason for the run's `scenario` trajectory CSV."""
@@ -165,6 +185,30 @@ def compute_baseline(baseline_dirs: list[Path], scenario: str) -> tuple[float | 
     pooled_reasons = pd.concat(all_reasons)
     pooled_lengths = pd.concat(all_lengths) if all_lengths else None
     return (pooled_reasons == SUCCESS_REASON).mean(), (pooled_lengths.mean() if pooled_lengths is not None else None)
+
+
+def collect_baseline_breakdown(baseline_dirs: list[Path], scenario: str) -> pd.Series | None:
+    """Pooled termination-reason fractions across all baseline run directories."""
+    all_reasons = []
+    for d in baseline_dirs:
+        reasons = per_episode_reasons(d, scenario)
+        if reasons is not None:
+            all_reasons.append(reasons)
+    if not all_reasons:
+        return None
+    return pd.concat(all_reasons).value_counts(normalize=True)
+
+
+def collect_baseline_seed_rates(baseline_dirs: list[Path], scenario: str) -> dict[int, float]:
+    """Per-seed success rate for each baseline run directory."""
+    result = {}
+    for d in baseline_dirs:
+        seed_match = re.search(r"seed(\d+)", d.name)
+        seed = int(seed_match.group(1)) if seed_match else 0
+        rate = compute_success_rate(d, scenario)
+        if rate is not None:
+            result[seed] = rate
+    return result
 
 
 def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolution") -> tuple[list, dict]:

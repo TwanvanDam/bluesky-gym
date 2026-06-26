@@ -25,6 +25,7 @@ from scripts.common.colors import (
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
+    boxplot_stats,
     draw_boxplot,
     find_csv,
     mean_breakdowns,
@@ -37,6 +38,8 @@ BAR_WIDTH = 0.7
 DOT_SIZE = 60
 DOT_ALPHA = 0.8
 BAR_ALPHA = 0.6
+
+plt.rcParams["font.size"] = 12
 
 # transformed_{variant}_seed{N}, e.g. transformed_power_flip_zoom_seed2
 PATTERN = re.compile(r"^transformed_(?P<variant>.+)_seed(?P<seed>\d+)$")
@@ -82,11 +85,12 @@ def plot_metric_boxplot(
     scenario: str,
     runs_name: str,
     output_dir: Path,
-) -> None:
+) -> list[dict]:
     variants = _ordered_variants(set(df["variant"].dropna().unique()))
 
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
     legend_handles = []
+    rows: list[dict] = []
 
     # Reference baseline box + quartile lines spanning the plot for comparison.
     has_baseline = baseline_df is not None and not baseline_df.empty
@@ -95,8 +99,9 @@ def plot_metric_boxplot(
         legend_handles.append(
             plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="Baseline (C4)")
         )
-        q1, median, q3 = baseline_df[metric].quantile([0.25, 0.5, 0.75])
-        for val, ls in [(median, "--"), (q1, ":"), (q3, ":")]:
+        s = boxplot_stats(baseline_df[metric].values)
+        rows.append({"variant": "baseline", "metric": metric, **s})
+        for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
             ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     # One box per transform variant.
@@ -104,12 +109,14 @@ def plot_metric_boxplot(
         data = df[df["variant"] == variant][metric].values
         if len(data) == 0:
             continue
+        rows.append({"variant": variant, "metric": metric, **boxplot_stats(data)})
         draw_boxplot(ax, data, position=i + 1, color=qual(i), box_width=BOX_WIDTH)
 
     tick_x = ([0] if has_baseline else []) + [i + 1 for i in range(len(variants))]
     tick_labels = (["Baseline\n(C4)"] if has_baseline else []) + [
         VARIANT_TO_CAPTION.get(v, v) for v in variants
     ]
+    ax.grid(axis='y')
     ax.set_xticks(tick_x)
     ax.set_xticklabels(tick_labels, fontsize=8, rotation=30, ha="right")
     ax.set_ylabel(ylabel)
@@ -124,14 +131,19 @@ def plot_metric_boxplot(
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
+    return rows
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
+    all_rows: list[dict] = []
     for metric, ylabel in METRICS:
-        plot_metric_boxplot(
+        all_rows.extend(plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
             scenario, runs_root.name, output_dir,
-        )
+        ))
+    csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
+    pd.DataFrame(all_rows).to_csv(csv_path, index=False)
+    print(f"Saved → {csv_path}")
 
 
 # --------------------------------------------------------------------------- breakdown
@@ -164,7 +176,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
     if baseline is not None:
         ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
                    label=f"Baseline success ({baseline:.0%})", zorder=4)
-
+    ax.grid(axis='y')
     ax.set_xticks(x)
     ax.set_xticklabels([VARIANT_TO_CAPTION.get(v, v) for v in variants], fontsize=8, rotation=30, ha="right")
     ax.set_ylabel("Episode outcome fraction")
@@ -227,7 +239,7 @@ def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> 
 
 
 def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir):
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
     plot_episode_success(ax, breakdown, baseline=baseline_rate)
     fig.tight_layout()
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.png"
@@ -235,7 +247,7 @@ def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenari
     print(f"Saved → {out_path}")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
     plot_episode_length(ax, breakdown, baseline=baseline_length)
     fig.tight_layout()
     out_path = output_dir / f"episode_length_{runs_root.name}_{scenario}.png"
