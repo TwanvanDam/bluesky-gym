@@ -21,12 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from scripts.common.colors import (
-    BASELINE_COLOR,
-    FALLBACK_REASON_COLOR,
-    MODE_COLORS,
-    REASON_COLORS,
-)
+from scripts.common.colors import *
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
@@ -39,12 +34,16 @@ from scripts.common.sweep_plotting import (
 
 plt.rcParams["font.size"] = 12
 
+# Source width of every metric figure, in inches. Figures are included at
+# \textwidth in LaTeX, so the legend is exported at this same width and included
+# at \textwidth too — both scale by the same factor, keeping text sizes matched.
+PLOT_WIDTH_IN = 3.16
+
 BOX_OFFSET = 0.2
 BOX_WIDTH = 0.35
 BAR_WIDTH = 0.5
 DOT_ALPHA = 0.8
-DOT_SIZE = 60
-BAR_ALPHA = 0.6
+DOT_SIZE = 40
 
 # {sweep_N_}{forward|centered}_{resolution}_seed{NN}
 PATTERN = re.compile(r"^(?:sweep_\d+_)?(?P<mode>forward|centered)_(?P<resolution>\d+)_seed(?P<seed>\d+)$")
@@ -59,6 +58,24 @@ METRICS = [
     ("reward_unclipped", "reward (no noise clipping)"),
 ]
 
+MODE_TO_OFFSET = {
+    "baseline": 0,
+    "centered": -1 * BOX_OFFSET,
+    "forward":  BOX_OFFSET,
+}
+
+MODE_TO_COLOR = {
+    "baseline": BASELINE_COLOR,
+    "centered": CENTERED_COLOR,
+    "forward":  FORWARD_COLOR,
+}
+
+REASON_HATCH = {
+    "success":        "",
+    "failed_approach": "////",
+    "max_steps":       "....",
+    "out_of_bounds":   "xxxx",
+}
 
 # ---------------------------------------------------------------------------- metrics
 
@@ -75,40 +92,30 @@ def plot_metric_boxplot(
     # baseline at 0, resolutions start at 1
     x_positions = {res: i + 1 for i, res in enumerate(resolutions)}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    legend_handles = []
+    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * TEXTWIDTH_IN * 0.78), constrained_layout=True)
     rows: list[dict] = []
 
-    if baseline_df is not None and not baseline_df.empty:
-        draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
-        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="No-map baseline"))
-        s = boxplot_stats(baseline_df[metric].values)
-        print(f"  {'baseline':>8}       N/A  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
-        rows.append({"mode": "baseline", "resolution": float("nan"), "metric": metric, **s})
-
-    mode_config = [
-        ("centered", MODE_COLORS["centered"], -BOX_OFFSET),
-        ("forward",  MODE_COLORS["forward"],  +BOX_OFFSET),
-    ]
-    for mode, color, offset in mode_config:
+    for mode in MODE_TO_OFFSET:
         mode_df = df[df["mode"] == mode]
-        for res in resolutions:
-            data = mode_df[mode_df["resolution"] == res][metric].values
-            s = boxplot_stats(data)
-            print(f"  {mode:>8}  {res:>3} km/px  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
-            rows.append({"mode": mode, "resolution": res, "metric": metric, **s})
-            if len(data) == 0:
-                continue
-            draw_boxplot(ax, data, position=x_positions[res] + offset, color=color, box_width=BOX_WIDTH)
-        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=color, alpha=0.6, label=mode.capitalize()))
+        if mode != "baseline":
+            for res in resolutions:
+                data = mode_df[mode_df["resolution"] == res][metric].values
+                s = boxplot_stats(data)
+                print(f"  {mode:>8}  {res:>3} km/px  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+                rows.append({"mode": mode, "resolution": res, "metric": metric, **s})
+                if len(data) == 0:
+                    continue
+                draw_boxplot(ax, data, position=x_positions[res] + MODE_TO_OFFSET[mode], color=MODE_TO_COLOR[mode], box_width=BOX_WIDTH, alpha=BOXPLOT_ALPHA)
+        else:
+            draw_boxplot(ax, baseline_df[metric].values, position=MODE_TO_OFFSET["baseline"], color=MODE_TO_COLOR["baseline"], box_width=BOX_WIDTH)
+            s = boxplot_stats(baseline_df[metric].values)
+            print(f"  {'baseline':>8}       N/A  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+            rows.append({"mode": "baseline", "resolution": float("nan"), "metric": metric, **s})
 
     ax.set_xticks([0] + list(range(1, len(resolutions) + 1)))
-    ax.set_xticklabels(["No map"] + [f"{r} km/px" for r in resolutions])
-    ax.set_xlabel("Observation resolution")
+    ax.set_xticklabels(["No map"] + [f"{r}" for r in resolutions])
+    ax.set_xlabel("Observation resolution [km/px]")
     ax.set_ylabel(ylabel)
-    ax.legend(handles=legend_handles, frameon=False)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
     ax.grid(axis="y")
 
     fig.tight_layout()
@@ -118,6 +125,30 @@ def plot_metric_boxplot(
     print(f"Saved → {out_path}")
     plt.close(fig)
     return rows
+
+
+def save_mode_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
+    """Export the mode legend (Baseline / Centered / Forward) as a standalone PDF.
+
+    Rendered at PLOT_WIDTH_IN — the same source width as every metric figure — so
+    that when both are included at \\textwidth in LaTeX they scale by the same
+    factor and the legend text matches the in-plot text size exactly. The save box
+    keeps the full figure width but is cropped tight in height.
+    """
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, fc=MODE_TO_COLOR[mode], alpha=BOXPLOT_ALPHA,
+                      label=mode.capitalize())
+        for mode in MODE_TO_OFFSET
+    ]
+    fig = plt.figure(figsize=(1, 0.49 * TEXTWIDTH_IN * 0.6))
+    legend = fig.legend(handles=handles, loc="center left", ncol=1)
+
+    legend.get_frame().set_edgecolor('k')
+
+    out_path = output_dir / f"legend_modes_{runs_name}_{scenario}.pdf"
+    fig.savefig(out_path, dpi=150)
+    print(f"Saved → {out_path}")
+    plt.close(fig)
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
@@ -130,6 +161,7 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
     csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
+    save_mode_legend(output_dir, runs_root.name, scenario)
 
 
 # --------------------------------------------------------------------------- breakdown
@@ -144,33 +176,28 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     resolutions = sorted(breakdown["resolution"].unique())
     # baseline at 0, resolutions start at 1 — mirrors the metric boxplot layout
     x = np.arange(1, len(resolutions) + 1)
+    textwidth = 469
+    plot_width_in = textwidth / 72.7
+    fig, ax = plt.subplots(figsize=(plot_width_in, 0.4 * plot_width_in), constrained_layout=True)
 
-    fig, ax = plt.subplots(figsize=(max(8, (len(resolutions) + 1) * 1.5), 5))
 
-    mode_config = [
-        ("centered", MODE_COLORS["centered"], -BOX_OFFSET),
-        ("forward",  MODE_COLORS["forward"],  +BOX_OFFSET),
-    ]
+    seen_reasons: set = set()
 
-    reason_handles: dict = {}
+    def _bar(ax_, x_, h, bottom_, color, reason):
+        hatch = REASON_HATCH.get(reason, "")
+        ax_.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, color=color,
+                alpha=BOXPLOT_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
 
     # --- baseline bar at x=0 ---
     if baseline_breakdown is not None:
         bottom = 0.0
-        success_frac = baseline_breakdown.get(SUCCESS_REASON, 0.0)
-        ax.bar(0, success_frac, width=BOX_WIDTH, bottom=bottom,
-               color=BASELINE_COLOR, alpha=BAR_ALPHA)
-        bottom += success_frac
-        for reason, frac in baseline_breakdown.items():
-            if reason == SUCCESS_REASON or frac <= 0:
+        for reason in [SUCCESS_REASON] + [r for r in baseline_breakdown if r != SUCCESS_REASON]:
+            frac = baseline_breakdown.get(reason, 0.0)
+            if frac <= 0:
                 continue
-            bar_color = REASON_COLORS.get(reason, FALLBACK_REASON_COLOR)
-            ax.bar(0, frac, width=BOX_WIDTH, bottom=bottom, color=bar_color, alpha=BAR_ALPHA)
+            _bar(ax, 0, frac, bottom, BASELINE_COLOR, reason)
             bottom += frac
-            if reason not in reason_handles:
-                reason_handles[reason] = plt.Rectangle(
-                    (0, 0), 1, 1, fc=bar_color, alpha=BAR_ALPHA,
-                    label=REASON_LABELS.get(reason, reason))
+            seen_reasons.add(reason)
 
     if baseline_seed_rates:
         seeds = sorted(baseline_seed_rates)
@@ -178,10 +205,10 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
         for jit, seed in zip(jitter, seeds):
             ax.scatter(jit, baseline_seed_rates[seed],
                        color='black', s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
-                       edgecolors="white", linewidths=0.8)
+                       edgecolors="white", linewidths=0.5)
 
     # --- per-mode stacked bars ---
-    for mode, color, offset in mode_config:
+    for mode in MODE_TO_OFFSET:
         mode_df = breakdown[breakdown["mode"] == mode]
         if mode_df.empty:
             continue
@@ -191,17 +218,12 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
         ordered, means = mean_breakdowns(mode_df, mode_resolutions)
         bottom = np.zeros(len(mode_resolutions))
         for reason in ordered:
-            bar_color = color if reason == SUCCESS_REASON else REASON_COLORS.get(reason, FALLBACK_REASON_COLOR)
-            ax.bar(xi + offset, means[reason], width=BOX_WIDTH, bottom=bottom,
-                   color=bar_color, alpha=BAR_ALPHA)
+            _bar(ax, xi + MODE_TO_OFFSET[mode], means[reason], bottom, MODE_TO_COLOR[mode], reason)
             bottom += means[reason]
-            if reason != SUCCESS_REASON and reason not in reason_handles:
-                reason_handles[reason] = plt.Rectangle(
-                    (0, 0), 1, 1, fc=bar_color, alpha=BAR_ALPHA,
-                    label=REASON_LABELS.get(reason, reason))
+            seen_reasons.add(reason)
 
         for res in mode_resolutions:
-            xi_base = resolutions.index(res) + 1 + offset
+            xi_base = resolutions.index(res) + 1 + MODE_TO_OFFSET[mode]
             seed_rates = {row["seed"]: row["success_rate"]
                           for _, row in mode_df[mode_df["resolution"] == res].iterrows()}
             seeds = sorted(seed_rates)
@@ -212,28 +234,29 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
                            edgecolors="white", linewidths=0.8)
 
     ax.set_xticks([0] + list(x))
-    ax.set_xticklabels(["No map"] + [f"{r} km/px" for r in resolutions])
-    ax.set_xlabel("Observation resolution")
+    ax.set_xticklabels(["No map"] + [f"{r}" for r in resolutions])
+    ax.set_xlabel("Observation resolution [km/px]")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    ax.set_ylim(0.8, 1.01)
+    ax.set_ylim(0.87, 1.01)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
     legend_handles = []
     if baseline_breakdown is not None:
-        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BAR_ALPHA, label="No-map baseline"))
+        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BOXPLOT_ALPHA, label="No-map baseline"))
     legend_handles += [
-        plt.Rectangle((0, 0), 1, 1, fc=color, alpha=BAR_ALPHA, label=mode.capitalize())
-        for mode, color, _ in mode_config
+        plt.Rectangle((0, 0), 1, 1, fc=color, alpha=BOXPLOT_ALPHA, label=mode.capitalize())
+        for mode, color in MODE_TO_COLOR.items()
         if not breakdown[breakdown["mode"] == mode].empty
     ]
-    legend_handles.extend(reason_handles.values())
+    for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        legend_handles.append(plt.Rectangle(
+            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            label=REASON_LABELS.get(reason, reason)))
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
         markersize=8, label="Per-seed success rate"))
-    ax.legend(handles=legend_handles, frameon=True, framealpha=1.0, edgecolor="none")
+    ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
 
     fig.tight_layout()
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
@@ -275,8 +298,16 @@ if __name__ == "__main__":
 
         baseline_metrics = None
         if args.baseline:
-            baseline_metrics = collect_baseline_metrics(
-                list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+            baseline_cache_path = runs_root / f"cached_baseline_metrics_{args.scenario}.csv"
+            if args.cache and baseline_cache_path.exists():
+                print("Using cached baseline metrics...")
+                baseline_metrics = pd.read_csv(baseline_cache_path)
+            else:
+                baseline_metrics = collect_baseline_metrics(
+                    list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+                if args.cache:
+                    print(f"Saving baseline metrics to {baseline_cache_path} ...")
+                    baseline_metrics.to_csv(baseline_cache_path, index=False)
 
         for frame in (run_metrics, baseline_metrics):
             if frame is not None and not frame.empty:
