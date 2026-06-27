@@ -13,23 +13,40 @@ import matplotlib.pyplot as plt
 
 DARK2 = plt.colormaps["Dark2"]
 
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.serif": ["Times New Roman", "Nimbus Roman", "Liberation Serif"],
+    "mathtext.fontset": "stix",   # Times-like math
+    "font.size": 10,              # base size = body text
+    "axes.titlesize": 10,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 9,         # AIAA captions/small text ~9pt
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "legend.frameon": True,
+})
 
-def qual(i: int):
+def _qual(i: int):
     """Discrete color ``i`` from the Dark2 qualitative colormap (wraps at 8)."""
     return DARK2(i % DARK2.N)
 
 
 # Semantic assignments — keep these consistent across all scripts.
-MODE_COLORS = {"forward": qual(0), "centered": qual(1)}  # teal / orange
-BASELINE_COLOR = qual(7)                                 # Dark2's gray
-SEED_COLORS = [qual(i) for i in range(DARK2.N)]          # per-seed cycle
-REGION_COLORS = [qual(0), qual(1), qual(2)]              # EHAM / EDDF / sim env
-COMPARE_COLORS = (qual(0), qual(1))                      # run A vs run B
+BASELINE_COLOR = _qual(7)                                 # Dark2's gray
+FORWARD_COLOR = _qual(0) # teal
+CENTERED_COLOR =  _qual(1) # orange
+POWER_COLOR = _qual(2)
+SCALE_COLOR = _qual(3)
+FLOOR_COLOR = _qual(4)
+HIGHLIGHT_COLOR = _qual(2)
+MULTI_SCALE_COLOR = _qual(2)
+SEED_COLORS = [_qual(i) for i in (2,4,3)]          # per-seed cycle
+FAILED_COLOR = [_qual(5)]              # EHAM / EDDF / sim env
+MAX_STEPS_COLOR = _qual(6)
 
-# Termination-reason stacked bars (success is drawn separately by mode color).
-REASON_COLORS = {
-    "failed_approach": qual(5),
-    "max_steps": qual(7),
-    "out_of_bounds": qual(3),
-}
-FALLBACK_REASON_COLOR = qual(6)
+BOXPLOT_ALPHA = 0.6
+BOXPLOT_ALPHA_LIGHT = 0.4
+TEXTWIDTH_PT = 469
+TEXTWIDTH_IN = TEXTWIDTH_PT / 72.7
+
+
