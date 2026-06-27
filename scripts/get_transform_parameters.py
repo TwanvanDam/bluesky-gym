@@ -17,6 +17,7 @@ from bluesky_gym.maps.map_transforms import FloorRaise, GammaCorrection, ScaleVa
 from pyproj import Transformer
 import rasterio
 from rasterio.windows import from_bounds
+from scripts.common.colors import *
 
 # --- Configuration ----------------------------------------------------------
 MAP_PATH = Path("scripts/population_maps/europe_3035_1km.tif")
@@ -177,19 +178,20 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
                      target_median: float, clip: float) -> None:
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(x, x, label=r"$y=x$", color="C0",linewidth=2)
-    ax.scatter([sim_median], [target_median], color="C1", zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.plot(x, x, label=r"$y=x$", color=BASELINE_COLOR,linewidth=2, linestyle="dashed")
+    ax.scatter([sim_median], [target_median], color='k', zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
     for (transform, color), label in zip(transforms, labels):
         high = param_range(transform)[1]
-        ax.plot(x, value_fn_at(transform, high)(x), color=color,
-                label=label,linewidth=2)
+        y = value_fn_at(transform, high)(x)
+
+        ax.plot(x[y <= clip], y[y <= clip], color=color, label=label,linewidth=2)
+        ax.plot(x[y > clip], y[y > clip], color=color,linewidth=2, linestyle="dashed")
     ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})", linewidth=2)
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
-    ax.xaxis.label.set_size(14)
-    ax.yaxis.label.set_size(14)
-    ax.tick_params(axis="both", labelsize=12)
-    ax.legend(fontsize=12)
+    ax.set_ylim(1,1e5)
+    ax.set_xlim(1,1e5)
+    ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True)
@@ -226,9 +228,9 @@ def main() -> None:
 
     # name -> (transform, color), shared by both plots.
     transforms = {
-        r"Power $\gamma=0.7$": (gamma, "C2"),
-        r"Floor $b=40.2$": (floor, "C3"),
-        r"Scale $c=7.59$": (scale, "C4"),
+        r"Power $\gamma=0.7$": (gamma, POWER_COLOR),
+        r"Floor $b=40.2$": (floor, FLOOR_COLOR),
+        r"Scale $c=7.59$": (scale, SCALE_COLOR),
     }
 
     transformed = {name: apply_extreme(t, sim, clip) for name, (t, _) in transforms.items()}
