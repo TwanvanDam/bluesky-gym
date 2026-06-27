@@ -178,7 +178,7 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
                      target_median: float, clip: float) -> None:
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
-    fig, ax = plt.subplots(figsize=(4, 4))
+    fig, ax = plt.subplots(figsize=(4, 0.78 * 4))
     ax.plot(x, x, label=r"$y=x$", color=BASELINE_COLOR,linewidth=2, linestyle="dashed")
     ax.scatter([sim_median], [target_median], color='k', zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
     for (transform, color), label in zip(transforms, labels):
@@ -191,7 +191,8 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
     ax.set_ylim(1,1e5)
     ax.set_xlim(1,1e5)
-    ax.legend()
+    legend = ax.legend(frameon=True, framealpha=1)
+    legend.get_frame().set_edgecolor('k')
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True)
