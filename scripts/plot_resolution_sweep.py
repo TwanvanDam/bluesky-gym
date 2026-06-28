@@ -191,7 +191,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     # --- baseline bar at x=0 ---
     if baseline_breakdown is not None:
         bottom = 0.0
-        for reason in [SUCCESS_REASON] + [r for r in baseline_breakdown if r != SUCCESS_REASON]:
+        for reason in [SUCCESS_REASON] + [r for r in baseline_breakdown.index if r != SUCCESS_REASON]:
             frac = baseline_breakdown.get(reason, 0.0)
             if frac <= 0:
                 continue

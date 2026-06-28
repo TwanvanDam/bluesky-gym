@@ -41,8 +41,7 @@ FLOOR_COLOR = _qual(4)
 HIGHLIGHT_COLOR = _qual(2)
 MULTI_SCALE_COLOR = _qual(2)
 SEED_COLORS = [_qual(i) for i in (2,4,3)]          # per-seed cycle
-FAILED_COLOR = [_qual(5)]              # EHAM / EDDF / sim env
-MAX_STEPS_COLOR = _qual(6)
+TRANSFORMS_COLOR =_qual(4)
 
 BOXPLOT_ALPHA = 0.6
 BOXPLOT_ALPHA_LIGHT = 0.4

@@ -16,12 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from scripts.common.colors import (
-    BASELINE_COLOR,
-    FALLBACK_REASON_COLOR,
-    REASON_COLORS,
-    qual,
-)
+from scripts.common.colors import *
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
@@ -29,7 +24,8 @@ from scripts.common.sweep_plotting import (
     draw_boxplot,
     find_csv,
     mean_breakdowns,
-    seed_color_map, compute_baseline, collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
+    collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
+    collect_baseline_breakdown, collect_baseline_seed_rates,
     run_sweep_args_parser,
 )
 
@@ -39,23 +35,34 @@ DOT_SIZE = 60
 DOT_ALPHA = 0.8
 BAR_ALPHA = 0.6
 
-plt.rcParams["font.size"] = 12
-
 # transformed_{variant}_seed{N}, e.g. transformed_power_flip_zoom_seed2
 PATTERN = re.compile(r"^transformed_(?P<variant>.+)_seed(?P<seed>\d+)$")
 
 # Caption per transform variant. Key order also defines the left-to-right plot order.
 VARIANT_TO_CAPTION = {
     "baseline": "Baseline",
-    "scale": "Scale [1, 7.6]",
-    "power": "Power [0.52, 0.70]",
-    "floor": "Floor [0, 40.2]",
-    "zoom": "Zoom [1x - 2x]",
+    "scale": "Scale",
+    "power": "Power",
+    "floor": "Floor",
+    "zoom": "Zoom",
     "flip": "Flip",
     "flip_zoom": "Flip + Zoom",
     "power_flip": "Power + Flip",
     "power_zoom": "Power + Zoom",
     "power_flip_zoom": "Power + Flip + Zoom",
+}
+
+VARIANT_TO_COLOR = {
+    "baseline": BASELINE_COLOR,
+    "scale": TRANSFORMS_COLOR,
+    "power":TRANSFORMS_COLOR,
+    "floor":TRANSFORMS_COLOR,
+    "zoom": TRANSFORMS_COLOR,
+    "flip": TRANSFORMS_COLOR,
+    "flip_zoom": TRANSFORMS_COLOR,
+    "power_flip": TRANSFORMS_COLOR,
+    "power_zoom": TRANSFORMS_COLOR,
+    "power_flip_zoom": TRANSFORMS_COLOR,
 }
 VARIANT_ORDER = list(VARIANT_TO_CAPTION)
 
@@ -66,7 +73,7 @@ METRICS = [
     ("normalized_noise", "normalized noise"),
     ("combined", "normalized fuel + noise"),
     ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping"),
+    ("reward_unclipped", "reward (no noise clipping)"),
 ]
 
 
@@ -88,21 +95,21 @@ def plot_metric_boxplot(
 ) -> list[dict]:
     variants = _ordered_variants(set(df["variant"].dropna().unique()))
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
     legend_handles = []
     rows: list[dict] = []
 
     # Reference baseline box + quartile lines spanning the plot for comparison.
     has_baseline = baseline_df is not None and not baseline_df.empty
     if has_baseline:
-        draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
-        legend_handles.append(
-            plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="Baseline (C4)")
-        )
+        # draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
+        # legend_handles.append(
+        #     plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BOXPLOT_ALPHA, label="Baseline (C4)")
+        # )
         s = boxplot_stats(baseline_df[metric].values)
         rows.append({"variant": "baseline", "metric": metric, **s})
-        for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
-            ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
+        # for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
+        #     ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     # One box per transform variant.
     for i, variant in enumerate(variants):
@@ -110,24 +117,24 @@ def plot_metric_boxplot(
         if len(data) == 0:
             continue
         rows.append({"variant": variant, "metric": metric, **boxplot_stats(data)})
-        draw_boxplot(ax, data, position=i + 1, color=qual(i), box_width=BOX_WIDTH)
+        draw_boxplot(ax, data, position=i, color=VARIANT_TO_COLOR[variant], box_width=BOX_WIDTH)
 
-    tick_x = ([0] if has_baseline else []) + [i + 1 for i in range(len(variants))]
-    tick_labels = (["Baseline\n(C4)"] if has_baseline else []) + [
+    tick_x = list(range(len(variants)))
+    tick_labels = [
         VARIANT_TO_CAPTION.get(v, v) for v in variants
     ]
     ax.grid(axis='y')
     ax.set_xticks(tick_x)
-    ax.set_xticklabels(tick_labels, fontsize=8, rotation=30, ha="right")
+    # ax.set_xticklabels(tick_labels, rotation=45, ha="right")
     ax.set_ylabel(ylabel)
-    if legend_handles:
-        ax.legend(handles=legend_handles, frameon=False)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
+    ax.set_xlabel("Domain Randomization ID")
+    # if legend_handles:
+    #     ax.legend(handles=legend_handles, frameon=False)
+    # ax.spines["top"].set_visible(False)
+    # ax.spines["right"].set_visible(False)
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.png"
+    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
@@ -148,109 +155,94 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
 
 # --------------------------------------------------------------------------- breakdown
 
-def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
+REASON_HATCH = {
+    "success":         "",
+    "failed_approach": "////",
+    "max_steps":       "....",
+    "out_of_bounds":   "xxxx",
+}
+
+
+def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline_seed_rates=None) -> None:
     variants = _ordered_variants(set(df["variant"].dropna().unique()))
     x = np.arange(len(variants))
-    seed_colors = seed_color_map(df)
+    seen_reasons: set = set()
+
+    def _bar(xi, h, bottom_, color, reason):
+        hatch = REASON_HATCH.get(reason, "")
+        ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, color=color,
+               alpha=BAR_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+
+    has_baseline = False # baseline_breakdown is not None
+    x_offset = 0
+
+    # if has_baseline:
+    #     bottom = 0.0
+    #     for reason in [SUCCESS_REASON] + [r for r in baseline_breakdown.index if r != SUCCESS_REASON]:
+    #         frac = float(baseline_breakdown.get(reason, 0.0))
+    #         if frac <= 0:
+    #             continue
+    #         _bar(0, frac, bottom, BASELINE_COLOR, reason)
+    #         bottom += frac
+    #         seen_reasons.add(reason)
+    #
+    #     if baseline_seed_rates:
+    #         seeds = sorted(baseline_seed_rates)
+    #         jitter = np.linspace(-0.06, 0.06, len(seeds))
+    #         for jit, seed in zip(jitter, seeds):
+    #             ax.scatter(jit, baseline_seed_rates[seed],
+    #                        color="black", s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
+    #                        edgecolors="white", linewidths=0.5)
 
     ordered, means = mean_breakdowns(df, variants, pos_col="variant")
     bottom = np.zeros(len(variants))
     for reason in ordered:
-        if reason == SUCCESS_REASON:
-            bar_colors = [qual(i) for i in range(len(variants))]
-        else:
-            bar_colors = [REASON_COLORS.get(reason, FALLBACK_REASON_COLOR)] * len(variants)
-        ax.bar(x, means[reason], width=BAR_WIDTH, bottom=bottom,
-               color=bar_colors, alpha=BAR_ALPHA, label=REASON_LABELS.get(reason, reason))
+        for i, v in enumerate(variants):
+            _bar(x[i] + x_offset, means[reason][i], bottom[i], VARIANT_TO_COLOR.get(v, BASELINE_COLOR), reason)
         bottom += means[reason]
+        seen_reasons.add(reason)
 
     for i, v in enumerate(variants):
-        seed_rates = {row["seed"]: row["success_rate"] for _, row in df[df["variant"] == v].iterrows()}
+        seed_rates = {row["seed"]: row["success_rate"]
+                      for _, row in df[df["variant"] == v].iterrows()}
         seeds = sorted(seed_rates)
-        jitter = np.linspace(-0.08, 0.08, len(seeds))
-        for xi, seed in zip(jitter, seeds):
-            ax.scatter(x[i] + xi, seed_rates[seed],
-                       color=seed_colors[seed], s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
+        jitter = np.linspace(-0.06, 0.06, len(seeds))
+        for jit, seed in zip(jitter, seeds):
+            ax.scatter(x[i] + x_offset + jit, seed_rates[seed],
+                       color="black", s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
                        edgecolors="white", linewidths=0.8)
 
-    if baseline is not None:
-        ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
-                   label=f"Baseline success ({baseline:.0%})", zorder=4)
-    ax.grid(axis='y')
-    ax.set_xticks(x)
-    ax.set_xticklabels([VARIANT_TO_CAPTION.get(v, v) for v in variants], fontsize=8, rotation=30, ha="right")
+    tick_x = list(x + x_offset)
+    tick_labels = (["Baseline\n(C4)"] if has_baseline else []) + [
+        VARIANT_TO_CAPTION.get(v, v) for v in variants
+    ]
+    ax.set_xticks(tick_x)
+    # ax.set_xticklabels(tick_labels, rotation=30, ha="right", fontsize=8)
     ax.set_ylabel("Episode outcome fraction")
-    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Domain Randomization ID")
+    ax.grid(axis="y")
+    ax.set_ylim(0.90, 1.01)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
-    outcome_handles, outcome_labels = ax.get_legend_handles_labels()
-    leg1 = ax.legend(outcome_handles, outcome_labels, frameon=False, fontsize=8,
-                     title="Episode outcome", loc="upper left", bbox_to_anchor=(1.01, 1.0))
-    ax.add_artist(leg1)
-    seed_handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=8, label=f"Seed {s}")
-        for s, c in seed_colors.items()
-    ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8,
-              title="Seed", loc="lower left", bbox_to_anchor=(1.01, 0.0))
-
-
-def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
-    variants = _ordered_variants(set(df["variant"].dropna().unique()))
-    x = np.arange(len(variants))
-    seed_colors = seed_color_map(df)
-
-    for i, v in enumerate(variants):
-        v_df = df[df["variant"] == v]
-        all_lengths = []
-        seeds = sorted(row["seed"] for _, row in v_df.iterrows() if row["length"] is not None)
-        slot_width = BAR_WIDTH / max(len(seeds), 1)
-        seed_centers = {s: x[i] - BAR_WIDTH / 2 + (j + 0.5) * slot_width for j, s in enumerate(seeds)}
-        for _, row in v_df.iterrows():
-            if row["length"] is None:
-                continue
-            lengths = row["length"].values
-            all_lengths.extend(lengths)
-            jitter = np.random.default_rng(row["seed"]).uniform(-slot_width * 0.35, slot_width * 0.35, len(lengths))
-            ax.scatter(seed_centers[row["seed"]] + jitter, lengths,
-                       color=seed_colors[row["seed"]], s=DOT_SIZE * 0.5, zorder=5,
-                       alpha=DOT_ALPHA, edgecolors="none")
-        if all_lengths:
-            ax.bar(x[i], np.mean(all_lengths), width=BAR_WIDTH, color=qual(i), alpha=BAR_ALPHA)
-
-    if baseline is not None:
-        ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
-                   label=f"Baseline ({baseline:.0f} s)", zorder=3)
-        ax.legend(frameon=False)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([VARIANT_TO_CAPTION.get(v, v) for v in variants], fontsize=8, rotation=30, ha="right")
-    ax.set_ylabel("Mean episode length (s)")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    seed_handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=8, label=f"Seed {s}")
-        for s, c in seed_colors.items()
-    ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8, title="Seed", loc="upper right")
+    legend_handles = []
+    if has_baseline:
+        legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BAR_ALPHA, label="Baseline (C4)"))
+    for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        legend_handles.append(plt.Rectangle(
+            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            label=REASON_LABELS.get(reason, reason)))
+    legend_handles.append(plt.Line2D(
+        [0], [0], marker="o", color="w", markerfacecolor="black",
+        markersize=8, label="Per-seed success rate"))
+    ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
 
 
-def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir):
-    fig, ax = plt.subplots(figsize=(8, 5))
-    plot_episode_success(ax, breakdown, baseline=baseline_rate)
-    fig.tight_layout()
-    out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.png"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
-    plt.close(fig)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    plot_episode_length(ax, breakdown, baseline=baseline_length)
-    fig.tight_layout()
-    out_path = output_dir / f"episode_length_{runs_root.name}_{scenario}.png"
+def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, scenario, output_dir):
+    fig, ax = plt.subplots(
+        figsize=(TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True
+    )
+    plot_episode_success(ax, breakdown, baseline_breakdown=baseline_breakdown, baseline_seed_rates=baseline_seed_rates)
+    out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
@@ -300,8 +292,16 @@ if __name__ == "__main__":
 
         baseline_metrics = None
         if args.baseline:
-            baseline_metrics = collect_baseline_metrics(
-                list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+            baseline_cache_path = runs_root / f"cached_baseline_metrics_{args.scenario}.csv"
+            if args.cache and baseline_cache_path.exists():
+                print("Using cached baseline metrics...")
+                baseline_metrics = pd.read_csv(baseline_cache_path)
+            else:
+                baseline_metrics = collect_baseline_metrics(
+                    list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+                if args.cache:
+                    print(f"Saving baseline metrics to {baseline_cache_path} ...")
+                    baseline_metrics.to_csv(baseline_cache_path, index=False)
 
         for frame in (run_metrics, baseline_metrics):
             if frame is not None and not frame.empty:
@@ -313,13 +313,13 @@ if __name__ == "__main__":
     if "breakdown" in selected:
         breakdown = collect_breakdown_data(runs_root, PATTERN, args.scenario)
         if not breakdown.empty:
-            baseline_rate = baseline_length = None
+            baseline_breakdown = None
+            baseline_seed_rates = {}
             if args.baseline:
-                baseline_rate, baseline_length = compute_baseline(args.baseline, args.scenario)
-                if baseline_rate is None:
+                baseline_breakdown = collect_baseline_breakdown(args.baseline, args.scenario)
+                baseline_seed_rates = collect_baseline_seed_rates(args.baseline, args.scenario)
+                if baseline_breakdown is None:
                     print(f"Baseline — no usable trajectory data in {args.baseline} (plotting without baseline)")
-                else:
-                    print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
-            plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)
+            plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, args.scenario, output_dir)
         else:
             print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")

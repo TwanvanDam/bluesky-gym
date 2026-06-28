@@ -15,12 +15,11 @@ from pathlib import Path
 
 import pandas as pd
 from matplotlib import pyplot as plt
-from pydantic import color
 
-from scripts.common.colors import qual
+from scripts.common.colors import *
 from scripts.common.sweep_plotting import add_reward, boxplot_stats, draw_boxplot
 
-BOX_WIDTH = 0.5
+BOX_WIDTH = 0.8
 
 RESOLUTION_ROOT = Path("runs/resolution_sweep_2")
 MULTI_SCALE_ROOT = Path("runs/multi-scale-sweep")
@@ -42,16 +41,16 @@ VARIANT_TO_CAPTION = {
     "c2":  "C2",
     "c8":  "C8",
     "c16": "C16",
-    "5a":  "C2 + C16\n(5a)",
-    "5b":  "C2 + C8\n(5b)",
+    "5a":  "5a\n(C2 + C16)",
+    "5b":  "5b\n(C2 + C8)",
 }
 
 VARIANT_TO_COLOR = {
-    "c2" : "grey",
-    "c8" : "grey",
-    "c16" : "grey",
-    "5a" : "green",
-    "5b" : "green",
+    "c2" : CENTERED_COLOR,
+    "c8" : CENTERED_COLOR,
+    "c16" : CENTERED_COLOR,
+    "5a" : MULTI_SCALE_COLOR,
+    "5b" : MULTI_SCALE_COLOR,
 }
 
 COMPARISONS = [
@@ -66,7 +65,7 @@ METRICS = [
     ("normalized_noise", "normalized noise"),
     ("combined", "normalized fuel + noise"),
     ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping"),
+    ("reward_unclipped", "reward (no noise clipping)"),
 ]
 
 
@@ -120,22 +119,9 @@ def plot_metric_boxplot(
         runs_name: str,
         output_dir: Path,
 ) -> list[dict]:
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
     legend_handles = []
     rows: list[dict] = []
-
-    has_baseline = baseline_df is not None and not baseline_df.empty
-
-    # # Reference baseline box + quartile lines spanning the plot for comparison.
-    # if has_baseline:
-    #     draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
-    #     legend_handles.append(
-    #         plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=0.6, label="Baseline (C4)")
-    #     )
-    #     s = boxplot_stats(baseline_df[metric].values)
-    #     rows.append({"variant": "baseline", "metric": metric, **s})
-    #     for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
-    #         ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     # One box per transform variant.
     tick_x = []
@@ -150,24 +136,24 @@ def plot_metric_boxplot(
             draw_boxplot(ax, data, position=i + 1, color=VARIANT_TO_COLOR[variant], box_width=BOX_WIDTH)
             tick_x.append(i+1)
             tick_labels.append(VARIANT_TO_CAPTION[variant])
-            if i == 2:
-                ax.axvline(x = i + 1.5, color="grey", alpha=0.5)
             i += 1
+        if comparison == COMPARISONS[0]:
+            plt.axvline(x=i+0.75, color=plt.rcParams["grid.color"], linewidth=plt.rcParams["grid.linewidth"], linestyle=plt.rcParams["grid.linestyle"])
+        i += 0.5
+    legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=CENTERED_COLOR, alpha=BOXPLOT_ALPHA, label="Single Scale\n(Centered)"))
+    legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=MULTI_SCALE_COLOR, alpha=BOXPLOT_ALPHA, label="Multi Scale"))
+
     ax.grid(axis='y')
     ax.set_xticks(tick_x)
-    ax.set_xticklabels(tick_labels, fontsize=12)
+    ax.set_xticklabels(tick_labels)
     ax.set_ylabel(ylabel)
     if legend_handles:
-        ax.legend(handles=legend_handles, frameon=False)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+        ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
 
-    fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.png"
+    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
-    plt.show()
     return rows
 
 
