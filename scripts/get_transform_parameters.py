@@ -10,7 +10,6 @@ Run: ``python -m scripts.apply_transforms``
 """
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from bluesky_gym.maps.map_transforms import FloorRaise, GammaCorrection, ScaleValues
@@ -178,24 +177,24 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
                      target_median: float, clip: float) -> None:
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
-    fig, ax = plt.subplots(figsize=(4, 0.78 * 4))
-    ax.plot(x, x, label=r"$y=x$", color=BASELINE_COLOR,linewidth=2, linestyle="dashed")
-    ax.scatter([sim_median], [target_median], color='k', zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
+    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.78 * TEXTWIDTH_IN * 0.5))
+    ax.plot(x, x, label=r"$y=x$", color=BASELINE_COLOR,linewidth=1, linestyle="dashed")
+    ax.plot([sim_median], [target_median], ".", linewidth=2, color='k', zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
     for (transform, color), label in zip(transforms, labels):
         high = param_range(transform)[1]
         y = value_fn_at(transform, high)(x)
 
-        ax.plot(x[y <= clip], y[y <= clip], color=color, label=label,linewidth=2)
-        ax.plot(x[y > clip], y[y > clip], color=color,linewidth=2, linestyle="dashed")
-    ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})", linewidth=2)
+        ax.plot(x[y <= clip], y[y <= clip], color=color, label=label,linewidth=1)
+        ax.plot(x[y > clip], y[y > clip], color=color,linewidth=1, linestyle="dashed")
+    ax.axhline(clip, color="grey", label=f"p{CLIP_PERCENTILE} clip ({clip:,.0f})", linewidth=1)
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
     ax.set_ylim(1,1e5)
     ax.set_xlim(1,1e5)
-    legend = ax.legend(frameon=True, framealpha=1)
+    legend = ax.legend(frameon=True, framealpha=1, loc='center left', bbox_to_anchor=(1.02, 0.5))
     legend.get_frame().set_edgecolor('k')
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True)
+    plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True, bbox_inches='tight')
     plt.show()
 
 

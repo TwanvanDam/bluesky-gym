@@ -13,7 +13,6 @@ metrics view needs BlueSky + the noise/fuel metric fn.
 import re
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -24,7 +23,7 @@ from scripts.common.sweep_plotting import (
     boxplot_stats,
     draw_boxplot,
     mean_breakdowns,
-    seed_color_map, collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
+    collect_breakdown_data, add_reward, collect_baseline_metrics, collect_run_metrics,
     collect_baseline_breakdown, collect_baseline_seed_rates,
     run_sweep_args_parser,
 )
@@ -55,23 +54,6 @@ VARIANT_TO_ALPHA = {
     "a": BOXPLOT_ALPHA,
     "b": BOXPLOT_ALPHA_LIGHT,
 }
-
-REASON_HATCH = {
-    "success":         "",
-    "failed_approach": "////",
-    "max_steps":       "....",
-    "out_of_bounds":   "xxxx",
-}
-
-METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping"),
-]
 
 def _config_ids(df: pd.DataFrame) -> list[str]:
     return sorted(df["config_id"].dropna().unique(), key=lambda c: (int(c[:-1]), c[-1]))
@@ -140,6 +122,7 @@ def plot_metric_boxplot(
 
     groups = sorted({int(cid[:-1]) for cid in config_ids})
     ax.grid(axis="y")
+    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_xticks([0] + groups)
     ax.set_xticklabels(["C4"] + _group_tick_labels(groups))
     ax.set_xlabel("Observation configuration group")
@@ -188,7 +171,19 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
 VARIANT_OFFSET = {"a": -BOX_OFFSET, "b": +BOX_OFFSET}
 
 
+def print_success_rates(breakdown: pd.DataFrame, baseline_seed_rates=None) -> None:
+    if baseline_seed_rates:
+        mean_bl = sum(baseline_seed_rates.values()) / len(baseline_seed_rates)
+        print(f"  {'baseline':>8}  success_rate={mean_bl:.1%}  (seeds: {', '.join(f'{v:.1%}' for v in baseline_seed_rates.values())})")
+    df = breakdown.copy()
+    _add_config_id(df)
+    for cid in _config_ids(df):
+        rates = df[df["config_id"] == cid]["success_rate"].values
+        print(f"  {cid:>8}  success_rate={rates.mean():.1%}  (seeds: {', '.join(f'{r:.1%}' for r in rates)})")
+
+
 def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, scenario, output_dir):
+    print_success_rates(breakdown, baseline_seed_rates)
     _add_config_id(breakdown)
 
     config_ids = _config_ids(breakdown)

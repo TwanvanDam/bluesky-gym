@@ -1,4 +1,5 @@
 import re
+import warnings
 from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Generator
@@ -112,6 +113,34 @@ def boxplot_stats(data) -> dict:
 
 
 
+def add_scenario_id(df: pd.DataFrame, group_cols: list[str]) -> bool:
+    """Add a `scenario_id` column aligning the same evaluation scenario across runs.
+
+    Every run evaluates the same ordered set of bearings (start_angle), so the i-th
+    episode of one run is the same scenario as the i-th episode of any other. We use
+    that positional index as the scenario id: it works whether or not the frame still
+    carries an explicit `start_angle` column (older cached CSVs do not), which is what
+    lets matched-scenario plots reuse an existing cache.
+
+    `group_cols` identifies one run (e.g. ["config", "seed"], or ["seed"] for a pooled
+    baseline). When `start_angle` is present it is used to order within a run for safety;
+    otherwise the existing row order (ascending start_angle from compute_episode_metrics)
+    is used. Returns False (and warns, leaving no column) if runs have unequal episode
+    counts, since positional alignment would then be meaningless — callers fall back to
+    unconditioned (all-successful) plotting.
+    """
+    sizes = df.groupby(group_cols).size()
+    if sizes.nunique() != 1:
+        warnings.warn(
+            f"Runs have unequal episode counts {sorted(sizes.unique())}; cannot align "
+            "scenarios positionally. Falling back to all-successful (no matched set).")
+        return False
+    sort_cols = list(group_cols) + (["start_angle"] if "start_angle" in df.columns else [])
+    ordered = df.sort_values(sort_cols, kind="stable")
+    df["scenario_id"] = ordered.groupby(group_cols).cumcount().reindex(df.index)
+    return True
+
+
 def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
     """Per-episode termination_reason for the run's `scenario` trajectory CSV."""
     csv_path = find_csv(run_dir, scenario)
@@ -119,8 +148,11 @@ def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
         return None
     df = pd.read_csv(csv_path)
     if "termination_reason" not in df.columns:
-        print(f"  Warning: no termination_reason column in {csv_path}, skipping")
-        return None
+        # Older trajectory CSVs predate termination logging; treat every episode as a
+        # success, matching compute_episode_metrics' default for the metric path so such
+        # runs still appear (instead of being dropped) in the outcome breakdown.
+        return pd.Series(SUCCESS_REASON, index=df.groupby("start_angle").size().index,
+                         name="termination_reason")
     return df.groupby("start_angle")["termination_reason"].last()
 
 

@@ -115,6 +115,7 @@ def plot_metric_boxplot(
     ax.set_xticks([0] + list(range(1, len(resolutions) + 1)))
     ax.set_xticklabels(["No map"] + [f"{r}" for r in resolutions])
     ax.set_xlabel("Observation resolution [km/px]")
+    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_ylabel(ylabel)
     ax.grid(axis="y")
 
@@ -172,7 +173,21 @@ def _draw_baseline(ax, value: float | None, label: str) -> None:
                    label=f"Baseline ({label})", zorder=3)
         ax.legend(frameon=False)
 
+def print_success_rates(breakdown: pd.DataFrame, baseline_breakdown=None, baseline_seed_rates=None) -> None:
+    if baseline_seed_rates:
+        mean_bl = sum(baseline_seed_rates.values()) / len(baseline_seed_rates)
+        print(f"  {'baseline':>8}       N/A  success_rate={mean_bl:.1%}  (seeds: {', '.join(f'{v:.1%}' for v in baseline_seed_rates.values())})")
+    for mode in ("centered", "forward"):
+        mode_df = breakdown[breakdown["mode"] == mode]
+        if mode_df.empty:
+            continue
+        for res in sorted(mode_df["resolution"].unique()):
+            rates = mode_df[mode_df["resolution"] == res]["success_rate"].values
+            print(f"  {mode:>8}  {res:>3} km/px  success_rate={rates.mean():.1%}  (seeds: {', '.join(f'{r:.1%}' for r in rates)})")
+
+
 def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, scenario, output_dir):
+    print_success_rates(breakdown, baseline_breakdown, baseline_seed_rates)
     resolutions = sorted(breakdown["resolution"].unique())
     # baseline at 0, resolutions start at 1 — mirrors the metric boxplot layout
     x = np.arange(1, len(resolutions) + 1)

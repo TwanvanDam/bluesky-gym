@@ -119,7 +119,7 @@ def plot_metric_boxplot(
         runs_name: str,
         output_dir: Path,
 ) -> list[dict]:
-    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.35 * TEXTWIDTH_IN), constrained_layout=True)
     legend_handles = []
     rows: list[dict] = []
 

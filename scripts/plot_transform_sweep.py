@@ -66,17 +66,6 @@ VARIANT_TO_COLOR = {
 }
 VARIANT_ORDER = list(VARIANT_TO_CAPTION)
 
-METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping)"),
-]
-
-
 def _ordered_variants(present: set[str]) -> list[str]:
     """Captioned variants first (in caption order), then any extras alphabetically."""
     return [v for v in VARIANT_ORDER if v in present] + sorted(present - set(VARIANT_TO_CAPTION))
@@ -125,13 +114,10 @@ def plot_metric_boxplot(
     ]
     ax.grid(axis='y')
     ax.set_xticks(tick_x)
-    # ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    print(list(zip(tick_x, tick_labels)))
+    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_ylabel(ylabel)
     ax.set_xlabel("Domain Randomization ID")
-    # if legend_handles:
-    #     ax.legend(handles=legend_handles, frameon=False)
-    # ax.spines["top"].set_visible(False)
-    # ax.spines["right"].set_visible(False)
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
@@ -163,6 +149,16 @@ REASON_HATCH = {
 }
 
 
+def print_success_rates(breakdown: pd.DataFrame, baseline_seed_rates=None) -> None:
+    if baseline_seed_rates:
+        mean_bl = sum(baseline_seed_rates.values()) / len(baseline_seed_rates)
+        print(f"  {'baseline':>18}  success_rate={mean_bl:.1%}  (seeds: {', '.join(f'{v:.1%}' for v in baseline_seed_rates.values())})")
+    for variant in _ordered_variants(set(breakdown["variant"].dropna().unique())):
+        rates = breakdown[breakdown["variant"] == variant]["success_rate"].values
+        label = VARIANT_TO_CAPTION.get(variant, variant)
+        print(f"  {label:>18}  success_rate={rates.mean():.1%}  (seeds: {', '.join(f'{r:.1%}' for r in rates)})")
+
+
 def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline_seed_rates=None) -> None:
     variants = _ordered_variants(set(df["variant"].dropna().unique()))
     x = np.arange(len(variants))
@@ -175,24 +171,6 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
 
     has_baseline = False # baseline_breakdown is not None
     x_offset = 0
-
-    # if has_baseline:
-    #     bottom = 0.0
-    #     for reason in [SUCCESS_REASON] + [r for r in baseline_breakdown.index if r != SUCCESS_REASON]:
-    #         frac = float(baseline_breakdown.get(reason, 0.0))
-    #         if frac <= 0:
-    #             continue
-    #         _bar(0, frac, bottom, BASELINE_COLOR, reason)
-    #         bottom += frac
-    #         seen_reasons.add(reason)
-    #
-    #     if baseline_seed_rates:
-    #         seeds = sorted(baseline_seed_rates)
-    #         jitter = np.linspace(-0.06, 0.06, len(seeds))
-    #         for jit, seed in zip(jitter, seeds):
-    #             ax.scatter(jit, baseline_seed_rates[seed],
-    #                        color="black", s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
-    #                        edgecolors="white", linewidths=0.5)
 
     ordered, means = mean_breakdowns(df, variants, pos_col="variant")
     bottom = np.zeros(len(variants))
@@ -238,6 +216,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
 
 
 def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, scenario, output_dir):
+    print_success_rates(breakdown, baseline_seed_rates)
     fig, ax = plt.subplots(
         figsize=(TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True
     )

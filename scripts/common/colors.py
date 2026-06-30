@@ -38,7 +38,7 @@ CENTERED_COLOR =  _qual(1) # orange
 POWER_COLOR = _qual(2)
 SCALE_COLOR = _qual(3)
 FLOOR_COLOR = _qual(4)
-HIGHLIGHT_COLOR = _qual(2)
+HIGHLIGHT_COLOR = _qual(5)
 MULTI_SCALE_COLOR = _qual(2)
 SEED_COLORS = [_qual(i) for i in (2,4,3)]          # per-seed cycle
 TRANSFORMS_COLOR =_qual(4)
@@ -48,4 +48,30 @@ BOXPLOT_ALPHA_LIGHT = 0.4
 TEXTWIDTH_PT = 469
 TEXTWIDTH_IN = TEXTWIDTH_PT / 72.7
 
+METRIC_TO_AXIS_REVERS = {
+    "fuel" : True,
+    "noise": True,
+    "normalized_fuel": False,
+    "normalized_noise": False,
+    "combined": True,
+    "reward": False,
+    "reward_unclipped": False
+}
+
+METRICS = [
+    ("fuel", "fuel [kg]"),
+    ("noise", "noise [W·s]"),
+    ("normalized_fuel", "normalized fuel"),
+    ("normalized_noise", "normalized noise"),
+    ("combined", "normalized fuel + noise"),
+    ("reward", "reward"),
+    ("reward_unclipped", "reward (no noise clipping)"),
+]
+
+REASON_HATCH = {
+    "success":         "",
+    "failed_approach": "////",
+    "max_steps":       "....",
+    "out_of_bounds":   "xxxx",
+}
 

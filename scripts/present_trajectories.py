@@ -16,6 +16,8 @@ from bluesky_gym.maps.map_sources import MapSourceConfigType, TiffMapSourceConfi
 from bluesky_gym.maps.raster_sampler import RasterSampler
 from scripts.common.run_paths import resolve_run, RunPaths, load_trajectory_details
 
+from scripts.common.colors import *
+
 # Successful-approach arc (the SINK polyline in BaseNavigationEnv._set_terminal_condition):
 # crossing it terminates the episode as "success". Hard-coded to match all recent
 # BaseNavigationEnv runs (config.yaml: faf_distance=0, iaf_angle=60, iaf_distance=37).
@@ -32,6 +34,7 @@ def plot_trajectories(
         save_path: Path | None = None,
         normalization_mode: str = "min_max",
         normalization_percentile: float = 99.9,
+        range:float = 250
 ):
     map_source = map_config.build()
     raster_sampler = RasterSampler(map_source, resampling="cubic_spline", destination_crs="epsg:3035")
@@ -63,7 +66,7 @@ def plot_trajectories(
         norm = Normalize(vmin=0, vmax=v_max, clip=True)
     else:
         raise ValueError(f"Unknown normalization_mode: {normalization_mode!r}")
-
+    fig, ax = plt.subplots(figsize=(0.33 * TEXTWIDTH_IN, 0.33 * TEXTWIDTH_IN))
     cmap = plt.get_cmap("Blues").copy()
     cmap.set_bad("grey")  # NaN pixels (no-data / ocean) render grey instead of transparent
 
@@ -78,27 +81,28 @@ def plot_trajectories(
     # Density is clipped at vmax (the normalization_percentile of the window): everything
     # above it saturates to the darkest colour. The 'max' extend arrow plus the labelled
     # top tick make that clip explicit.
-    cbar = plt.colorbar(im, extend="max", fraction=0.046, pad=0.04)
-    cbar.set_label("Population density (people/km²)")
-    if normalization_mode == "log":
-        nice_ticks = np.array([0, 1, 10, 100, 1_000, 10_000, 100_000], dtype=float)
-        ticks = [t for t in nice_ticks if t < v_max] + [v_max]
-        cbar.set_ticks(ticks)
-        cbar.set_ticklabels([f"{t:.0f}" for t in ticks])
+    # cbar = plt.colorbar(im, extend="max", fraction=0.046, pad=0.04)
+    # cbar.set_label("Population density (people/km²)")
+    # if normalization_mode == "log":
+    #     nice_ticks = np.array([0, 1, 10, 100, 1_000, 10_000, 100_000], dtype=float)
+    #     ticks = [t for t in nice_ticks if t < v_max] + [v_max]
+    #     cbar.set_ticks(ticks)
+    #     cbar.set_ticklabels([f"{t:.0f}" for t in ticks])
     plt.xlim(extent[0], extent[1])
     plt.ylim(extent[2], extent[3])
-    plt.scatter(*destination_xy, marker=".", linewidths=5, color="green")
+    plt.scatter(*destination_xy, marker=".", linewidths=5, color="black")
 
-
+    plt.xticks([destination_xy[0]-range*1000, destination_xy[0], destination_xy[0]+range*1000], [f"-{range}", "0", f"{range}"])
+    plt.yticks([destination_xy[1]-range*1000, destination_xy[1], destination_xy[1]+range*1000], [f"-{range}", "0", f"{range}"])
     for start_angle, group in trajectories.groupby("start_angle"):
         if not "termination_reason" in group.columns:
             color = "black"
             print(f"No 'termination_reason' column found. Assuming 'success' everywhere")
         else:
             color = "black" if group["termination_reason"].iloc[0] == "success" else "red"
-        plt.plot(group["x"], group["y"], color=color)
-        plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker="o", color="green", linewidth=1,
-                 label="Start" if start_angle == trajectories["start_angle"].min() else "")
+        plt.plot(group["x"], group["y"], color=color, linewidth=1)
+        # plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker=".", color="black", linewidth=1,
+        #          label="Start" if start_angle == trajectories["start_angle"].min() else "")
 
     # Successful-approach arc (SINK): same geometry as BaseNavigationEnv._set_terminal_condition.
     back_bearing = fn.bound_angle_0_360(destination.refhdg + 180)
@@ -106,12 +110,11 @@ def plot_trajectories(
     arc_angles = np.linspace(back_bearing + IAF_ANGLE_DEG / 2, back_bearing - IAF_ANGLE_DEG / 2, ARC_NUM_POINTS)
     arc_lat, arc_lon = fn.get_point_at_distance(faf_lat, faf_lon, IAF_DISTANCE_KM, arc_angles)
     arc_x, arc_y = coordinate_transformer.transform(arc_lon, arc_lat)
-    arc_x = [destination_xy[0], * arc_x, destination_xy[0]]
-    arc_y = [destination_xy[1], * arc_y, destination_xy[1]]
+    plt.plot([arc_x[0], destination_xy[0], arc_x[-1]], [arc_y[0], destination_xy[1], arc_y[-1]], color="red", linewidth=2, label="Failed approach")
     plt.plot(arc_x, arc_y, color="green", linewidth=2, label="Success arc")
 
-    plt.xlabel("X Coordinate (meters)")
-    plt.ylabel("Y Coordinate (meters)")
+    plt.xlabel(r"$x$-coordinate [km]")
+    plt.ylabel(r"$y$-coordinate [km]")
     if save_path is not None:
         plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Figure saved to: {save_path}")
@@ -138,13 +141,14 @@ def plot_trajectory_subdir(traj_dir: Path, background_map: Path, normalization_p
     # the agent flew without a population map in its observation.
     map_config = TiffMapSourceConfig(file_path=background_map)
 
-    save_path = traj_dir / f"plot.png"
+    save_path = traj_dir / f"plot.pdf"
 
     if save_path.exists():
         print(f"Overwriting existing plot: {save_path}")
 
     plot_trajectories(df, map_config, destination=runway, save_path=save_path,
-                      normalization_percentile=normalization_percentile, normalization_mode=normalization_mode)
+                      normalization_percentile=normalization_percentile, normalization_mode=normalization_mode,
+                      range=eval_details.get("start_distance",250))
 
 
 def present_for_run(run_paths: RunPaths, background_map: Path, normalization_percentile:float, normalization_mode:str) -> None:
