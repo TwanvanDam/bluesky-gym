@@ -26,6 +26,7 @@ import argparse
 import re
 import warnings
 from pathlib import Path
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,13 +41,13 @@ PATTERN = re.compile(r"^(?P<config>.+?)(?:_seed(?P<seed>\d+))?$")
 
 # Episodes that completed and therefore carry valid fuel/noise (matches the generalization
 # analysis): success and failed-approach are kept; max_steps / out_of_bounds are dropped.
-KEEP_REASONS = {"success", "failed_approach"}
+KEEP_REASONS = {"success"} #, "failed_approach"}
 
 ANCHOR_ALPHA = 1.0  # the trained operating point
 
 # CLI defaults (kept as module constants so the sweep's canonical settings live in one place).
 DEFAULT_RUNWAY = "EDDF_RW25R"
-DEFAULT_ALPHAS = ["0.1", "0.25", "0.5", "1", "2", "4", "10"]
+DEFAULT_ALPHAS = ["0.25", "0.5", "1", "2", "4"]
 DEFAULT_MAP_PATH = "./scripts/population_maps/europe_3035_1km.tif"
 DEFAULT_MEAN_EPISODE_LENGTH = 1400.0
 DEFAULT_NOISE_CLIP_PERCENTILE = 99.9
@@ -55,7 +56,7 @@ DEFAULT_OUTPUT_DIR = Path("plots/sweep_overview_plots")
 # Alphas shown in the marker-size legend and used as failure-rate x-ticks.
 LEGEND_ALPHAS = (0.25, 0.5, 1, 2, 4)
 
-WIDTH = 0.85 * TEXTWIDTH_IN
+WIDTH = TEXTWIDTH_IN
 AXES_ASPECT = 0.78  # figure height / width, shared by both plots
 CONFIG_COLOR_RULES = {
     "no_map" : BASELINE_COLOR,
@@ -73,6 +74,42 @@ def config_color(config: str) -> str:
     warnings.warn(f"No color rule matches config {config!r}; using UNKNOWN_COLOR "
                   "(add a CONFIG_COLOR_RULES entry to give it its own color).")
     return UNKNOWN_COLOR
+
+# Exact-match display labels for legend text, one entry per config name produced by
+# PATTERN (run dir name minus any trailing _seedNN suffix). Keeps the legend short
+# enough to fit alongside the axes instead of being clipped by long raw config names.
+CONFIG_DISPLAY_NAMES = {
+    "sweep_2_no_map": "No map",
+    "sweep_2_centered_4": r"$\mathrm{C4}^{\mathrm{old}}$",
+    "multi_scale_3a": "Multi-scale",
+    "transformed_baseline": r"$\mathrm{C4}^{\mathrm{new}}$",
+    "transformed_zoom": "Zoom",
+    "transformed_scale": "Scale",
+    "E_3_256-x1": "Groot et al.",
+}
+
+def post_process_metrics(df, mode: Literal["mean", "median", "iqr", "q1", "q3"]):
+    match mode:
+        case "mean":
+            return df["fuel_mean"], df["noise_mean"]
+        case "median":
+            return df["fuel"], df["noise"]
+        case "iqr":
+            return df["fuel_q3"]-df["fuel_q1"], df["noise_q3"]-df["noise_q1"]
+        case "q1":
+            return df["fuel_q1"], df["noise_q1"]
+        case "q3":
+            return df["fuel_q3"], df["noise_q3"]
+        case _:
+            return None
+
+def config_display_name(config: str) -> str:
+    label = CONFIG_DISPLAY_NAMES.get(config)
+    if label is None:
+        warnings.warn(f"No display name for config {config!r}; using raw name "
+                      "(add a CONFIG_DISPLAY_NAMES entry to give it a display label).")
+        return config
+    return label
 
 # ----------------------------------------------------------------------------- collection
 
@@ -174,27 +211,44 @@ def alpha_to_size(alpha) -> np.ndarray:
     return SIZE_INTERCEPT + SIZE_SLOPE * (np.log2(alpha) + SIZE_LOG_OFFSET)
 
 
+def config_linestyles(configs: list[str]) -> dict[str, str]:
+    """Map each line-drawn config to its linestyle, shared by both plots so a config
+    keeps the same colour+linestyle everywhere.
+
+    Solid is the default; a config whose colour has already been used gets a dashed
+    line so overlapping-colour series stay distinguishable. no_map configs are omitted
+    (they render as a standalone point, not a line, and so don't consume a colour slot).
+    """
+    color_use_count: dict = {}
+    styles: dict[str, str] = {}
+    for c in configs:
+        if "no_map" in c:
+            continue
+        color = config_color(c)
+        seen = color_use_count.get(color, 0)
+        color_use_count[color] = seen + 1
+        styles[c] = "-" if seen == 0 else "--"
+    return styles
+
+
 def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Path) -> Path:
     configs = sorted(pts["config"].unique())
 
     fig, ax = plt.subplots(figsize=(WIDTH, AXES_ASPECT * WIDTH))
 
-    # Solid line is the default; a config whose color has already been used gets a
-    # dashed line so overlapping-color series stay distinguishable.
-    color_use_count: dict = {}
+    linestyles = config_linestyles(configs)
     config_handles = []
 
     for c in configs:
         sub = pts[pts["config"] == c].sort_values("alpha")
         color = config_color(c)
-
+        if "no_map" in c:
+            continue
         # A real frontier: line + square markers sized by alpha.
-        seen = color_use_count.get(color, 0)
-        color_use_count[color] = seen + 1
-        linestyle = "-" if seen == 0 else "--"
+        linestyle = linestyles[c]
 
-        ax.plot(sub["fuel"], sub["noise"], linestyle=linestyle, color=color, zorder=3)
-        for fuel, noise, alpha in zip(sub["fuel"], sub["noise"], sub["alpha"]):
+        ax.plot(*post_process_metrics(sub, "median"), linestyle=linestyle, color=color, zorder=3)
+        for fuel, noise, alpha in zip(*post_process_metrics(sub, "median"), sub["alpha"]):
             if alpha == 1:
                  facecolor = "white"
                  outline = color
@@ -206,7 +260,7 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
 
         config_handles.append(
             plt.Line2D([0], [0], color=color, linestyle=linestyle, marker="o", markeredgecolor="k",
-                       markeredgewidth=MARKER_EDGE_WIDTH, markersize=7, label=c))
+                       markeredgewidth=MARKER_EDGE_WIDTH, markersize=7, label=config_display_name(c)))
 
     ax.set_xlabel("normalized fuel (median over bearings)")
     ax.set_ylabel("normalized noise (median over bearings)")
@@ -217,6 +271,7 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
     legend_main = ax.legend(handles=config_handles, frameon=True, edgecolor="k",
                             loc="upper left", bbox_to_anchor=(1, 1))
     ax.add_artist(legend_main)
+    extra_artists = [legend_main]
 
     # Secondary legend: marker size <-> alpha.
     size_alphas = [a for a in LEGEND_ALPHAS if a in set(pts["alpha"])]
@@ -228,14 +283,16 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
                        label=r"$\alpha = $" + f"{a:g}")
             for a in size_alphas
         ]
-        ax.legend(handles=size_handles,
-                  frameon=True, edgecolor="k", loc="lower left", bbox_to_anchor=(1, 0),
-                  ncol=1, handletextpad=0.2)
+        legend_size = ax.legend(handles=size_handles,
+                                frameon=True, edgecolor="k", loc="lower left", bbox_to_anchor=(1, 0),
+                                ncol=1, handletextpad=0.2)
+        extra_artists.append(legend_size)
 
-    fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"frontier_{runs_name}_{runway}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    # bbox_extra_artists forces the out-of-axes legends into the saved tight bbox;
+    # tight_layout alone doesn't reserve room for them, so they'd be clipped.
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=extra_artists)
     plt.close(fig)
     return out_path
 
@@ -246,16 +303,17 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
     configs = sorted(rates["config"].unique())
 
     fig, ax = plt.subplots(figsize=(WIDTH, AXES_ASPECT * WIDTH))
+    linestyles = config_linestyles(configs)
     for c in configs:
         sub = rates[rates["config"] == c].sort_values("alpha")
         col = config_color(c)
         if len(sub) >= 2:
-            ax.plot(sub["alpha"], sub["failure_pct"], "-o", color=col, label=c,
-                    markersize=5)
+            ax.plot(sub["alpha"], sub["failure_pct"], linestyle=linestyles[c], marker="o",
+                    color=col, label=config_display_name(c), markersize=5)
         else:  # single point: no-map / legacy benchmark
             ax.scatter(sub["alpha"], sub["failure_pct"], marker="*", s=240,
                        facecolors=col, edgecolors="black", linewidths=1.0,
-                       label=f"{c} (fixed)")
+                       label=f"{config_display_name(c)} (fixed)")
 
     ax.set_xscale("log")
     ax.set_xticks(list(LEGEND_ALPHAS), labels=[str(a) for a in LEGEND_ALPHAS])
@@ -265,12 +323,11 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
+    legend = ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
 
-    fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"failure_rate_{runs_name}_{runway}.png"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    out_path = output_dir / f"failure_rate_{runs_name}_{runway}.pdf"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
     plt.close(fig)
     return out_path
 
@@ -290,7 +347,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--noise_clip_percentile", type=float, default=DEFAULT_NOISE_CLIP_PERCENTILE)
     parser.add_argument("--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--use-cache", action="store_true",
-                        help="load frontier points from the saved CSV instead of recomputing")
+                        help="load the saved per-bearing metrics CSV instead of re-reading "
+                             "every trajectory (reduction/filtering still runs on load)")
     return parser.parse_args()
 
 
@@ -318,33 +376,32 @@ def _check_cache_complete(df: pd.DataFrame, runs_root: Path, requested: list[flo
             "Regenerate without --use-cache to include them.")
 
 
-def _load_cached(csv_path: Path, failure_csv_path: Path, alphas: list[str],
-                 runs_root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Reload previously-saved frontier points and failure rates, filtered to `alphas`.
+def _load_cached_metrics(cache_path: Path, alphas: list[str], runs_root: Path) -> pd.DataFrame:
+    """Reload the previously-saved per-bearing metrics, filtered to `alphas`.
 
-    Errors if the cache lacks any config found under `runs_root` or any requested alpha.
+    This is the raw per-trajectory table (fuel/noise/termination_reason per
+    config/seed/alpha/start_angle) — the same granularity the other sweeps cache — so the
+    filtering + reduction (frontier_points / failure_rate_points) can be changed later
+    without re-reading every trajectory CSV. Errors if the cache lacks any config found
+    under `runs_root` or any requested alpha.
     """
+    if not cache_path.exists():
+        raise FileNotFoundError(f"Cache not found: {cache_path}")
     requested = [float(a) for a in alphas]
-    for path in (csv_path, failure_csv_path):
-        if not path.exists():
-            raise FileNotFoundError(f"Cache not found: {path}")
-
-    pts = pd.read_csv(csv_path)
-    _check_cache_complete(pts, runs_root, requested)
-    pts = pts[pts["alpha"].isin(requested)]
-    print(f"Loaded frontier points from cache → {csv_path}")
-    print(pts.to_string(index=False))
-
-    rates = pd.read_csv(failure_csv_path)
-    _check_cache_complete(rates, runs_root, requested)
-    rates = rates[rates["alpha"].isin(requested)]
-    print(f"Loaded failure rates from cache → {failure_csv_path}")
-    return pts, rates
+    df = pd.read_csv(cache_path)
+    _check_cache_complete(df, runs_root, requested)
+    df = df[df["alpha"].isin(requested)]
+    print(f"Loaded per-bearing metrics from cache → {cache_path}")
+    return df
 
 
-def _compute_frontier(args: argparse.Namespace, csv_path: Path,
-                      failure_csv_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Collect per-bearing metrics from trajectory CSVs, then derive frontier + failure rates."""
+def _collect_metrics(args: argparse.Namespace, cache_path: Path) -> pd.DataFrame:
+    """Collect the long per-bearing metrics table from trajectory CSVs and cache it.
+
+    Returns one row per (config, seed, alpha, start_angle) carrying fuel, noise and
+    termination_reason (see collect_scaling_metrics). The reduction to frontier / failure
+    points happens downstream, so caching this table lets the analysis change later.
+    """
     import bluesky as bs
     from bluesky_gym.maps.map_sources import TransformedTiffMapSourceConfig
     from bluesky_gym.metrics.evaluation_metrics import (
@@ -377,17 +434,9 @@ def _compute_frontier(args: argparse.Namespace, csv_path: Path,
     if df.empty:
         raise SystemExit("No per-bearing metrics collected.")
 
-    # Failure rate is computed on the unmatched df, since matched_filter drops the
-    # very (non-completing) episodes the failure-rate plot is meant to show.
-    rates = failure_rate_points(df, KEEP_REASONS)
-    rates.to_csv(failure_csv_path, index=False)
-    print(f"Saved failure rates → {failure_csv_path}")
-
-    pts = frontier_points(df)
-    pts.to_csv(csv_path, index=False)
-    print(f"Saved frontier points → {csv_path}")
-    print(pts.to_string(index=False))
-    return pts, rates
+    df.to_csv(cache_path, index=False)
+    print(f"Saved per-bearing metrics → {cache_path}")
+    return df
 
 
 def main() -> None:
@@ -396,15 +445,21 @@ def main() -> None:
     output_dir = args.output_dir / args.runs_root.name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Frontier/failure caches live alongside the runs they summarize (runs/<sweep>/), not
-    # with the plot images, so the recomputed data stays next to its source trajectories.
-    csv_path = args.runs_root / f"frontier_{args.runs_root.name}_{args.runway}.csv"
-    failure_csv_path = args.runs_root / f"failure_rate_{args.runs_root.name}_{args.runway}.csv"
+    # The per-bearing metrics cache lives alongside the runs it summarizes (runs/<sweep>/),
+    # not with the plot images, so the recomputed data stays next to its source trajectories.
+    cache_path = args.runs_root / f"cached_metrics_{args.runs_root.name}_{args.runway}.csv"
 
     if args.use_cache:
-        pts, rates = _load_cached(csv_path, failure_csv_path, args.alphas, args.runs_root)
+        df = _load_cached_metrics(cache_path, args.alphas, args.runs_root)
     else:
-        pts, rates = _compute_frontier(args, csv_path, failure_csv_path)
+        df = _collect_metrics(args, cache_path)
+
+    # Reduction happens here (not in the cache) so the filtering / data-reduction method can
+    # be changed and replayed with --use-cache. Failure rate is computed on the unmatched df,
+    # since a matched filter would drop the very (non-completing) episodes it is meant to show.
+    rates = failure_rate_points(df, KEEP_REASONS)
+    pts = frontier_points(df)
+    print(pts.to_string(index=False))
 
     out_path = plot_frontier(pts, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {out_path}")
