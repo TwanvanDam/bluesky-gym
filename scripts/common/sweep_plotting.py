@@ -47,7 +47,8 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
     fuel = g["calculated_fuel"].sum()
     noise = g["calculated_noise"].sum()
     noise_clipped = g["calculated_noise_clipped"].sum()
-    success = g["termination_reason"].last() == SUCCESS_REASON
+    reason = g["termination_reason"].last()
+    success = reason == SUCCESS_REASON
     mean_noise_ref = g["mean_reference_noise"].first() * mean_episode_length
     norm_fuel = fuel / (g["mean_fuel_flow"].first() * mean_episode_length)
     norm_noise = noise / mean_noise_ref
@@ -59,6 +60,7 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
         "normalized_fuel": norm_fuel,
         "normalized_noise": norm_noise,
         "normalized_noise_clipped": norm_noise_clipped,
+        "termination_reason": reason,
         "success": success,
     })
 
@@ -340,11 +342,11 @@ def collect_baseline_metrics(
 
 
 def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) -> pd.DataFrame:
-    """Success rate, termination breakdown and episode lengths per matching run.
+    """Success rate and termination breakdown per matching run.
 
     Named groups of `pattern` become columns, same as collect_run_metrics. Does not
-    need the metric fn (reads only termination_reason / sim_dt), so it is cheap to call
-    straight from a plotting script that wants the outcome / length panels.
+    need the metric fn (reads only termination_reason), so it is cheap to call
+    straight from a plotting script that wants the outcome panel.
     """
     records = []
     for run_dir in sorted(runs_root.iterdir()):
@@ -358,7 +360,6 @@ def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) 
         record = {key: _coerce(value) for key, value in match.groupdict().items()}
         record["success_rate"] = rate
         record["breakdown"] = compute_termination_breakdown(run_dir, scenario)
-        record["length"] = compute_episode_length(run_dir, scenario)
         records.append(record)
     return pd.DataFrame(records)
 
@@ -367,14 +368,14 @@ def run_sweep_args_parser() -> tuple[Namespace, set]:
 
     `--plots {both,metrics,breakdown}` (default both) selects which to draw. Only the
     metrics path needs BlueSky + the noise/fuel metric fn, so a breakdown-only run is
-    dependency-free and fast. Each per-sweep script supplies the cosmetics through:
-
-        plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
-        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir)
+    dependency-free and fast. Each per-sweep script supplies the cosmetics through its
+    own `plot_metrics(...)` / `plot_breakdown(...)` functions; their exact signatures
+    (e.g. how the baseline is threaded through) differ per script, so check the sweep
+    script itself rather than this docstring.
 
     A view the script doesn't provide is silently skipped. `--baseline` is shared: the
     full list is pooled into the metric reference boxes AND into the breakdown
-    success-rate / episode-length reference lines.
+    success-rate reference line(s).
 
     `--scenario` is the exact evaluation-scenario subdir to read, i.e. the
     {runway}_{label}_{model} folder generate_trajectories writes under each run's

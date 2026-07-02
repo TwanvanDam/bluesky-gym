@@ -12,6 +12,7 @@ Runs without a seed suffix (e.g. E_3_256-x1) are treated as a single-seed entry.
 """
 
 import re
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -70,104 +71,210 @@ REASON_HATCH = {
     "out_of_bounds":   "xxxx",
 }
 
+# Checked in order; first substring match wins. Config names come from PATTERN
+# (e.g. "centered_16_all"), so exact-match lookup would miss most real configs.
+CONFIG_COLOR_RULES = {
+    "no_map": BASELINE_COLOR,
+    "centered": CENTERED_COLOR,
+    "forward": FORWARD_COLOR,
+    "multi_scale": MULTI_SCALE_COLOR,
+    "transformed_baseline": BASELINE_COLOR,
+    "transformed": TRANSFORMS_COLOR,
+    "E_3_256": HIGHLIGHT_COLOR,
+}
 
-def config_color(config: str):
-    """Color a generalization config by the sweep it originates from.
+def config_color(config: str) -> str:
+    for needle, color in CONFIG_COLOR_RULES.items():
+        if needle in config:
+            return color
+    warnings.warn(f"No color rule matches config {config!r}; using UNKNOWN_COLOR "
+                   "(add a CONFIG_COLOR_RULES entry to give it its own color).")
+    return UNKNOWN_COLOR
 
-    The generalization folder pools the single best run of each sweep, so each
-    config is tinted with that sweep's semantic color (see scripts/common/colors).
-    `transformed_baseline` is the no-transform reference, so it stays gray; the
-    standalone best model (E_3_256-*) is highlighted to stand apart.
-    """
-    if "no_map" in config:
-        return BASELINE_COLOR
-    if "centered" in config:
-        return CENTERED_COLOR
-    if "forward" in config:
-        return FORWARD_COLOR
-    if "multi_scale" in config:
-        return MULTI_SCALE_COLOR
-    if "transformed_baseline" in config:
-        return BASELINE_COLOR
-    if "transformed" in config:
-        return TRANSFORMS_COLOR
-    if config.startswith("E_3_256"):
-        return HIGHLIGHT_COLOR
-    return BASELINE_COLOR
+# Exact-match display labels for xtick text, one entry per config name produced by
+# PATTERN. Keep in sync with runs/generalization (config = run dir name minus any
+# trailing _seedNN suffix).
+CONFIG_TICK_LABELS = {
+    "sweep_2_no_map": "No map",
+    "sweep_2_centered_4": "C4-old",
+    "multi_scale_3a": "3a",
+    "transformed_baseline": "C4-new",
+    "transformed_zoom": "Zoom",
+    "transformed_scale": "Scale",
+    "E_3_256-x1": "Groot et al.",
+}
 
+def config_tick_label(config: str) -> str:
+    label = CONFIG_TICK_LABELS.get(config)
+    if label is None:
+        warnings.warn(f"No tick label for config {config!r}; using raw name "
+                       "(add a CONFIG_TICK_LABELS entry to give it a display label).")
+        return config
+    return label
+
+# Left-to-right x-axis order. Configs not listed here are appended afterwards,
+# alphabetically, with a warning (so a new run still plots instead of vanishing).
+CONFIG_ORDER = [
+    "E_3_256-x1",
+    "sweep_2_no_map",
+    "sweep_2_centered_4",
+    "multi_scale_3a",
+    "transformed_baseline",
+    "transformed_zoom",
+    "transformed_scale",
+]
 
 def _ordered_configs(present: set[str]) -> list[str]:
-    return sorted(present)
+    ordered = [c for c in CONFIG_ORDER if c in present]
+    unknown = sorted(present - set(CONFIG_ORDER))
+    if unknown:
+        warnings.warn(f"Config(s) {unknown} not in CONFIG_ORDER; appending alphabetically "
+                       "(add them to CONFIG_ORDER to control placement).")
+    return ordered + unknown
 
 
-def _ns(s):
+def _normalize_seed(s):
     """Normalize a seed value: NaN (pandas None) → None for consistent dict keys."""
     return None if pd.isna(s) else s
 
 
 def _seed_color_map(df: pd.DataFrame) -> dict:
-    all_seeds = sorted({_ns(s) for s in df["seed"].unique()}, key=lambda s: s if s is not None else -1)
+    all_seeds = sorted({_normalize_seed(s) for s in df["seed"].unique()}, key=lambda s: s if s is not None else -1)
     return {seed: SEED_COLORS[i % len(SEED_COLORS)] for i, seed in enumerate(all_seeds)}
 
 
 # ---------------------------------------------------------------------------- metrics
 
-_KEEP_REASONS = {"success", "failed_approach"}
+# Identifies one (config, seed) run. Shared by add_scenario_id (in plot_metrics) and
+# filter_valid_perseed so the two can't silently drift onto different grouping keys.
+SCENARIO_GROUP_COLS = ["config", "seed"]
+
+# An episode reaching one of these termination_reasons flew the full approach, as
+# opposed to being cut off early (max_steps / out_of_bounds) before any outcome
+# was resolved. "Completed" says nothing about whether it landed successfully —
+# see filter_full / add_reward for that distinction.
+_COMPLETED_REASONS = {"success", "failed_approach"}
 
 
-def _keep(df: pd.DataFrame) -> pd.Series:
-    """True for episodes that completed (success or failed approach); excludes max_steps / out_of_bounds."""
-    if "termination_reason" in df.columns:
-        return df["termination_reason"].isin(_KEEP_REASONS)
-    return df["success"]
+def _is_completed(df: pd.DataFrame) -> pd.Series:
+    """True for episodes that flew the full approach (success or failed_approach).
 
-
-def _matched_keep_ids(df: pd.DataFrame) -> set:
-    """Scenario ids where _keep() is True for every (config, seed) combination.
-
-    If a bearing fails _keep() in any one run it is excluded from all runs so
-    every config is evaluated on an identical set of bearings.
+    Cached metrics CSVs written before termination_reason was tracked only have a
+    `success` column and no way to distinguish "cut off early" from "flew the full
+    approach but failed" — for those, `success` is the closest available proxy and
+    is used as-is (regenerate the cache to get the precise split; see class docs).
     """
+    if "termination_reason" not in df.columns:
+        return df["success"]
+    return df["termination_reason"].isin(_COMPLETED_REASONS)
+
+
+def _scenario_ids_completed_everywhere(completed: pd.Series, scenario_id: pd.Series) -> set:
+    """scenario_ids where every row's `completed` value is True.
+
+    The caller may pass one config, the whole sweep, or the sweep plus baseline —
+    whatever rows are represented must ALL have completed a given bearing for its
+    scenario_id to survive here, which is what makes callers directly comparable
+    on that bearing.
+    """
+    completed_per_scenario = completed.groupby(scenario_id).all()
+    return set(completed_per_scenario.index[completed_per_scenario])
+
+def filter_full(df: pd.DataFrame) -> pd.DataFrame:
+    """All episodes, including failures — reward's -1 failure penalty must count them."""
+    return df
+
+def filter_valid_perconfig(df: pd.DataFrame) -> pd.DataFrame:
+    """Completed episodes only; each config judged on its own completed flights."""
+    return df[_is_completed(df)]
+
+def filter_valid_matched(df: pd.DataFrame) -> pd.DataFrame:
+    """Completed episodes, restricted to bearings every config/seed (baseline included) completed."""
+    completed_mask = _is_completed(df)
+    completed = df[completed_mask]
     if "scenario_id" not in df.columns:
-        return set()
-    keep_mask = _keep(df)
-    per_scenario = keep_mask.groupby(df["scenario_id"]).all()
-    return set(per_scenario.index[per_scenario])
+        return completed
+    common_ids = _scenario_ids_completed_everywhere(completed_mask, df["scenario_id"])
+    if common_ids:
+        completed = completed[completed["scenario_id"].isin(common_ids)]
+    return completed
+
+def filter_valid_perseed(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop every episode of a (config, seed) run if any one of its bearings failed to complete."""
+    group_cols = [c for c in SCENARIO_GROUP_COLS if c in df.columns]
+    if not group_cols:
+        return df[_is_completed(df)]
+    seed_fully_completed = _is_completed(df).groupby([df[c] for c in group_cols]).transform("all")
+    return df[seed_fully_completed]
+
+# Each mode pairs its filter function with the filename prefix it should produce.
+FILTERS = {
+    "full": (filter_full, "full"),
+    "valid_perconfig": (filter_valid_perconfig, "per_config"),
+    "valid_matched": (filter_valid_matched, "matched"),
+    "valid_perseed": (filter_valid_perseed, "per_seed"),
+}
 
 
-def plot_metric_boxplot(run_df, baseline_df, metric, ylabel, scenario, runs_name, output_dir) -> list[dict]:
-    configs = _ordered_configs(set(run_df["config"].dropna().unique()))
-    has_baseline = baseline_df is not None and not baseline_df.empty
+def summarize_filter(metrics: pd.DataFrame, filtered: pd.DataFrame, mode: str) -> dict:
+    """Episode/config/(config, seed) counts a filter mode removes.
 
-    matched_ids = _matched_keep_ids(run_df)
+    A config or seed whose episodes are ALL dropped by a mode never gets a tick in
+    plot_metric_boxplot (it only iterates `filtered["config"].unique()`), so it
+    otherwise disappears from that mode's plots with no visible indication.
+    """
+    before_configs = set(metrics["config"].dropna().unique())
+    after_configs = set(filtered["config"].dropna().unique())
+    before_pairs = set(map(tuple, metrics[SCENARIO_GROUP_COLS].drop_duplicates().to_numpy()))
+    after_pairs = set(map(tuple, filtered[SCENARIO_GROUP_COLS].drop_duplicates().to_numpy()))
+    return {
+        "filter_mode": mode,
+        "episodes_before": len(metrics),
+        "episodes_after": len(filtered),
+        "episodes_dropped": len(metrics) - len(filtered),
+        "configs_total": len(before_configs),
+        "configs_fully_dropped": len(before_configs - after_configs),
+        "config_seed_total": len(before_pairs),
+        "config_seed_fully_dropped": len(before_pairs - after_pairs),
+    }
 
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
+
+def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, filter_mode: str) -> list[dict]:
+    """Draw one metric's boxplot. `df` must already be filtered by the caller.
+
+    `df` holds both the swept configs and, if `is_baseline` is set on any row, the
+    pooled baseline; the baseline gets position 0 and dashed reference lines,
+    everything else is a regular tick.
+    """
+    has_baseline = df["is_baseline"].any()
+    configs = _ordered_configs(set(df.loc[~df["is_baseline"], "config"].dropna().unique()))
+
+    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * TEXTWIDTH_IN))
     rows: list[dict] = []
 
     if has_baseline:
-        bdf = baseline_df[_keep(baseline_df)]
-        if matched_ids and "scenario_id" in bdf.columns:
-            bdf = bdf[bdf["scenario_id"].isin(matched_ids)]
-        bvals = bdf[metric].values
+        bvals = df[df["is_baseline"]][metric].values
         if len(bvals):
             draw_boxplot(ax, bvals, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
             s = boxplot_stats(bvals)
-            rows.append({"config": "baseline", "metric": metric, **s})
+            print(f"  [{filter_mode}] {'baseline':>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
+                  f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={bvals.mean():8.3f}")
+            rows.append({"config": "baseline", "metric": metric, "filter_mode": filter_mode, "mean": bvals.mean(), **s})
             for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
                 ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=BOXPLOT_ALPHA)
 
     offset = 1 if has_baseline else 0
     for i, config in enumerate(configs):
-        sub = run_df[(run_df["config"] == config) & _keep(run_df)]
-        if matched_ids and "scenario_id" in sub.columns:
-            sub = sub[sub["scenario_id"].isin(matched_ids)]
-        data = sub[metric].values
+        data = df[df["config"] == config][metric].values
         if len(data):
-            rows.append({"config": config, "metric": metric, **boxplot_stats(data)})
+            s = boxplot_stats(data)
+            print(f"  [{filter_mode}] {config:>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
+                  f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={data.mean():8.3f}")
+            rows.append({"config": config, "metric": metric, "filter_mode": filter_mode, "mean": data.mean(), **s})
             draw_boxplot(ax, data, position=i + offset, color=config_color(config), box_width=BOX_WIDTH)
 
     tick_x = ([0] if has_baseline else []) + [i + offset for i in range(len(configs))]
-    tick_labels = (["Baseline"] if has_baseline else []) + configs
+    tick_labels = (["Baseline"] if has_baseline else []) + [config_tick_label(c) for c in configs]
     ax.grid(axis="y")
     ax.set_xticks(tick_x)
     ax.set_xticklabels(tick_labels, fontsize=8, rotation=40, ha="right")
@@ -176,73 +283,54 @@ def plot_metric_boxplot(run_df, baseline_df, metric, ylabel, scenario, runs_name
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
+    _, prefix = FILTERS[filter_mode]
+    out_path = output_dir/ prefix / f"{metric}_{runs_name}_{scenario}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
     return rows
 
-
-def plot_metric_delta_boxplot(run_df, baseline_df, metric, ylabel, scenario, runs_name, output_dir) -> None:
-    if baseline_df is None or baseline_df.empty:
-        return
-    if "scenario_id" not in run_df.columns or "scenario_id" not in baseline_df.columns:
-        print(f"  Skipping delta plot for {metric}: scenario_id not available")
-        return
-
-    matched_ids = _matched_keep_ids(run_df)
-    ref = baseline_df.groupby("scenario_id")[metric].mean()
-    configs = _ordered_configs(set(run_df["config"].dropna().unique()))
-
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
-    ax.axhline(0, color=BASELINE_COLOR, linestyle="--", linewidth=1.0,
-               label="Baseline = 0", zorder=1)
-
-    for i, config in enumerate(configs):
-        sub = run_df[run_df["config"] == config]
-        if matched_ids:
-            sub = sub[sub["scenario_id"].isin(matched_ids)]
-        deltas = sub[metric].values - sub["scenario_id"].map(ref).to_numpy(dtype=float)
-        deltas = deltas[~np.isnan(deltas)]
-        if len(deltas):
-            draw_boxplot(ax, deltas, position=i, color=config_color(config), box_width=BOX_WIDTH)
-
-    ax.set_xticks(range(len(configs)))
-    ax.set_xticklabels(configs, fontsize=8, rotation=40, ha="right")
-    ax.set_ylabel(f"Δ {ylabel}\nvs baseline")
-    ax.grid(axis="y")
-    ax.legend(handles=[plt.Line2D([0], [0], color=BASELINE_COLOR, linestyle="--", label="Baseline = 0")],
-              frameon=False)
-
-    fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"delta_{metric}_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
-    plt.close(fig)
-
-
-def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir) -> None:
-    has_baseline = baseline_metrics is not None and not baseline_metrics.empty
+def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
+    """`metrics` holds the swept configs and, if present, the pooled baseline (is_baseline column)."""
     # NaN seeds (runs without a seed suffix) are dropped by groupby; use -1 as sentinel.
-    run_metrics["seed"] = run_metrics["seed"].fillna(-1)
-    run_ok = add_scenario_id(run_metrics, ["config", "seed"])
-    if has_baseline:
-        add_scenario_id(baseline_metrics, ["seed"])
+    metrics["seed"] = metrics["seed"].fillna(-1)
+    add_scenario_id(metrics, SCENARIO_GROUP_COLS)
 
     all_rows: list[dict] = []
-    for metric, ylabel in METRICS:
-        all_rows.extend(plot_metric_boxplot(run_metrics, baseline_metrics, metric, ylabel,
-                                            scenario, runs_root.name, output_dir))
-        if run_ok and has_baseline:
-            plot_metric_delta_boxplot(run_metrics, baseline_metrics, metric, ylabel,
-                                      scenario, runs_root.name, output_dir)
+    filter_summaries: list[dict] = []
+    for mode, (filt, _) in FILTERS.items():
+        filtered = filt(metrics)
+        summary = summarize_filter(metrics, filtered, mode)
+        filter_summaries.append(summary)
+        print(f"[{mode}] episodes kept {summary['episodes_after']}/{summary['episodes_before']} "
+              f"({summary['episodes_dropped']} dropped) — "
+              f"configs fully dropped {summary['configs_fully_dropped']}/{summary['configs_total']}, "
+              f"(config, seed) runs fully dropped {summary['config_seed_fully_dropped']}/{summary['config_seed_total']}")
+        for metric, ylabel in METRICS:
+            all_rows.extend(plot_metric_boxplot(filtered, metric, ylabel,
+                                                scenario, runs_root.name, output_dir, mode))
     csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
 
+    summary_path = output_dir / f"filter_summary_{runs_root.name}_{scenario}.csv"
+    pd.DataFrame(filter_summaries).to_csv(summary_path, index=False)
+    print(f"Saved → {summary_path}")
 
 # --------------------------------------------------------------------------- breakdown
+
+def print_success_rates(breakdown: pd.DataFrame, baseline: float | None = None) -> list[dict]:
+    rows: list[dict] = []
+    if baseline is not None:
+        print(f"  {'baseline':>18}  success_rate={baseline:.1%}")
+        rows.append({"config": "baseline", "success_rate_mean": baseline})
+    for config in _ordered_configs(set(breakdown["config"].dropna().unique())):
+        rates = breakdown[breakdown["config"] == config]["success_rate"].values
+        label = config_tick_label(config)
+        print(f"  {label:>18}  success_rate={rates.mean():.1%}  (seeds: {', '.join(f'{r:.1%}' for r in rates)})")
+        rows.append({"config": config, "success_rate_mean": rates.mean(), "success_rate_seeds": list(rates)})
+    return rows
+
 
 def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
     configs = _ordered_configs(set(df["config"].dropna().unique()))
@@ -264,7 +352,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
         seen_reasons.add(reason)
 
     for i, config in enumerate(configs):
-        seed_rates = {_ns(row["seed"]): row["success_rate"] for _, row in df[df["config"] == config].iterrows()}
+        seed_rates = {_normalize_seed(row["seed"]): row["success_rate"] for _, row in df[df["config"] == config].iterrows()}
         seeds = sorted(seed_rates, key=lambda s: s if s is not None else -1)
         jitter = np.linspace(-0.08, 0.08, len(seeds))
         for xi, seed in zip(jitter, seeds):
@@ -277,7 +365,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
                    label=f"Baseline success ({baseline:.0%})", zorder=4)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(configs, fontsize=8, rotation=40, ha="right")
+    ax.set_xticklabels([config_tick_label(c) for c in configs], fontsize=8, rotation=40, ha="right")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
     ax.set_ylim(0.8, 1.01)
@@ -296,67 +384,18 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
         markersize=8, label="Per-seed success rate"))
     ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
 
-
-def plot_episode_length(ax, df: pd.DataFrame, baseline: float | None = None) -> None:
-    configs = _ordered_configs(set(df["config"].dropna().unique()))
-    x = np.arange(len(configs))
-    seed_colors = _seed_color_map(df)
-
-    for i, config in enumerate(configs):
-        c_df = df[df["config"] == config]
-        all_lengths = []
-        seeds = sorted((_ns(row["seed"]) for _, row in c_df.iterrows() if row["length"] is not None),
-                       key=lambda s: s if s is not None else -1)
-        slot_width = BAR_WIDTH / max(len(seeds), 1)
-        seed_centers = {s: x[i] - BAR_WIDTH / 2 + (j + 0.5) * slot_width for j, s in enumerate(seeds)}
-        for _, row in c_df.iterrows():
-            if row["length"] is None:
-                continue
-            lengths = row["length"].values
-            all_lengths.extend(lengths)
-            seed = _ns(row["seed"])
-            rng_seed = int(seed) if seed is not None else i
-            jitter = np.random.default_rng(rng_seed).uniform(
-                -slot_width * 0.35, slot_width * 0.35, len(lengths))
-            ax.scatter(seed_centers[seed] + jitter, lengths,
-                       color=seed_colors.get(seed, config_color(config)), s=DOT_SIZE * 0.5,
-                       zorder=5, alpha=DOT_ALPHA, edgecolors="none")
-        if all_lengths:
-            ax.bar(x[i], np.mean(all_lengths), width=BAR_WIDTH, color=config_color(config), alpha=BAR_ALPHA)
-
-    if baseline is not None:
-        ax.axhline(baseline, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
-                   label=f"Baseline ({baseline:.0f} s)", zorder=3)
-        ax.legend(frameon=False)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(configs, fontsize=8, rotation=40, ha="right")
-    ax.set_ylabel("Mean episode length (s)")
-    ax.grid(axis="y")
-
-    seed_handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=8,
-                   label=f"Seed {s}" if pd.notna(s) else "Single run")
-        for s, c in seed_colors.items()
-    ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8, title="Seed", loc="upper right")
-
-
-def plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir):
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
+def plot_breakdown(breakdown, baseline_rate, runs_root, scenario, output_dir):
+    rows = print_success_rates(breakdown, baseline_rate)
+    fig, ax = plt.subplots(figsize=(0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
     plot_episode_success(ax, breakdown, baseline=baseline_rate)
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
-    plot_episode_length(ax, breakdown, baseline=baseline_length)
-    out_path = output_dir / f"episode_length_{runs_root.name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
-    plt.close(fig)
-
+    csv_path = output_dir / f"success_rates_{runs_root.name}_{scenario}.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    print(f"Saved → {csv_path}")
 
 if __name__ == "__main__":
     args, selected = run_sweep_args_parser()
@@ -402,17 +441,20 @@ if __name__ == "__main__":
                 print(f"Saving metrics to {cache_path} ...")
                 run_metrics.to_csv(cache_path, index=False)
 
-        baseline_metrics = None
+        run_metrics["is_baseline"] = False
+        metrics = run_metrics
         if args.baseline:
             baseline_metrics = collect_baseline_metrics(
                 list(args.baseline), args.scenario, calculate_metrics, args.mean_episode_length)
+            baseline_metrics["config"] = "baseline"
+            baseline_metrics["is_baseline"] = True
+            metrics = pd.concat([run_metrics, baseline_metrics], ignore_index=True)
 
-        for frame in (run_metrics, baseline_metrics):
-            if frame is not None and not frame.empty:
-                frame["combined"] = frame["normalized_fuel"] + frame["normalized_noise"]
-                add_reward(frame)
+        if not metrics.empty:
+            metrics["combined"] = metrics["normalized_fuel"] + metrics["normalized_noise"]
+            add_reward(metrics)
 
-        plot_metrics(run_metrics, baseline_metrics, runs_root, args.scenario, output_dir)
+        plot_metrics(metrics, runs_root, args.scenario, output_dir)
 
     if "breakdown" in selected:
         breakdown = collect_breakdown_data(runs_root, PATTERN, args.scenario)
@@ -424,6 +466,6 @@ if __name__ == "__main__":
                     print(f"Baseline — no usable trajectory data in {args.baseline} (plotting without baseline)")
                 else:
                     print(f"Baseline — success rate: {baseline_rate:.1%}, mean length: {baseline_length:.1f} s")
-            plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, args.scenario, output_dir)
+            plot_breakdown(breakdown, baseline_rate, runs_root, args.scenario, output_dir)
         else:
             print("No breakdown data found. Run generate_trajectories.py on the sweep runs first.")
