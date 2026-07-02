@@ -1,4 +1,5 @@
 import re
+import warnings
 from argparse import Namespace
 from pathlib import Path
 from typing import Callable, Generator
@@ -46,7 +47,8 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
     fuel = g["calculated_fuel"].sum()
     noise = g["calculated_noise"].sum()
     noise_clipped = g["calculated_noise_clipped"].sum()
-    success = g["termination_reason"].last() == SUCCESS_REASON
+    reason = g["termination_reason"].last()
+    success = reason == SUCCESS_REASON
     mean_noise_ref = g["mean_reference_noise"].first() * mean_episode_length
     norm_fuel = fuel / (g["mean_fuel_flow"].first() * mean_episode_length)
     norm_noise = noise / mean_noise_ref
@@ -58,6 +60,7 @@ def compute_episode_metrics(df: pd.DataFrame, mean_episode_length: float) -> pd.
         "normalized_fuel": norm_fuel,
         "normalized_noise": norm_noise,
         "normalized_noise_clipped": norm_noise_clipped,
+        "termination_reason": reason,
         "success": success,
     })
 
@@ -75,7 +78,7 @@ def add_reward(df: pd.DataFrame, fuel_weight: float = 0.5) -> None:
     df["reward_unclipped"] = success_term - (fuel_weight * df["normalized_fuel"]) - ((1 - fuel_weight) * df["normalized_noise"])
 
 
-def draw_boxplot(ax, data, position, color, box_width) -> None:
+def draw_boxplot(ax, data, position, color, box_width,alpha=0.6, showfliers=True) -> None:
     ax.boxplot(
         data,
         positions=[position],
@@ -83,12 +86,61 @@ def draw_boxplot(ax, data, position, color, box_width) -> None:
         patch_artist=True,
         manage_ticks=False,
         medianprops=dict(color="black", linewidth=1.5),
-        boxprops=dict(facecolor=color, alpha=0.6),
+        boxprops=dict(facecolor=color, alpha=alpha),
         whiskerprops=dict(color=color),
         capprops=dict(color=color),
+        showfliers=showfliers,
         flierprops=dict(marker="o", color=color, alpha=0.4, markersize=3),
     )
 
+
+def boxplot_stats(data) -> dict:
+    """Box statistics matching matplotlib's default boxplot (whis=1.5).
+
+    Returns the quartiles, the IQR, and the whisker caps — the most extreme data
+    points still within [Q1 - 1.5*IQR, Q3 + 1.5*IQR], exactly where draw_boxplot
+    renders the whiskers. NaNs are dropped; an all-empty input yields all-NaN.
+    """
+    data = np.asarray(data, dtype=float)
+    data = data[~np.isnan(data)]
+    if data.size == 0:
+        return {"q25": np.nan, "q50": np.nan, "q75": np.nan,
+                "iqr": np.nan, "whisker_lo": np.nan, "whisker_hi": np.nan}
+    q25, q50, q75 = np.percentile(data, [25, 50, 75])
+    iqr = q75 - q25
+    whisker_lo = data[data >= q25 - 1.5 * iqr].min()
+    whisker_hi = data[data <= q75 + 1.5 * iqr].max()
+    return {"q25": q25, "q50": q50, "q75": q75,
+            "iqr": iqr, "whisker_lo": whisker_lo, "whisker_hi": whisker_hi}
+
+
+
+def add_scenario_id(df: pd.DataFrame, group_cols: list[str]) -> bool:
+    """Add a `scenario_id` column aligning the same evaluation scenario across runs.
+
+    Every run evaluates the same ordered set of bearings (start_angle), so the i-th
+    episode of one run is the same scenario as the i-th episode of any other. We use
+    that positional index as the scenario id: it works whether or not the frame still
+    carries an explicit `start_angle` column (older cached CSVs do not), which is what
+    lets matched-scenario plots reuse an existing cache.
+
+    `group_cols` identifies one run (e.g. ["config", "seed"], or ["seed"] for a pooled
+    baseline). When `start_angle` is present it is used to order within a run for safety;
+    otherwise the existing row order (ascending start_angle from compute_episode_metrics)
+    is used. Returns False (and warns, leaving no column) if runs have unequal episode
+    counts, since positional alignment would then be meaningless — callers fall back to
+    unconditioned (all-successful) plotting.
+    """
+    sizes = df.groupby(group_cols).size()
+    if sizes.nunique() != 1:
+        warnings.warn(
+            f"Runs have unequal episode counts {sorted(sizes.unique())}; cannot align "
+            "scenarios positionally. Falling back to all-successful (no matched set).")
+        return False
+    sort_cols = list(group_cols) + (["start_angle"] if "start_angle" in df.columns else [])
+    ordered = df.sort_values(sort_cols, kind="stable")
+    df["scenario_id"] = ordered.groupby(group_cols).cumcount().reindex(df.index)
+    return True
 
 
 def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
@@ -98,8 +150,11 @@ def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
         return None
     df = pd.read_csv(csv_path)
     if "termination_reason" not in df.columns:
-        print(f"  Warning: no termination_reason column in {csv_path}, skipping")
-        return None
+        # Older trajectory CSVs predate termination logging; treat every episode as a
+        # success, matching compute_episode_metrics' default for the metric path so such
+        # runs still appear (instead of being dropped) in the outcome breakdown.
+        return pd.Series(SUCCESS_REASON, index=df.groupby("start_angle").size().index,
+                         name="termination_reason")
     return df.groupby("start_angle")["termination_reason"].last()
 
 
@@ -165,6 +220,30 @@ def compute_baseline(baseline_dirs: list[Path], scenario: str) -> tuple[float | 
     pooled_reasons = pd.concat(all_reasons)
     pooled_lengths = pd.concat(all_lengths) if all_lengths else None
     return (pooled_reasons == SUCCESS_REASON).mean(), (pooled_lengths.mean() if pooled_lengths is not None else None)
+
+
+def collect_baseline_breakdown(baseline_dirs: list[Path], scenario: str) -> pd.Series | None:
+    """Pooled termination-reason fractions across all baseline run directories."""
+    all_reasons = []
+    for d in baseline_dirs:
+        reasons = per_episode_reasons(d, scenario)
+        if reasons is not None:
+            all_reasons.append(reasons)
+    if not all_reasons:
+        return None
+    return pd.concat(all_reasons).value_counts(normalize=True)
+
+
+def collect_baseline_seed_rates(baseline_dirs: list[Path], scenario: str) -> dict[int, float]:
+    """Per-seed success rate for each baseline run directory."""
+    result = {}
+    for d in baseline_dirs:
+        seed_match = re.search(r"seed(\d+)", d.name)
+        seed = int(seed_match.group(1)) if seed_match else 0
+        rate = compute_success_rate(d, scenario)
+        if rate is not None:
+            result[seed] = rate
+    return result
 
 
 def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolution") -> tuple[list, dict]:
@@ -263,11 +342,11 @@ def collect_baseline_metrics(
 
 
 def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) -> pd.DataFrame:
-    """Success rate, termination breakdown and episode lengths per matching run.
+    """Success rate and termination breakdown per matching run.
 
     Named groups of `pattern` become columns, same as collect_run_metrics. Does not
-    need the metric fn (reads only termination_reason / sim_dt), so it is cheap to call
-    straight from a plotting script that wants the outcome / length panels.
+    need the metric fn (reads only termination_reason), so it is cheap to call
+    straight from a plotting script that wants the outcome panel.
     """
     records = []
     for run_dir in sorted(runs_root.iterdir()):
@@ -281,7 +360,6 @@ def collect_breakdown_data(runs_root: Path, pattern: re.Pattern, scenario: str) 
         record = {key: _coerce(value) for key, value in match.groupdict().items()}
         record["success_rate"] = rate
         record["breakdown"] = compute_termination_breakdown(run_dir, scenario)
-        record["length"] = compute_episode_length(run_dir, scenario)
         records.append(record)
     return pd.DataFrame(records)
 
@@ -290,14 +368,14 @@ def run_sweep_args_parser() -> tuple[Namespace, set]:
 
     `--plots {both,metrics,breakdown}` (default both) selects which to draw. Only the
     metrics path needs BlueSky + the noise/fuel metric fn, so a breakdown-only run is
-    dependency-free and fast. Each per-sweep script supplies the cosmetics through:
-
-        plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
-        plot_breakdown(breakdown, baseline_rate, baseline_length, runs_root, scenario, output_dir)
+    dependency-free and fast. Each per-sweep script supplies the cosmetics through its
+    own `plot_metrics(...)` / `plot_breakdown(...)` functions; their exact signatures
+    (e.g. how the baseline is threaded through) differ per script, so check the sweep
+    script itself rather than this docstring.
 
     A view the script doesn't provide is silently skipped. `--baseline` is shared: the
     full list is pooled into the metric reference boxes AND into the breakdown
-    success-rate / episode-length reference lines.
+    success-rate reference line(s).
 
     `--scenario` is the exact evaluation-scenario subdir to read, i.e. the
     {runway}_{label}_{model} folder generate_trajectories writes under each run's
