@@ -112,16 +112,37 @@ def config_tick_label(config: str) -> str:
         return config
     return label
 
+# Short x-axis codes. The legend panel (save_legend) expands these to full names,
+# so the axis stays uncluttered while the panel carries the key. Keep in sync with
+# CONFIG_TICK_LABELS.
+CONFIG_SHORT_CODES = {
+    "sweep_2_no_map":       "NM",
+    "transformed_baseline": r"$\mathrm{C4}^{\mathrm{new}}$",
+    "sweep_2_centered_4":   r"$\mathrm{C4}^{\mathrm{old}}$",
+    "multi_scale_3a":       "3a",
+    "transformed_zoom":     "Z",
+    "transformed_scale":    "S",
+    "E_3_256-x1":           "Bench",
+}
+
+def config_short_code(config: str) -> str:
+    code = CONFIG_SHORT_CODES.get(config)
+    if code is None:
+        warnings.warn(f"No short code for config {config!r}; using tick label "
+                       "(add a CONFIG_SHORT_CODES entry).")
+        return config_tick_label(config)
+    return code
+
 # Left-to-right x-axis order. Configs not listed here are appended afterwards,
 # alphabetically, with a warning (so a new run still plots instead of vanishing).
 CONFIG_ORDER = [
-    "E_3_256-x1",
-    "sweep_2_no_map",
-    "sweep_2_centered_4",
-    "multi_scale_3a",
-    "transformed_baseline",
-    "transformed_zoom",
-    "transformed_scale",
+    "E_3_256-x1",           # yellow  — benchmark
+    "sweep_2_no_map",       # grey    — baseline
+    "transformed_baseline", # grey    — baseline
+    "sweep_2_centered_4",   # orange  — single-scale
+    "multi_scale_3a",       # purple  — multi-scale
+    "transformed_zoom",     # green   — domain randomisation
+    "transformed_scale",    # green   — domain randomisation
 ]
 
 def _ordered_configs(present: set[str]) -> list[str]:
@@ -249,7 +270,7 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
     has_baseline = df["is_baseline"].any()
     configs = _ordered_configs(set(df.loc[~df["is_baseline"], "config"].dropna().unique()))
 
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * TEXTWIDTH_IN))
+    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
     rows: list[dict] = []
 
     if has_baseline:
@@ -274,10 +295,10 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
             draw_boxplot(ax, data, position=i + offset, color=config_color(config), box_width=BOX_WIDTH)
 
     tick_x = ([0] if has_baseline else []) + [i + offset for i in range(len(configs))]
-    tick_labels = (["Baseline"] if has_baseline else []) + [config_tick_label(c) for c in configs]
+    tick_labels = (["Base"] if has_baseline else []) + [config_short_code(c) for c in configs]
     ax.grid(axis="y")
     ax.set_xticks(tick_x)
-    ax.set_xticklabels(tick_labels, fontsize=8, rotation=40, ha="right")
+    ax.set_xticklabels(tick_labels, fontsize=9, rotation=0, ha="center")
     ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_ylabel(ylabel)
 
@@ -289,6 +310,45 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
     print(f"Saved → {out_path}")
     plt.close(fig)
     return rows
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
+    """One row per config: colour swatch + short code + full name."""
+
+    phantom = Rectangle((0, 0), 1, 1, fill=False, edgecolor="none", visible=False)
+
+    swatch_handles, code_labels = [], []
+    name_handles,  name_labels  = [], []
+
+    for c in _ordered_configs(set(CONFIG_SHORT_CODES)):
+        swatch_handles.append(Rectangle((0, 0), 1, 1, fc=config_color(c), alpha=BOXPLOT_ALPHA))
+        code_labels.append(config_short_code(c))
+        name_handles.append(phantom)
+        name_labels.append(config_tick_label(c))
+
+    # matplotlib fills legend columns TOP-TO-BOTTOM (column-major),
+    # so give it the whole first column, then the whole second column.
+    handles = swatch_handles + name_handles
+    labels  = code_labels    + name_labels
+
+    fig = plt.figure(figsize=(2.0, 0.49 * 0.78 * TEXTWIDTH_IN), constrained_layout=True)
+    legend = fig.legend(
+        handles=handles,
+        labels=labels,
+        loc="center left",
+        ncol=2,
+        handlelength=1.2,
+        columnspacing=0.5,
+        handletextpad=0.5,
+    )
+    legend.get_frame().set_edgecolor("k")
+
+    out_path = output_dir / f"legend_modes_{runs_name}_{scenario}.pdf"
+    fig.savefig(out_path, dpi=150)
+    print(f"Saved → {out_path}")
+    plt.close(fig)
 
 def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
     """`metrics` holds the swept configs and, if present, the pooled baseline (is_baseline column)."""
@@ -312,6 +372,8 @@ def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
     csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
+
+    save_legend(output_dir, runs_root.name, scenario)
 
     summary_path = output_dir / f"filter_summary_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(filter_summaries).to_csv(summary_path, index=False)
@@ -365,7 +427,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
                    label=f"Baseline success ({baseline:.0%})", zorder=4)
 
     ax.set_xticks(x)
-    ax.set_xticklabels([config_tick_label(c) for c in configs], fontsize=8, rotation=40, ha="right")
+    ax.set_xticklabels([config_short_code(c) for c in configs], fontsize=9, rotation=0, ha="center")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
     ax.set_ylim(0.8, 1.01)
