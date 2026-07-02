@@ -24,6 +24,7 @@ episodes. Disable with --no-match.
 
 import argparse
 import re
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from scripts.common.colors import qual
+from scripts.common.colors import *
 from scripts.common.sweep_plotting import compute_episode_metrics, find_csv
 
 # Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
@@ -43,6 +44,24 @@ KEEP_REASONS = {"success", "failed_approach"}
 
 ANCHOR_ALPHA = 1.0  # the trained operating point
 
+
+WIDTH = 0.85 * TEXTWIDTH_IN
+CONFIG_COLOR_RULES = {
+    "no_map" : BASELINE_COLOR,
+    "centered": CENTERED_COLOR,
+    "forward": FORWARD_COLOR,
+    "multi_scale": MULTI_SCALE_COLOR,
+    "transformed_baseline": BASELINE_COLOR,
+    "transformed": TRANSFORMS_COLOR,
+}
+
+def config_color(config: str) -> str:
+    for needle, color in CONFIG_COLOR_RULES.items():
+        if needle in config:
+            return color
+    warnings.warn(f"No color rule matches config {config!r}; using UNKNOWN_COLOR "
+                  "(add a CONFIG_COLOR_RULES entry to give it its own color).")
+    return UNKNOWN_COLOR
 
 # ----------------------------------------------------------------------------- collection
 
@@ -131,46 +150,107 @@ def failure_rate_points(df: pd.DataFrame, keep_reasons: set) -> pd.DataFrame:
 
 # -------------------------------------------------------------------------------- plotting
 
+# Marker area (points^2) as a function of alpha. Grows on a log2 scale so the
+# multiplicative density factor reads linearly, and stays strictly positive for
+# alpha < 1 (log2 would go negative). alpha=0.25 -> ~20, alpha=1 -> ~100, alpha=4 -> ~180.
+SIZE_INTERCEPT = 18.0
+SIZE_SLOPE = 26.0
+SIZE_LOG_OFFSET = 2.0  # shifts log2(min expected alpha=0.25) to 0
+MARKER_EDGE_WIDTH = 0.8  # black outline thickness, shared by every marker
+
+
+def alpha_to_size(alpha) -> np.ndarray:
+    return SIZE_INTERCEPT + SIZE_SLOPE * (np.log2(alpha) + SIZE_LOG_OFFSET)
+
+
 def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Path,
                   errorbars: bool) -> Path:
     configs = sorted(pts["config"].unique())
-    color = {c: qual(i) for i, c in enumerate(configs)}
 
-    fig, ax = plt.subplots(figsize=(7.5, 6))
+    fig, ax = plt.subplots(figsize=(WIDTH, 0.78 * WIDTH))
+
+    # Solid line is the default; a config whose color has already been used gets a
+    # dashed line so overlapping-color series stay distinguishable.
+    color_use_count: dict = {}
+    config_handles = []
+
     for c in configs:
         sub = pts[pts["config"] == c].sort_values("alpha")
-        col = color[c]
-        if len(sub) >= 2:  # a real frontier
-            ax.plot(sub["fuel"], sub["noise"], "-o", color=col, label=c, zorder=3,
-                    markersize=5)
-            if errorbars:
-                ax.errorbar(sub["fuel"], sub["noise"],
-                            xerr=[sub["fuel"] - sub["fuel_q1"], sub["fuel_q3"] - sub["fuel"]],
-                            yerr=[sub["noise"] - sub["noise_q1"], sub["noise_q3"] - sub["noise"]],
-                            fmt="none", ecolor=col, alpha=0.3, zorder=2, capsize=2)
-            for _, r in sub.iterrows():
-                ax.annotate(f"{r['alpha']:g}", (r["fuel"], r["noise"]),
-                            textcoords="offset points", xytext=(4, 4), fontsize=6, color=col)
-            anchor = sub[np.isclose(sub["alpha"], ANCHOR_ALPHA)]
-            ax.scatter(anchor["fuel"], anchor["noise"], s=150, facecolors=col,
-                       edgecolors="black", linewidths=1.3, zorder=4)
-        else:  # single point: no-map / legacy benchmark
-            ax.scatter(sub["fuel"], sub["noise"], marker="*", s=240, facecolors=col,
-                       edgecolors="black", linewidths=1.0, label=f"{c} (fixed)", zorder=5)
+        color = config_color(c)
 
-    ax.scatter([], [], s=150, facecolors="white", edgecolors="black", linewidths=1.3,
-               label=f"$\\alpha={ANCHOR_ALPHA:g}$ (trained)")
+        if len(sub) < 2:  # single point: no-map / legacy benchmark -> fixed star
+            continue
+        #     ax.scatter(sub["fuel"], sub["noise"], marker="*", s=240, facecolors=color,
+        #                edgecolors="black", linewidths=1.0, zorder=5)
+        #     config_handles.append(
+        #         plt.Line2D([0], [0], linestyle="none", marker="*", markersize=13,
+        #                    markerfacecolor=color, markeredgecolor="black",
+        #                    label=f"{c} (fixed)"))
+        #     continue
+
+        # A real frontier: line + square markers sized by alpha.
+        seen = color_use_count.get(color, 0)
+        color_use_count[color] = seen + 1
+        linestyle = "-" if seen == 0 else "--"
+
+        ax.plot(sub["fuel"], sub["noise"], linestyle=linestyle, color=color, zorder=3)
+        for fuel, noise, alpha in zip(sub["fuel"], sub["noise"], sub["alpha"]):
+            if alpha == 1:
+                 facecolor = "white"
+                 outline = color
+            else:
+                facecolor = color
+                outline = "k"
+            ax.scatter(fuel, noise, marker="o", s=alpha_to_size(alpha),
+                       facecolors=facecolor, edgecolors=outline, linewidths=MARKER_EDGE_WIDTH, zorder=4)
+
+        # Highlight the trained operating point (alpha == 1): white face, black border,
+        # at the same size the marker-size legend maps alpha=1 to.
+        # anchor = sub[np.isclose(sub["alpha"], ANCHOR_ALPHA)]
+        # if not anchor.empty:
+        #     ax.scatter(anchor["fuel"], anchor["noise"], marker="o",
+        #                s=alpha_to_size(ANCHOR_ALPHA), facecolors="white",
+        #                edgecolors="black", linewidths=MARKER_EDGE_WIDTH, zorder=6)
+
+        config_handles.append(
+            plt.Line2D([0], [0], color=color, linestyle=linestyle, marker="o", markeredgecolor="k",
+                       markeredgewidth=MARKER_EDGE_WIDTH, markersize=7, label=c))
+
+    # Anchor legend entry (white face, black border = trained alpha=1 point).
+    # config_handles.append(
+    #     plt.Line2D([0], [0], linestyle="none", marker="o",
+    #                markersize=np.sqrt(alpha_to_size(ANCHOR_ALPHA)),
+    #                markerfacecolor="white", markeredgecolor="black",
+    #                markeredgewidth=MARKER_EDGE_WIDTH,
+    #                label=f"$\\alpha={ANCHOR_ALPHA:g}$ (trained)"))
+
     ax.set_xlabel("normalized fuel (median over bearings)")
     ax.set_ylabel("normalized noise (median over bearings)")
-    ax.set_title(f"Fuel-noise frontier under density scaling — {runway}")
     ax.grid(True, alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False, fontsize=8)
+
+    # Both legends sit outside the axes on the right, stacked, and share the framed
+    # black-edged style used across the other sweep plots.
+    legend_main = ax.legend(handles=config_handles, frameon=True, edgecolor="k",
+                            loc="upper left", bbox_to_anchor=(1, 1))
+    ax.add_artist(legend_main)
+
+    # Secondary legend: marker size <-> alpha.
+    size_alphas = [a for a in (0.25, 0.5, 1, 2, 4) if a in set(pts["alpha"])]
+    if size_alphas:
+        size_handles = [
+            plt.Line2D([0], [0], linestyle="none", marker="o", markeredgecolor="k" if a != 1 else "0.5",
+                       markeredgewidth=MARKER_EDGE_WIDTH,
+                       markersize=np.sqrt(alpha_to_size(a)), markerfacecolor="0.5" if a != 1 else "white",
+                       label=r"$\alpha = $" + f"{a:g}")
+            for a in size_alphas
+        ]
+        ax.legend(handles=size_handles,
+                  frameon=True, edgecolor="k", loc="lower left", bbox_to_anchor=(1, 0),
+                  ncol=1, handletextpad=0.2)
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"frontier_{runs_name}_{runway}.png"
+    out_path = output_dir / f"frontier_{runs_name}_{runway}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out_path
@@ -180,12 +260,11 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
                       output_dir: Path) -> Path:
     """Percentage of non-completing episodes vs. density-scale alpha, per config."""
     configs = sorted(rates["config"].unique())
-    color = {c: qual(i) for i, c in enumerate(configs)}
 
-    fig, ax = plt.subplots(figsize=(7.5, 6))
+    fig, ax = plt.subplots(figsize=(WIDTH, 0.78 * WIDTH))
     for c in configs:
         sub = rates[rates["config"] == c].sort_values("alpha")
-        col = color[c]
+        col = config_color(c)
         if len(sub) >= 2:
             ax.plot(sub["alpha"], sub["failure_pct"], "-o", color=col, label=c,
                     markersize=5)
@@ -195,13 +274,14 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
                        label=f"{c} (fixed)")
 
     ax.set_xscale("log")
+    ax.set_xticks([0.25,0.5,1,2,4], labels=[str(a) for a in (0.25,0.5,1,2,4)])
     ax.set_xlabel(r"density-scale factor $\alpha$")
     ax.set_ylabel("non-completing episodes (%)")
     ax.set_title(f"Unsuccessful-run rate under density scaling — {runway}")
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
 
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
