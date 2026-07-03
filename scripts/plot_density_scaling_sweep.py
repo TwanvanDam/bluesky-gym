@@ -16,10 +16,13 @@ Usage:
         --runway EDDF_RW25R \
         --alphas 0.1 0.25 0.5 1 2 4 10
 
-Filtering (max-steps fairness): a starting bearing that does NOT complete (success or
-failed-approach) in *every* config/seed/alpha is dropped from all of them, so every frontier
-point is evaluated on an identical bearing set and is not deflated by truncated, loitering
-episodes. Disable with --no-match.
+Filtering (max-steps fairness): non-completing (max_steps / out_of_bounds) episodes carry
+truncation-length fuel/noise, so the frontier is emitted in three variants:
+  - unfiltered: all episodes, no filtering (legacy behavior);
+  - omit_incomplete: every (config, alpha) point with at least one non-completing episode
+    is dropped entirely — the failure table documents the gaps;
+  - matched_bearings: every bearing that fails to complete in any config/seed/alpha is
+    dropped from all of them, so each point is evaluated on an identical bearing set.
 """
 
 import argparse
@@ -39,9 +42,13 @@ from scripts.common.sweep_plotting import compute_episode_metrics, find_csv
 # Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
 PATTERN = re.compile(r"^(?P<config>.+?)(?:_seed(?P<seed>\d+))?$")
 
-# Episodes that completed and therefore carry valid fuel/noise (matches the generalization
-# analysis): success and failed-approach are kept; max_steps / out_of_bounds are dropped.
+# "Successful" outcomes for the failure-rate plot and the failure table: anything else
+# (failed_approach / max_steps / out_of_bounds) counts as a failure there.
 KEEP_REASONS = {"success"} #, "failed_approach"}
+
+# Episodes that complete a flight and therefore carry valid fuel/noise metrics; max_steps /
+# out_of_bounds episodes are truncated and would inflate fuel. Used by the frontier filters.
+COMPLETED_REASONS = {"success", "failed_approach"}
 
 ANCHOR_ALPHA = 1.0  # the trained operating point
 
@@ -55,8 +62,8 @@ DEFAULT_OUTPUT_DIR = Path("plots/sweep_overview_plots")
 
 # Alphas shown in the marker-size legend and used as failure-rate x-ticks.
 LEGEND_ALPHAS = (0.25, 0.5, 1, 2, 4)
-METRIC_REDUCTION = "iqr"
-WIDTH = TEXTWIDTH_IN
+METRIC_REDUCTION = "mean"
+WIDTH = 0.75* TEXTWIDTH_IN
 AXES_ASPECT = 0.78  # figure height / width, shared by both plots
 CONFIG_COLOR_RULES = {
     "no_map" : BASELINE_COLOR,
@@ -155,7 +162,24 @@ def matched_filter(df: pd.DataFrame, keep_reasons: set) -> pd.DataFrame:
     """Drop any start_angle that fails to complete in even one config/seed/alpha."""
     keep = df["termination_reason"].isin(keep_reasons)
     bearing_ok = keep.groupby(df["start_angle"]).transform("all")
+
+    discarded_bearings = sorted(df.loc[~bearing_ok, "start_angle"].unique())
+    if discarded_bearings:
+        print(f"matched_bearings: discarding {len(discarded_bearings)} bearing(s) with a "
+              f"non-completing episode in some config/seed/alpha: {[int(bear) for bear in discarded_bearings]}")
+
     return df[bearing_ok]
+
+
+def drop_incomplete_points(df: pd.DataFrame, completed_reasons: set) -> pd.DataFrame:
+    """Drop every (config, alpha) frontier point with at least one non-completing episode.
+
+    Surviving points consist purely of completed episodes, so no further per-episode
+    filtering is needed on top; the omitted points are documented by the failure table.
+    """
+    completed = df["termination_reason"].isin(completed_reasons)
+    point_ok = completed.groupby([df["config"], df["alpha"]]).transform("all")
+    return df[point_ok]
 
 
 def frontier_points(df: pd.DataFrame) -> pd.DataFrame:
@@ -233,7 +257,8 @@ def config_linestyles(configs: list[str]) -> dict[str, str]:
     return styles
 
 
-def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Path) -> Path:
+def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Path,
+                  variant: str = "") -> Path:
     configs = sorted(pts["config"].unique())
 
     fig, ax = plt.subplots(figsize=(WIDTH, AXES_ASPECT * WIDTH))
@@ -291,7 +316,8 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
         extra_artists.append(legend_size)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"frontier_{METRIC_REDUCTION}_{runs_name}_{runway}.pdf"
+    suffix = f"_{variant}" if variant else ""
+    out_path = output_dir / f"frontier_{METRIC_REDUCTION}_{runs_name}_{runway}{suffix}.pdf"
     # bbox_extra_artists forces the out-of-axes legends into the saved tight bbox;
     # tight_layout alone doesn't reserve room for them, so they'd be clipped.
     fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=extra_artists)
@@ -529,6 +555,15 @@ def main() -> None:
 
     out_path = plot_frontier(pts, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {out_path}")
+    # Completion-filtered variants (see module docstring): omit whole points vs. omit the
+    # non-completing bearings everywhere.
+    for variant, filtered in (
+        ("omit_incomplete", drop_incomplete_points(df, COMPLETED_REASONS)),
+        ("matched_bearings", matched_filter(df, COMPLETED_REASONS)),
+    ):
+        variant_path = plot_frontier(frontier_points(filtered), args.runway,
+                                     args.runs_root.name, output_dir, variant=variant)
+        print(f"Saved plot → {variant_path}")
     failure_path = plot_failure_rate(rates, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {failure_path}")
     table_path = export_failure_table(df, KEEP_REASONS, args.runway, args.runs_root.name, output_dir)
