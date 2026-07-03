@@ -55,7 +55,7 @@ DEFAULT_OUTPUT_DIR = Path("plots/sweep_overview_plots")
 
 # Alphas shown in the marker-size legend and used as failure-rate x-ticks.
 LEGEND_ALPHAS = (0.25, 0.5, 1, 2, 4)
-
+METRIC_REDUCTION = "iqr"
 WIDTH = TEXTWIDTH_IN
 AXES_ASPECT = 0.78  # figure height / width, shared by both plots
 CONFIG_COLOR_RULES = {
@@ -169,6 +169,8 @@ def frontier_points(df: pd.DataFrame) -> pd.DataFrame:
             fuel_q3=("normalized_fuel", lambda s: s.quantile(0.75)),
             noise_q1=("normalized_noise", lambda s: s.quantile(0.25)),
             noise_q3=("normalized_noise", lambda s: s.quantile(0.75)),
+            fuel_mean=("normalized_fuel", lambda s: s.mean()),
+            noise_mean=("normalized_noise", lambda s: s.mean()),
             n_bearings=("start_angle", "nunique"),
         )
         .reset_index()
@@ -247,8 +249,8 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
         # A real frontier: line + square markers sized by alpha.
         linestyle = linestyles[c]
 
-        ax.plot(*post_process_metrics(sub, "median"), linestyle=linestyle, color=color, zorder=3)
-        for fuel, noise, alpha in zip(*post_process_metrics(sub, "median"), sub["alpha"]):
+        ax.plot(*post_process_metrics(sub, METRIC_REDUCTION), linestyle=linestyle, color=color, zorder=3)
+        for fuel, noise, alpha in zip(*post_process_metrics(sub, METRIC_REDUCTION), sub["alpha"]):
             if alpha == 1:
                  facecolor = "white"
                  outline = color
@@ -262,8 +264,8 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
             plt.Line2D([0], [0], color=color, linestyle=linestyle, marker="o", markeredgecolor="k",
                        markeredgewidth=MARKER_EDGE_WIDTH, markersize=7, label=config_display_name(c)))
 
-    ax.set_xlabel("normalized fuel (median over bearings)")
-    ax.set_ylabel("normalized noise (median over bearings)")
+    ax.set_xlabel(f"normalized fuel ({METRIC_REDUCTION} over bearings)")
+    ax.set_ylabel(f"normalized noise ({METRIC_REDUCTION} over bearings)")
     ax.grid(True, alpha=0.3)
 
     # Both legends sit outside the axes on the right, stacked, and share the framed
@@ -289,7 +291,7 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
         extra_artists.append(legend_size)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"frontier_{runs_name}_{runway}.pdf"
+    out_path = output_dir / f"frontier_{METRIC_REDUCTION}_{runs_name}_{runway}.pdf"
     # bbox_extra_artists forces the out-of-axes legends into the saved tight bbox;
     # tight_layout alone doesn't reserve room for them, so they'd be clipped.
     fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=extra_artists)
@@ -329,6 +331,70 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
     out_path = output_dir / f"failure_rate_{runs_name}_{runway}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
     plt.close(fig)
+    return out_path
+
+
+# Order in which failure reasons appear inside a table cell; only reasons that actually
+# occur in the data get a slot.
+FAILURE_REASON_ORDER = ("failed_approach", "max_steps", "out_of_bounds")
+
+
+def export_failure_table(df: pd.DataFrame, keep_reasons: set, runway: str,
+                         runs_name: str, output_dir: Path) -> Path:
+    r"""Write the failure counts as a LaTeX tabular (.tex) to \input into the paper.
+
+    One row per config, one column per alpha. A cell holds the failure counts joined by
+    "/" in FAILURE_REASON_ORDER, with "--" for a zero count, and is left empty where a
+    config was not evaluated at that alpha (fixed-point configs). Computed on the
+    unmatched dataframe, for the same reason as failure_rate_points. Emits only the
+    tabular environment so caption/label/placement stay in the paper source.
+    """
+    failed = df[~df["termination_reason"].isin(keep_reasons)]
+    reasons = [r for r in FAILURE_REASON_ORDER if r in set(failed["termination_reason"])]
+    unknown = sorted(set(failed["termination_reason"]) - set(FAILURE_REASON_ORDER))
+    if unknown:
+        warnings.warn(f"Failure reason(s) {unknown} missing from FAILURE_REASON_ORDER; "
+                      "appending them last.")
+        reasons += unknown
+    counts = (failed.groupby(["config", "alpha", "termination_reason"]).size()
+              .unstack(fill_value=0).reindex(columns=reasons, fill_value=0))
+    evaluated = df.groupby(["config", "alpha"]).size()
+    n_unique = sorted(evaluated.unique())
+    n_text = f"{n_unique[0]}" if len(n_unique) == 1 else f"{n_unique[0]}–{n_unique[-1]}"
+    alphas = sorted(df["alpha"].unique())
+
+    def cell(config: str, alpha: float) -> str:
+        if (config, alpha) not in evaluated.index:
+            return ""
+        if (config, alpha) not in counts.index:
+            return "--"
+        vals = counts.loc[(config, alpha)]
+        if not vals.any():
+            return "--"
+        return r"\,/\,".join(str(v) if v else "--" for v in vals)
+
+    header = " & ".join([r"\textbf{Configuration}"]
+                        + [rf"$\alpha={a:g}$" for a in alphas]) + r" \\"
+    rows = [
+        " & ".join([config_display_name(c)] + [cell(c, a) for a in alphas]) + r" \\"
+        for c in sorted(df["config"].unique())
+    ]
+    lines = [
+        f"% Auto-generated by plot_density_scaling_sweep.py ({runs_name}, {runway}); do not edit.",
+        f"% Cell format: {' / '.join(reasons)} counts out of {n_text} episodes per cell;",
+        "% -- = no failures, empty = config not evaluated at this alpha.",
+        r"\begin{tabular}[c]{l" + "|c" * len(alphas) + "}",
+        "\t\\hline",
+        "\t" + header,
+        "\t\\hline",
+        *("\t" + row for row in rows),
+        "\t\\hline",
+        r"\end{tabular}",
+    ]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"failure_table_{runs_name}_{runway}.tex"
+    out_path.write_text("\n".join(lines) + "\n")
     return out_path
 
 
@@ -465,6 +531,8 @@ def main() -> None:
     print(f"Saved plot → {out_path}")
     failure_path = plot_failure_rate(rates, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {failure_path}")
+    table_path = export_failure_table(df, KEEP_REASONS, args.runway, args.runs_root.name, output_dir)
+    print(f"Saved table → {table_path}")
 
 
 if __name__ == "__main__":
