@@ -109,7 +109,7 @@ def _plot_and_save(
     limits: list | None
 ) -> None:
     fig, ax = plt.subplots(figsize=figure_size)
-
+    _max = []
     for i, (data, label) in enumerate(zip(run_data, labels)):
         df = data.get(tag)
         if df is None:
@@ -118,8 +118,8 @@ def _plot_and_save(
         ax.plot(df["step"], df["value"], color=color, alpha=0.1, linewidth=1)
         df["smoothed"] = df["value"].rolling(smoothing).mean()
         ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=label)
-
-    ax.set_xlim([0, round(df["step"].max()/100_000)*100_000])
+        _max += [df["step"].max()]
+    ax.set_xlim([0, round(max(_max) / 100_000) * 100_000])
     ax.set_xlabel("Environment steps")
     ax.set_ylabel(ylabel)
     if limits:
