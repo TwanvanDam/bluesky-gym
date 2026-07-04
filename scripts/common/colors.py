@@ -40,7 +40,7 @@ SCALE_COLOR = _qual(3)
 FLOOR_COLOR = _qual(4)
 HIGHLIGHT_COLOR = _qual(5)
 MULTI_SCALE_COLOR = _qual(2)
-SEED_COLORS = [_qual(i) for i in (2,4,3)]          # per-seed cycle
+SEED_COLORS = [_qual(i) for i in (2,3,4,5,6)]          # per-seed cycle
 TRANSFORMS_COLOR =_qual(4)
 UNKNOWN_COLOR = _qual(6)                                  # config matched no color rule
 
