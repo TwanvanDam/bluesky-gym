@@ -65,6 +65,11 @@ REASON_HATCH = {
     "out_of_bounds":   "xxxx",
 }
 
+# success/failed_approach are filled with the mode/baseline color (hatch drawn on
+# top); the remaining failure modes are hatch-only so they don't compete visually
+# with the arrival-rate segments.
+FILLED_REASONS = {"success", "failed_approach"}
+
 # ---------------------------------------------------------------------------- metrics
 
 def plot_metric_boxplot(
@@ -188,8 +193,12 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
 
     def _bar(ax_, x_, h, bottom_, color, reason):
         hatch = REASON_HATCH.get(reason, "")
-        ax_.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, color=color,
-                alpha=BOXPLOT_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        if reason in FILLED_REASONS:
+            ax_.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, color=color,
+                    alpha=BOXPLOT_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        else:
+            ax_.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, facecolor="none",
+                    hatch=hatch, edgecolor="black", linewidth=0.5)
 
     # --- baseline bar at x=0 ---
     if baseline_breakdown is not None:
@@ -224,13 +233,14 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
             _bar(ax, xi + MODE_TO_OFFSET[mode], means[reason], bottom, MODE_TO_COLOR[mode], reason)
             bottom += means[reason]
             seen_reasons.add(reason)
-
+        min_seed_rates = 1
         for res in mode_resolutions:
             xi_base = resolutions.index(res) + 1 + MODE_TO_OFFSET[mode]
             seed_rates = {row["seed"]: row["success_rate"]
                           for _, row in mode_df[mode_df["resolution"] == res].iterrows()}
             seeds = sorted(seed_rates)
             jitter = np.linspace(-0.06, 0.06, len(seeds))
+            min_seed_rates = min([min_seed_rates, *seed_rates])
             for jit, seed in zip(jitter, seeds):
                 ax.scatter(xi_base + jit, seed_rates[seed],
                            color='black', s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
@@ -241,7 +251,10 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     ax.set_xlabel("Observation resolution [km/px]")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    ax.set_ylim(0.87, 1.01)
+    if min_seed_rates > 0.87:
+        ax.set_ylim(0.87, 1.01)
+    else:
+        ax.set_ylim(0.0, 1.05)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
 
     legend_handles = []
@@ -253,8 +266,9 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
         if not breakdown[breakdown["mode"] == mode].empty
     ]
     for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        fc = "lightgray" if reason in FILLED_REASONS else "none"
         legend_handles.append(plt.Rectangle(
-            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            (0, 0), 1, 1, fc=fc, hatch=REASON_HATCH[reason], edgecolor="black",
             label=REASON_LABELS.get(reason, reason)))
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
