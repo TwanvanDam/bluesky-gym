@@ -32,8 +32,6 @@ from scripts.common.sweep_plotting import (
     collect_breakdown_data, compute_baseline, collect_baseline_breakdown, collect_baseline_seed_rates,
 )
 
-plt.rcParams["font.size"] = 12
-
 # Source width of every metric figure, in inches. Figures are included at
 # \textwidth in LaTeX, so the legend is exported at this same width and included
 # at \textwidth too — both scale by the same factor, keeping text sizes matched.
@@ -47,16 +45,6 @@ DOT_SIZE = 40
 
 # {sweep_N_}{forward|centered}_{resolution}_seed{NN}
 PATTERN = re.compile(r"^(?:sweep_\d+_)?(?P<mode>forward|centered)_(?P<resolution>\d+)_seed(?P<seed>\d+)$")
-
-METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping)"),
-]
 
 MODE_TO_OFFSET = {
     "baseline": 0,
