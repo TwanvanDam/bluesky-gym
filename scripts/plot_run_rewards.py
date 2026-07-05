@@ -20,7 +20,7 @@ TAG_FUEL = "episode/total_episode_fuel_reward"
 
 LEGEND_FILE = "name_to_legend.txt"
 
-figure_size = (0.75 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN)
+figure_size = (0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN)
 
 RunData = dict[str, pd.DataFrame | None]
 

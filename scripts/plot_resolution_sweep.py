@@ -35,8 +35,6 @@ from scripts.common.sweep_plotting import (
 # Source width of every metric figure, in inches. Figures are included at
 # \textwidth in LaTeX, so the legend is exported at this same width and included
 # at \textwidth too — both scale by the same factor, keeping text sizes matched.
-PLOT_WIDTH_IN = 3.16
-
 BOX_OFFSET = 0.2
 BOX_WIDTH = 0.35
 BAR_WIDTH = 0.5
@@ -184,9 +182,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     resolutions = sorted(breakdown["resolution"].unique())
     # baseline at 0, resolutions start at 1 — mirrors the metric boxplot layout
     x = np.arange(1, len(resolutions) + 1)
-    textwidth = 469
-    plot_width_in = textwidth / 72.7
-    fig, ax = plt.subplots(figsize=(plot_width_in, 0.4 * plot_width_in), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
 
 
     seen_reasons: set = set()
