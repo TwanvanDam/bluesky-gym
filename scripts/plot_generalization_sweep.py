@@ -71,6 +71,11 @@ REASON_HATCH = {
     "out_of_bounds":   "xxxx",
 }
 
+# success/failed_approach are filled with the config color (hatch drawn on top);
+# the remaining failure modes are hatch-only so they don't compete visually with
+# the arrival-rate segments.
+FILLED_REASONS = {"success", "failed_approach"}
+
 # Checked in order; first substring match wins. Config names come from PATTERN
 # (e.g. "centered_16_all"), so exact-match lookup would miss most real configs.
 CONFIG_COLOR_RULES = {
@@ -401,8 +406,12 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
 
     def _bar(xi, h, bottom_, color, reason):
         hatch = REASON_HATCH.get(reason, "")
-        ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, color=color,
-               alpha=BAR_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        if reason in FILLED_REASONS:
+            ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, color=color,
+                   alpha=BAR_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        else:
+            ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, facecolor="none",
+                   hatch=hatch, edgecolor="black", linewidth=0.5)
 
     # Each config keeps its sweep color; the termination reason is shown by hatch.
     ordered, means = mean_breakdowns(df, configs, pos_col="config")
@@ -438,8 +447,9 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
         legend_handles.append(plt.Line2D([0], [0], color=BASELINE_COLOR, linestyle="--",
                                          label=f"Baseline success ({baseline:.0%})"))
     for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        fc = "lightgray" if reason in FILLED_REASONS else "none"
         legend_handles.append(plt.Rectangle(
-            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            (0, 0), 1, 1, fc=fc, hatch=REASON_HATCH[reason], edgecolor="black",
             label=REASON_LABELS.get(reason, reason)))
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",

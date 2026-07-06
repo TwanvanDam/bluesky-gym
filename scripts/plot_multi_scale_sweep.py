@@ -34,6 +34,11 @@ BAR_WIDTH = 0.6
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
 
+# success/failed_approach are filled with the mode/baseline color (hatch drawn on
+# top); the remaining failure modes are hatch-only so they don't compete visually
+# with the arrival-rate segments.
+FILLED_REASONS = {"success", "failed_approach"}
+
 # {multi_scale_}{group}{variant}_seed{NN}, group 1-5, variant a/b
 PATTERN = re.compile(r"^(?:multi_scale_)?(?P<group_num>\d)(?P<variant>[ab])_seed(?P<seed>\d+)$")
 
@@ -194,8 +199,12 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
 
     def _bar(x_, h, bottom_, color, reason, alpha):
         hatch = REASON_HATCH.get(reason, "")
-        ax.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, color=color,
-               alpha=alpha, hatch=hatch, edgecolor="black", linewidth=0.5)
+        if reason in FILLED_REASONS:
+            ax.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, color=color,
+                   alpha=alpha, hatch=hatch, edgecolor="black", linewidth=0.5)
+        else:
+            ax.bar(x_, h, width=BOX_WIDTH, bottom=bottom_, facecolor="none",
+                   hatch=hatch, edgecolor="black", linewidth=0.5)
 
     # --- baseline bar at x=0 ---
     if baseline_breakdown is not None:
@@ -258,8 +267,9 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
             legend_handles.append(plt.Rectangle(
                 (0, 0), 1, 1, fc=MULTI_SCALE_COLOR, alpha=VARIANT_TO_ALPHA[variant], label=f"Variant {variant}"))
     for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        fc = "lightgray" if reason in FILLED_REASONS else "none"
         legend_handles.append(plt.Rectangle(
-            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            (0, 0), 1, 1, fc=fc, hatch=REASON_HATCH[reason], edgecolor="black",
             label=REASON_LABELS.get(reason, reason)))
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",

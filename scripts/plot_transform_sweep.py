@@ -148,6 +148,11 @@ REASON_HATCH = {
     "out_of_bounds":   "xxxx",
 }
 
+# success/failed_approach are filled with the variant color (hatch drawn on top);
+# the remaining failure modes are hatch-only so they don't compete visually with
+# the arrival-rate segments.
+FILLED_REASONS = {"success", "failed_approach"}
+
 
 def print_success_rates(breakdown: pd.DataFrame, baseline_seed_rates=None) -> None:
     if baseline_seed_rates:
@@ -166,8 +171,12 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
 
     def _bar(xi, h, bottom_, color, reason):
         hatch = REASON_HATCH.get(reason, "")
-        ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, color=color,
-               alpha=BAR_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        if reason in FILLED_REASONS:
+            ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, color=color,
+                   alpha=BAR_ALPHA, hatch=hatch, edgecolor="black", linewidth=0.5)
+        else:
+            ax.bar(xi, h, width=BAR_WIDTH, bottom=bottom_, facecolor="none",
+                   hatch=hatch, edgecolor="black", linewidth=0.5)
 
     has_baseline = False # baseline_breakdown is not None
     x_offset = 0
@@ -206,8 +215,9 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
     if has_baseline:
         legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BAR_ALPHA, label="Baseline (C4)"))
     for reason in [r for r in REASON_HATCH if r in seen_reasons]:
+        fc = "lightgray" if reason in FILLED_REASONS else "none"
         legend_handles.append(plt.Rectangle(
-            (0, 0), 1, 1, fc="lightgray", hatch=REASON_HATCH[reason], edgecolor="black",
+            (0, 0), 1, 1, fc=fc, hatch=REASON_HATCH[reason], edgecolor="black",
             label=REASON_LABELS.get(reason, reason)))
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
