@@ -121,6 +121,7 @@ def _plot_and_save(
         _max += [df["step"].max()]
     ax.set_xlim([0, round(max(_max) / 100_000) * 100_000])
     ax.set_xlabel("Environment steps")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
     if limits:
         ax.set_ylim(*limits)
@@ -166,6 +167,7 @@ def _plot_sum_and_save(
         ax.plot(merged["step"], merged["smoothed"], color=color, linewidth=1.5, label=label)
 
     ax.set_xlabel("Environment steps")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
     if limits:
         ax.set_ylim(*limits)
