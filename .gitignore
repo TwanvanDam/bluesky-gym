@@ -9,6 +9,7 @@ dist/
 /scripts/common/results/
 /scripts/common/results_old/
 /runs/
+/runs_backup/
 /.idea/
 /HPC/rl_env.sif
 /scripts/population_maps/

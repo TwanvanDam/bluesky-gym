@@ -75,11 +75,11 @@ navigation_config:
   map_sampling_config:
     aircraft_lat_sampling:
       distribution: normal
-      mean: 0.0
+      mean: 0
       std: 2.0
     aircraft_lon_sampling:
       distribution: normal
-      mean: 0.0
+      mean: 0
       std: 2.0
     aircraft_position_mode: relative
     destination_hdg_sampling:
@@ -121,9 +121,19 @@ population_config:
   map_source_config:
     file_path: scripts/population_maps/europe_3035_1km.tif
     source_unit: people_per_pixel
-    spatial_transforms: []
+    spatial_transforms:
+      - type: flip
+        axis: combination
+        p: 0.5
     type: transformed
     value_transforms:
+      - type: gamma_correction
+        gamma:
+          - 0.520
+          - 0.700
+        target_value: 46.3
+        percentile: 50
+        p: 0.5
       - type: clip
         percentile: 99.9
     window_margin_m: 0

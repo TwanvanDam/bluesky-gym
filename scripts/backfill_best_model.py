@@ -24,19 +24,29 @@ from tensorboard.backend.event_processing import event_accumulator
 from scripts.common.run_paths import RunPaths, resolve_run, update_metadata
 
 REWARD_TAG = "rollout/ep_rew_mean"
+SUCCESS_TAG = "episode/termination_reason/SUCCESS"
+EP_LEN_TAG = "rollout/ep_len_mean"
+# Extra metrics reported (windowed over the selected checkpoint) for the paper.
+_REPORT_TAGS = (SUCCESS_TAG, EP_LEN_TAG)
 _CKPT_RE = re.compile(r"checkpoint_(\d+)_steps\.zip")
 
 
-def _load_reward_series(run: RunPaths) -> tuple[np.ndarray, np.ndarray] | None:
-    """Return (steps, values) for rollout/ep_rew_mean, or None if unavailable."""
+def _load_event_accumulator(run: RunPaths) -> event_accumulator.EventAccumulator | None:
+    """Load the run's TensorBoard event file, or None if unavailable."""
     event_files = sorted(run.tensorboard_dir.glob("*"))
     if not event_files:
         return None
     ea = event_accumulator.EventAccumulator(str(event_files[0]))
     ea.Reload()
-    if REWARD_TAG not in ea.Tags().get("scalars", []):
+    return ea
+
+
+def _scalar_series(ea: event_accumulator.EventAccumulator,
+                   tag: str) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return (steps, values) for a scalar tag, or None if unavailable."""
+    if tag not in ea.Tags().get("scalars", []):
         return None
-    scalars = ea.Scalars(REWARD_TAG)
+    scalars = ea.Scalars(tag)
     steps = np.array([s.step for s in scalars])
     values = np.array([s.value for s in scalars])
     return steps, values
@@ -69,7 +79,11 @@ def process_run(run: RunPaths, dry_run: bool, overwrite: bool, verbose: bool) ->
     if run.best_model.exists() and not overwrite:
         return "skip (best_model.zip already exists)"
 
-    reward_data = _load_reward_series(run)
+    ea = _load_event_accumulator(run)
+    if ea is None:
+        return "skip (no TensorBoard event files)"
+
+    reward_data = _scalar_series(ea, REWARD_TAG)
     if reward_data is None:
         return "skip (no TensorBoard reward data)"
 
@@ -85,21 +99,40 @@ def process_run(run: RunPaths, dry_run: bool, overwrite: bool, verbose: bool) ->
         if mean is not None:
             if verbose:
                 print(step,mean)
-            scored[step] = (mean, checkpoints[step])
+            scored[step] = (mean, checkpoints[step], prev_step)
         prev_step = step
 
     if not scored:
         return "skip (could not score any checkpoint)"
 
     best_step = max(scored, key=lambda s: scored[s][0])
-    best_mean, best_path = scored[best_step]
+    best_mean, best_path, best_prev = scored[best_step]
+
+    # Windowed values of the reporting metrics over the selected checkpoint's window.
+    extra = {}
+    for tag in _REPORT_TAGS:
+        series = _scalar_series(ea, tag)
+        extra[tag] = None if series is None else _windowed_mean(*series, best_prev, best_step)
+    success_rate, ep_len_mean = extra[SUCCESS_TAG], extra[EP_LEN_TAG]
+
+    def _fmt(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.4f}"
+
+    metrics = (f"windowed_mean={best_mean:.4f} "
+               f"success_rate={_fmt(success_rate)} ep_len_mean={_fmt(ep_len_mean)}")
 
     if dry_run:
-        return f"would copy {best_path.name} (windowed_mean={best_mean:.4f})"
+        return f"would copy {best_path.name} ({metrics})"
 
     shutil.copy2(best_path, run.best_model)
-    update_metadata(run, best_checkpoint=best_path.name, windowed_mean=f"{best_mean:.4f}")
-    return f"copied {best_path.name} (windowed_mean={best_mean:.4f})"
+    update_metadata(
+        run,
+        best_checkpoint=best_path.name,
+        windowed_mean=f"{best_mean:.4f}",
+        success_rate=_fmt(success_rate),
+        ep_len_mean=_fmt(ep_len_mean),
+    )
+    return f"copied {best_path.name} ({metrics})"
 
 
 def main() -> None:

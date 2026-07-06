@@ -13,6 +13,9 @@ from pathlib import Path
 import numpy as np
 import rasterio
 import rasterio.enums
+from rasterio.transform import array_bounds, xy
+from rasterio.warp import calculate_default_transform, reproject, transform_bounds, Resampling
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from pyproj import Transformer
@@ -22,38 +25,22 @@ from bluesky_gym.utils.sampling_config import ExclusionZone
 MAP_DIR = Path(__file__).parent / "population_maps"
 OUT_DIR = Path("./plots/population_maps")
 
+PLOT_CRS = "ESRI:54009"  # Mollweide equal-area
+WGS84_CRS = "EPSG:4326"
+PLOT_CMAP = "Blues"
+FIGSIZE = (10, 8)
+DPI = 150
+
 MAX_PIXELS = 4_000_000  # downsample files larger than this on read
 
 
 def wgs84_bounds(dataset):
     """Return (lon_min, lat_min, lon_max, lat_max) in WGS84."""
     try:
-        transformer = Transformer.from_crs(dataset.crs, "EPSG:4326", always_xy=True)
         b = dataset.bounds
-        lon_min, lat_min = transformer.transform(b.left, b.bottom)
-        lon_max, lat_max = transformer.transform(b.right, b.top)
-        return lon_min, lat_min, lon_max, lat_max
+        return transform_bounds(dataset.crs, WGS84_CRS, b.left, b.bottom, b.right, b.top)
     except Exception:
         return None
-
-
-def wgs84_to_pixel(lat, lon, ds_crs, ds_transform, img_w, orig_w, img_h, orig_h):
-    """Convert WGS84 lat/lon to (col, row) in the displayed (possibly downsampled) image."""
-    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
-    x, y = transformer.transform(lon, lat)
-    col_orig = (x - ds_transform.c) / ds_transform.a
-    row_orig = (y - ds_transform.f) / ds_transform.e
-    return col_orig * img_w / orig_w, row_orig * img_h / orig_h
-
-
-def km_to_pixel_radius(lat, lon, radius_km, ds_crs, ds_transform, img_w, orig_w):
-    """Convert radius_km to pixel radius in the displayed image via eastward offset."""
-    lon_offset = lon + radius_km / (111.0 * np.cos(np.deg2rad(lat)))
-    transformer = Transformer.from_crs("EPSG:4326", ds_crs, always_xy=True)
-    x0, _ = transformer.transform(lon, lat)
-    x1, _ = transformer.transform(lon_offset, lat)
-    r_orig = abs(x1 - x0) / abs(ds_transform.a)
-    return r_orig * img_w / orig_w
 
 
 def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = None) -> dict:
@@ -80,32 +67,65 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
             "size_px": (ds.width, ds.height),
             "resolution": ds.res,
             "nodata": nodata,
-            "min": float(np.nanmin(data)) if valid.size else float("nan"),
-            "max": float(np.nanmax(data)) if valid.size else float("nan"),
-            "mean": float(np.nanmean(data)) if valid.size else float("nan"),
+            "min": float(valid.min()) if valid.size else float("nan"),
+            "max": float(valid.max()) if valid.size else float("nan"),
+            "mean": float(valid.mean()) if valid.size else float("nan"),
             "nonzero_frac": float(np.sum(valid > 0) / valid.size) if valid.size else 0.0,
         }
         info["bounds_wgs84"] = wgs84_bounds(ds)
 
-        # Plot
-        display = np.where(np.isfinite(data) & (data > 0), np.log1p(data), np.nan)
-        img_h, img_w = display.shape
-        fig, ax = plt.subplots(figsize=(10, 6))
-        im = ax.imshow(display, cmap="Blues", origin="upper", aspect="auto")
-        plt.colorbar(im, ax=ax, label="log(1 + population density)")
+        # Reproject the (downsampled) array to the display CRS
+        src_transform = ds.transform * rasterio.Affine.scale(
+            ds.width / data.shape[1], ds.height / data.shape[0]
+        )
+        dst_transform, dst_w, dst_h = calculate_default_transform(
+            ds.crs, PLOT_CRS, data.shape[1], data.shape[0], *ds.bounds
+        )
+        proj = np.full((dst_h, dst_w), np.nan, dtype=np.float64)
+        reproject(
+            source=data, destination=proj,
+            src_transform=src_transform, src_crs=ds.crs,
+            dst_transform=dst_transform, dst_crs=PLOT_CRS,
+            src_nodata=np.nan, dst_nodata=np.nan,
+            resampling=Resampling.average,
+        )
+
+        # Only no-data pixels (NaN after reprojection) are left masked; genuine
+        # zero-population land stays a real value so it draws with the colormap.
+        # Masked pixels render grey, matching the Population wrapper's grey
+        # background fill behind transparent no-data areas.
+        finite = np.isfinite(proj)
+        display = np.where(finite, np.log1p(np.clip(proj, 0, None)), np.nan)
+        left, bottom, right, top = array_bounds(dst_h, dst_w, dst_transform)
+        cmap = matplotlib.colormaps[PLOT_CMAP].copy()
+        cmap.set_bad(color="grey")
+        fig, ax = plt.subplots(figsize=FIGSIZE)
+        ax.imshow(
+            display, cmap=cmap, origin="upper",
+            extent=(left, right, bottom, top), aspect="equal",
+        )
+
+        # Crop the axes to the data footprint so the surrounding no-data padding
+        # (introduced when the source rectangle is warped to the display CRS) is
+        # not shown as a grey border.
+        if finite.any():
+            cols = np.where(finite.any(axis=0))[0]
+            rows = np.where(finite.any(axis=1))[0]
+            x_left, _ = xy(dst_transform, 0, cols[0], offset="ul")
+            x_right, _ = xy(dst_transform, 0, cols[-1], offset="ur")
+            _, y_top = xy(dst_transform, rows[0], 0, offset="ul")
+            _, y_bottom = xy(dst_transform, rows[-1], 0, offset="ll")
+            ax.set_xlim(x_left, x_right)
+            ax.set_ylim(y_bottom, y_top)
 
         if exclusion_zones:
+            to_plot_crs = Transformer.from_crs(WGS84_CRS, PLOT_CRS, always_xy=True)
             for zone in exclusion_zones:
-                col, row = wgs84_to_pixel(
-                    zone.lat, zone.lon, ds.crs, ds.transform,
-                    img_w, ds.width, img_h, ds.height,
-                )
-                r_px = km_to_pixel_radius(
-                    zone.lat, zone.lon, zone.radius_km, ds.crs, ds.transform,
-                    img_w, ds.width,
-                )
+                x, y = to_plot_crs.transform(zone.lon, zone.lat)
+                # Web Mercator inflates ground distance by 1/cos(lat)
+                r = zone.radius_km * 1000.0 / np.cos(np.deg2rad(zone.lat))
                 circle = mpatches.Circle(
-                    (col, row), r_px,
+                    (x, y), r,
                     facecolor="red", edgecolor="darkred",
                     alpha=0.35, linewidth=1.5,
                 )
@@ -113,7 +133,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
 
         plot_path = OUT_DIR / f"{tiff_path.stem}_coverage.png"
         fig.tight_layout()
-        fig.savefig(plot_path, dpi=150)
+        fig.savefig(plot_path, dpi=DPI)
         plt.close(fig)
         print(f"  saved plot → {plot_path.name}")
 

@@ -233,6 +233,8 @@ class BaseNavigationEnv(gym.Env):
                     achdg=aircraft_initial_hdg, acspd=self.config.ac_initial_spd, acalt=self.config.ac_initial_alt)
         bs.sim.step()
         self.mean_fuel_flow = self._get_fuel_flow()
+        if self.save_trajectory:
+            self._save_telemetry()
 
         if self.render_mode == "human" and not self._render_owned_by_wrapper:
             self.render()

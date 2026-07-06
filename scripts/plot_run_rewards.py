@@ -10,16 +10,42 @@ import pandas as pd
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from tqdm import tqdm
 
-from scripts.common.colors import qual
-from scripts.common.run_paths import resolve_run, RunPaths
+from scripts.common.colors import *
+from scripts.common.run_paths import RunPaths
 
 
 TAG = "rollout/ep_rew_mean"
 TAG_NOISE = "episode/total_episode_noise_reward"
 TAG_FUEL = "episode/total_episode_fuel_reward"
 
+LEGEND_FILE = "name_to_legend.txt"
+
+figure_size = (0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN)
 
 RunData = dict[str, pd.DataFrame | None]
+
+
+def load_legend_overrides(runs: list[RunPaths]) -> dict[str, str]:
+    """Read `name_to_legend.txt` files sitting alongside the run dirs.
+
+    Returns a {run_name: legend_entry} mapping. Each run's parent directory is
+    checked for the file; format is one `filename, legend_entry` pair per line
+    with an optional `filename, legend_entry` header row.
+    """
+    mapping: dict[str, str] = {}
+    for parent in {run.root.parent for run in runs}:
+        legend_path = parent / LEGEND_FILE
+        if not legend_path.exists():
+            continue
+        for line in legend_path.read_text().splitlines():
+            line = line.strip()
+            if not line or "," not in line:
+                continue
+            name, legend = (part.strip() for part in line.split(",", 1))
+            if name == "filename" and legend == "legend_entry":
+                continue  # header row
+            mapping[name] = legend
+    return mapping
 
 
 def load_run_scalars(run: RunPaths, tags: list[str]) -> RunData:
@@ -82,32 +108,31 @@ def _plot_and_save(
     output_dir: Path,
     limits: list | None
 ) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-
+    fig, ax = plt.subplots(figsize=figure_size)
+    _max = []
     for i, (data, label) in enumerate(zip(run_data, labels)):
         df = data.get(tag)
         if df is None:
             continue
-        color = qual(i)
+        color = SEED_COLORS[i]
         ax.plot(df["step"], df["value"], color=color, alpha=0.1, linewidth=1)
         df["smoothed"] = df["value"].rolling(smoothing).mean()
         ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=label)
-
+        _max += [df["step"].max()]
+    ax.set_xlim([0, round(max(_max) / 100_000) * 100_000])
     ax.set_xlabel("Environment steps")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
-    ax.set_title(f"{plot_name} — {title_suffix} ({len(run_data)} {legend_title})")
     if limits:
         ax.set_ylim(*limits)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False)
-    ax.grid()
+    legend = ax.legend(frameon=True, edgecolor="k", loc="center left",bbox_to_anchor=(1,0.5))
+    ax.grid(alpha=0.3)
 
     fig.tight_layout()
     out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{plot_name}{file_suffix}.png"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    out_path = out_dir / f"{plot_name}{file_suffix}.pdf"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
     plt.close(fig)
     print(f"Saved → {out_path}")
 
@@ -126,7 +151,7 @@ def _plot_sum_and_save(
     output_dir: Path,
     limits: list | None
 ) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=figure_size)
 
     for i, (data, label) in enumerate(zip(run_data, labels)):
         dfs = [data.get(t) for t in tags]
@@ -136,26 +161,24 @@ def _plot_sum_and_save(
         for j, d in enumerate(dfs[1:], 1):
             merged = merged.merge(d.rename(columns={"value": f"v{j}"}), on="step", how="inner")
         merged["value"] = sum(merged[f"v{j}"] for j in range(len(tags)))
-        color = qual(i)
+        color = SEED_COLORS[i]
         ax.plot(merged["step"], merged["value"], color=color, alpha=0.1, linewidth=1)
         merged["smoothed"] = merged["value"].rolling(smoothing).mean()
         ax.plot(merged["step"], merged["smoothed"], color=color, linewidth=1.5, label=label)
 
     ax.set_xlabel("Environment steps")
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
-    ax.set_title(f"{plot_name} — {title_suffix} ({len(run_data)} {legend_title})")
     if limits:
         ax.set_ylim(*limits)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False)
-    ax.grid()
+    legend = ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
+    ax.grid(alpha=0.3)
 
     fig.tight_layout()
     out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{plot_name}{file_suffix}.png"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    out_path = out_dir / f"{plot_name}{file_suffix}.pdf"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
     plt.close(fig)
     print(f"Saved → {out_path}")
 
@@ -183,13 +206,22 @@ def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Plot mean reward for trained run(s).")
-    parser.add_argument("run_refs", nargs="+", help="Run reference(s) or path to a trajectories.csv")
+    parser = argparse.ArgumentParser(description="Plot mean reward for the run(s) in a folder.")
+    parser.add_argument("folder", type=Path, help="Folder containing run subdirectories (e.g. runs/appendix/centered_16)")
     parser.add_argument("--smoothing", type=int, default=100)
     parser.add_argument("--output_dir", type=Path, default=Path("plots/reward-plots"), help=f"Output directory for the plots")
     args = parser.parse_args()
 
-    runs = [resolve_run(r) for r in args.run_refs]
+    folder = args.folder
+    if not folder.is_dir():
+        parser.error(f"Not a directory: {folder}")
+    runs = [
+        RunPaths.from_run_dir(d)
+        for d in sorted(folder.iterdir(), key=lambda p: p.name)
+        if d.is_dir() and d.name != "slurm"
+    ]
+    if not runs:
+        parser.error(f"No run subdirectories found in {folder}")
     smoothing = args.smoothing
     run_names = [run.run_name for run in runs]
 
@@ -209,5 +241,9 @@ if __name__ == "__main__":
     else:
         labels, plot_name = _differing_parts(run_names)
         legend_title = "runs"
+
+    overrides = load_legend_overrides(runs)
+    if overrides:
+        labels = [overrides.get(run.run_name, label) for run, label in zip(runs, labels)]
 
     main(runs, labels, smoothing, plot_name, output_dir, legend_title)

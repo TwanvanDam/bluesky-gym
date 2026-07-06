@@ -75,11 +75,11 @@ navigation_config:
   map_sampling_config:
     aircraft_lat_sampling:
       distribution: normal
-      mean: 0.0
+      mean: 0
       std: 2.0
     aircraft_lon_sampling:
       distribution: normal
-      mean: 0.0
+      mean: 0
       std: 2.0
     aircraft_position_mode: relative
     destination_hdg_sampling:
@@ -124,6 +124,11 @@ population_config:
     spatial_transforms: []
     type: transformed
     value_transforms:
+      - type: scale_values
+        factor:
+          - 1
+          - 7.59
+        p: 0.5
       - type: clip
         percentile: 99.9
     window_margin_m: 0

@@ -198,3 +198,23 @@ def update_metadata(run_paths: RunPaths, **kwargs) -> None:
     data = read_metadata(run_paths)
     data.update(kwargs)
     write_metadata(run_paths, **data)
+
+
+def write_trajectory_details(traj_dir: Path, details: dict) -> None:
+    """Write a trajectory subdir's eval details as human-readable JSON."""
+    (traj_dir / "details.json").write_text(json.dumps(details, indent=2, default=str))
+
+
+def load_trajectory_details(traj_dir: Path) -> dict | None:
+    """Load a trajectory subdir's eval details, preferring JSON over legacy pickle.
+
+    Returns None when neither details.json nor details.pkl is present.
+    """
+    json_path = traj_dir / "details.json"
+    if json_path.exists():
+        return json.loads(json_path.read_text())
+    pkl_path = traj_dir / "details.pkl"
+    if pkl_path.exists():
+        import pickle
+        return pickle.loads(pkl_path.read_bytes())
+    return None
