@@ -18,7 +18,7 @@ from rasterio.warp import calculate_default_transform, reproject, transform_boun
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from pyproj import Transformer
+from pyproj import Geod, Transformer
 
 from bluesky_gym.utils.sampling_config import ExclusionZone
 
@@ -30,6 +30,10 @@ WGS84_CRS = "EPSG:4326"
 PLOT_CMAP = "Blues"
 FIGSIZE = (10, 8)
 DPI = 150
+
+# Matches pygame.Color("grey") = (190, 190, 190, 255), used as the canvas
+# background fill in Population.get_base_render_layers.
+PYGAME_GREY = (190 / 255, 190 / 255, 190 / 255)
 
 MAX_PIXELS = 4_000_000  # downsample files larger than this on read
 
@@ -98,7 +102,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         display = np.where(finite, np.log1p(np.clip(proj, 0, None)), np.nan)
         left, bottom, right, top = array_bounds(dst_h, dst_w, dst_transform)
         cmap = matplotlib.colormaps[PLOT_CMAP].copy()
-        cmap.set_bad(color="grey")
+        cmap.set_bad(color=PYGAME_GREY)
         fig, ax = plt.subplots(figsize=FIGSIZE)
         ax.imshow(
             display, cmap=cmap, origin="upper",
@@ -120,10 +124,15 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
 
         if exclusion_zones:
             to_plot_crs = Transformer.from_crs(WGS84_CRS, PLOT_CRS, always_xy=True)
+            geod = Geod(ellps="WGS84")
             for zone in exclusion_zones:
                 x, y = to_plot_crs.transform(zone.lon, zone.lat)
-                # Web Mercator inflates ground distance by 1/cos(lat)
-                r = zone.radius_km * 1000.0 / np.cos(np.deg2rad(zone.lat))
+                # Project a true geodesic offset point rather than assuming a
+                # fixed scale factor, so the radius is correct in whatever
+                # PLOT_CRS is (currently Mollweide, not Web Mercator).
+                lon_edge, lat_edge, _ = geod.fwd(zone.lon, zone.lat, 90.0, zone.radius_km * 1000.0)
+                x_edge, y_edge = to_plot_crs.transform(lon_edge, lat_edge)
+                r = np.hypot(x_edge - x, y_edge - y)
                 circle = mpatches.Circle(
                     (x, y), r,
                     facecolor="red", edgecolor="darkred",
