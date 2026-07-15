@@ -104,13 +104,13 @@ def boxplot_stats(data) -> dict:
     data = np.asarray(data, dtype=float)
     data = data[~np.isnan(data)]
     if data.size == 0:
-        return {"q25": np.nan, "q50": np.nan, "q75": np.nan,
+        return {"q10": np.nan,"q25": np.nan, "q50": np.nan, "q75": np.nan, "q90": np.nan,
                 "iqr": np.nan, "whisker_lo": np.nan, "whisker_hi": np.nan}
-    q25, q50, q75 = np.percentile(data, [25, 50, 75])
+    q10, q25, q50, q75, q90 = np.percentile(data, [10, 25, 50, 75, 90])
     iqr = q75 - q25
     whisker_lo = data[data >= q25 - 1.5 * iqr].min()
     whisker_hi = data[data <= q75 + 1.5 * iqr].max()
-    return {"q25": q25, "q50": q50, "q75": q75,
+    return {"q10": q10, "q25": q25, "q50": q50, "q75": q75, "q90" : q90,
             "iqr": iqr, "whisker_lo": whisker_lo, "whisker_hi": whisker_hi}
 
 

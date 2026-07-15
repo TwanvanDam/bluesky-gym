@@ -89,6 +89,40 @@ def aggregate(df: pd.DataFrame, group_by: list[str]) -> pd.DataFrame:
     agg["success_pct"] *= 100.0
     return agg
 
+def make_latex_compatible(text: str) -> str:
+    return text.replace("_", r"\_")
+
+def seed_noise_floor(df: pd.DataFrame, group_by: list[str]) -> pd.Series:
+    """Per-config range (max - min) of the per-seed median reward.
+
+    The seed-to-seed spread of the median reward is the honest noise floor for a
+    few-seed sweep: differences between configs smaller than this are within seed
+    noise. Requires a seed column and the derived `reward` column.
+    """
+    per_seed_median = df.groupby(group_by + [SEED_COL])["reward"].median()
+    return per_seed_median.groupby(group_by).agg(lambda s: s.max() - s.min())
+
+
+def print_seed_noise_floor(df: pd.DataFrame, group_by: list[str],
+                           agg: pd.DataFrame) -> None:
+    """Print the seed-noise floor per config plus the cross-config median span.
+
+    The baseline CSV (if any) is not included; the floor is computed over the
+    swept configs in the main CSV only.
+    """
+    if SEED_COL not in df.columns:
+        print(f"[seed-noise floor] no '{SEED_COL}' column; skipping.")
+        return
+    floor = seed_noise_floor(df, group_by).sort_values()
+    span = agg["reward_median"].max() - agg["reward_median"].min()
+    print("Seed-noise floor (per-config range of per-seed median reward):")
+    for keys, value in floor.items():
+        label = make_label(list(keys) if isinstance(keys, tuple) else [keys], group_by)
+        print(f"  {label:<16} {value:.3f}")
+    print(f"  typical (median across configs): {floor.median():.3f}")
+    print(f"  max:                             {floor.max():.3f}")
+    print(f"Cross-config median-reward span:   {span:.3f}")
+
 
 def _fmt_key(value) -> str:
     """Render a config-key value: integral floats as ints, everything else as-is."""
@@ -180,6 +214,7 @@ def create_table(csv_path: Path, group_by: list[str] | None,
         raise ValueError(f"No config columns found in {csv_path}; pass --group-by explicitly.")
 
     agg = aggregate(df, group_by)
+    print_seed_noise_floor(df, group_by, agg)
 
     baseline_agg = None
     if baseline_path is not None:
@@ -215,7 +250,7 @@ def main() -> None:
     group_by = args.group_by.split(",") if args.group_by else None
     table = create_table(args.csv_path, group_by, args.baseline, args.fuel_weight)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(table)
+    args.output.write_text(make_latex_compatible(table))
     print(f"Wrote → {args.output}")
     print(table)
 
