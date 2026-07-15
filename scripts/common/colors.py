@@ -50,23 +50,23 @@ TEXTWIDTH_PT = 469
 TEXTWIDTH_IN = TEXTWIDTH_PT / 72.7
 
 METRIC_TO_AXIS_REVERS = {
-    "fuel" : True,
-    "noise": True,
+    "fuel" : False,
+    "noise": False,
     "normalized_fuel": False,
     "normalized_noise": False,
-    "combined": True,
+    "combined": False,
     "reward": False,
     "reward_unclipped": False
 }
 
 METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping)"),
+    ("fuel", "Fuel [kg]"),
+    ("noise", "Noise [W·s]"),
+    ("normalized_fuel", "Fuel"),
+    ("normalized_noise", "Noise"),
+    ("combined", "Fuel + Noise"),
+    ("reward", "Reward"),
+    ("reward_unclipped", "Reward"),
 ]
 
 REASON_HATCH = {
