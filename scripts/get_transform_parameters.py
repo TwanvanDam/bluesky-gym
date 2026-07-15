@@ -229,8 +229,8 @@ def main() -> None:
     # name -> (transform, color), shared by both plots.
     transforms = {
         r"Power $\gamma=0.7$": (gamma, POWER_COLOR),
-        r"Floor $b=40.2$": (floor, FLOOR_COLOR),
         r"Scale $c=7.59$": (scale, SCALE_COLOR),
+        r"Floor $b=40.2$": (floor, FLOOR_COLOR),
     }
 
     transformed = {name: apply_extreme(t, sim, clip) for name, (t, _) in transforms.items()}
