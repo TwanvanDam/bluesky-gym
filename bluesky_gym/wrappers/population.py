@@ -19,6 +19,7 @@ from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
 
 class PopulationConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
+    correct_meridian_convergence: bool = False
     noise_model_config: NoiseConfig = Field(default_factory=NoiseConfig)
     map_source_config: MapSourceConfigType
 
@@ -47,7 +48,7 @@ class Population(gym.Wrapper):
 
         self.map_source = config.map_source_config.build(self.base_env)
         self.raster_sampler = RasterSampler(self.map_source, resampling=self.config.resampling,
-                                            destination_crs=self.base_env.map_projection_crs)
+                                            destination_crs=self.base_env.map_projection_crs, correct_meridian_convergence=self.config.correct_meridian_convergence)
         self.map_source_max: float = np.nan
         self.mean_reference_noise: float = np.nan
 

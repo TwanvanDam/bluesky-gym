@@ -31,8 +31,9 @@ class MapObservationConfig(BaseModel):
 class RasterSampler:
     map_source: MapSource
     resampling: str
-
     destination_crs: str
+
+    correct_meridian_convergence: bool = False
 
     def __post_init__(self) -> None:
         self.wgs84_to_dest = pyproj.Transformer.from_crs("wgs84", self.destination_crs, always_xy=True)
@@ -57,8 +58,11 @@ class RasterSampler:
         # orientation is a true compass heading; convert it to a grid angle by removing the
         # local meridian convergence so the sampled window aligns with where the aircraft
         # actually points rather than with grid-north.
-        gamma = self._meridian_convergence(center_position.lon, center_position.lat)
-        grid_orientation = orientation - gamma
+        if self.correct_meridian_convergence:
+            gamma = self._meridian_convergence(center_position.lon, center_position.lat)
+            grid_orientation = orientation - gamma
+        else:
+            grid_orientation = orientation
 
         dst_transform = (
                 Affine.translation(*center_xy) *

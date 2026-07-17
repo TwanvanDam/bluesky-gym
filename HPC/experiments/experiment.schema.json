@@ -863,6 +863,11 @@
     "PopulationConfig": {
       "additionalProperties": false,
       "properties": {
+        "correct_meridian_convergence": {
+          "default": false,
+          "title": "Correct Meridian Convergence",
+          "type": "boolean"
+        },
         "noise_model_config": {
           "$ref": "#/$defs/NoiseConfig"
         },
@@ -1326,7 +1331,7 @@
     },
     "Zoom": {
       "additionalProperties": false,
-      "description": "Scale the field about the window centre by factor ``z``: z>1 magnifies\n(bigger cities), z<1 compresses. Rescales the window's Affine pixel size about\nits centre; ``regenerate`` reads enough base data to cover the magnified footprint.",
+      "description": "Scale the field about the window centre by factor ``z``: z<1 magnifies\n(bigger cities), z>1 compresses. Rescales the window's Affine pixel size about\nits centre; ``regenerate`` reads enough base data to cover the magnified footprint.",
       "properties": {
         "p": {
           "default": 1.0,
