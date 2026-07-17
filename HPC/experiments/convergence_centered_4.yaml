@@ -108,6 +108,7 @@ navigation_config:
   successful_approach_reward: 5.0
   use_sin_cos_obs: true
 population_config:
+  correct_meridian_convergence: true
   clip_noise_reward: false
   fuel_weight: 0.5
   map_observation_configs:
