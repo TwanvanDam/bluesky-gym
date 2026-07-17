@@ -236,7 +236,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
                           for _, row in mode_df[mode_df["resolution"] == res].iterrows()}
             seeds = sorted(seed_rates)
             jitter = np.linspace(-0.06, 0.06, len(seeds))
-            min_seed_rates = min([min_seed_rates, *seed_rates])
+            min_seed_rates = min([min_seed_rates, *seed_rates.values()])
             for jit, seed in zip(jitter, seeds):
                 ax.scatter(xi_base + jit, seed_rates[seed],
                            color='black', s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
