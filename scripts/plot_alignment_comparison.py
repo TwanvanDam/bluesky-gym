@@ -266,7 +266,7 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
 
     runway_id = runway.replace("/", "_")
     fig.tight_layout()
-    out_path = output_dir / f"outcome_comparison_{runway_id}.png"
+    out_path = output_dir / f"outcome_comparison_{runway_id}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
@@ -328,7 +328,7 @@ def plot_metric_comparison(
 
     runway_id = runway.replace("/", "_")
     fig.tight_layout()
-    out_path = output_dir / f"{metric}_comparison_{runway_id}.png"
+    out_path = output_dir / f"{metric}_comparison_{runway_id}.pdf"
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
     plt.close(fig)
