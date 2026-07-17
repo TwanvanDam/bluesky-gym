@@ -78,7 +78,7 @@ def add_reward(df: pd.DataFrame, fuel_weight: float = 0.5) -> None:
     df["reward_unclipped"] = success_term - (fuel_weight * df["normalized_fuel"]) - ((1 - fuel_weight) * df["normalized_noise"])
 
 
-def draw_boxplot(ax, data, position, color, box_width,alpha=0.6, showfliers=True) -> None:
+def draw_boxplot(ax, data, position, color, box_width,alpha=0.6, showfliers=True, hatch="") -> None:
     ax.boxplot(
         data,
         positions=[position],
@@ -86,7 +86,7 @@ def draw_boxplot(ax, data, position, color, box_width,alpha=0.6, showfliers=True
         patch_artist=True,
         manage_ticks=False,
         medianprops=dict(color="black", linewidth=1.5),
-        boxprops=dict(facecolor=color, alpha=alpha),
+        boxprops=dict(facecolor=color, alpha=alpha, hatch=hatch, edgecolor="black"),
         whiskerprops=dict(color=color),
         capprops=dict(color=color),
         showfliers=showfliers,
