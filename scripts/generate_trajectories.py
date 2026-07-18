@@ -102,16 +102,28 @@ def eval_map_config(train_map_config: MapSourceConfigType, trajectory_config: Tr
             "value_transforms": value_transforms
         })
     elif isinstance(train_map_config, TiffMapSourceConfig):
+        # Legacy tiff sources have no value pipeline, so density scaling is expressed by
+        # promoting to a TransformedTiffMapSource carrying a single ScaleValues transform.
+        # No Clip is added here: clipping stays part of the observation pipeline (after
+        # resampling), and the resampling method is unchanged. window_margin_m is set large
+        # enough that the widest observation window never reads artificial nodata (the legacy
+        # source read the whole raster, so any nodata at the edge would be a new artifact).
         if trajectory_config.scale_density:
-            raise NotImplementedError("Scaling population density is not supported yet for legacy tiff files")
-        return train_map_config.model_copy(update={"file_path": str(trajectory_config.map_path)})
+            value_transforms = [ScaleValues(factor=(trajectory_config.scale_density, trajectory_config.scale_density))]
+            return TransformedTiffMapSourceConfig(
+                file_path=str(trajectory_config.map_path),
+                source_unit=train_map_config.source_unit,
+                value_transforms=value_transforms,
+                spatial_transforms=[],
+                window_margin_m=200_000.0,
+            )
+        else:
+            return train_map_config.model_copy(update={"file_path": str(trajectory_config.map_path)})
     else:
         raise ValueError(f"Invalid map config: {train_map_config}")
 
 
 def generate_for_run(run_paths: RunPaths, eval_config: TrajectoryEvalConfig) -> None:
-    train_config = ExperimentConfig.load(run_paths.config)
-
     runway_id = eval_config.runway.replace("/", "_")
     if eval_config.map_label is not None:
         suffix =  f"_{eval_config.map_label}"
@@ -121,19 +133,20 @@ def generate_for_run(run_paths: RunPaths, eval_config: TrajectoryEvalConfig) -> 
 
     trajectory_folder = run_paths.trajectory_subdir(subdir_label)
 
+    # Skip (and short-circuit) before loading the config, so pre-generated runs without
+    # a config.yaml (e.g. the legacy benchmark) are skipped rather than crashing the load.
     try:
         trajectory_folder.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         print(f"Trajectory folder already exists, skipping: {trajectory_folder}")
         return
 
+    train_config = ExperimentConfig.load(run_paths.config)
     write_trajectory_details(trajectory_folder, dataclasses.asdict(eval_config))
 
-    if eval_config.map_path:
-        if train_config.population_config is None:
-            raise ValueError(
-                f"Run {run_paths.run_id} has no population_config; cannot evaluate on a map."
-            )
+    # A run without a population_config was trained map-free: load_env_and_model ignores
+    # any map override for it, so fly it on a zeroed map (--no_map is a no-op there).
+    if eval_config.map_path and train_config.population_config is not None:
         validation_map = eval_map_config(train_config.population_config.map_source_config, eval_config)
     else:
         validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
