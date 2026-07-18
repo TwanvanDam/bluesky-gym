@@ -28,6 +28,10 @@ METRIC_COLS = {
     "normalized_fuel", "normalized_noise", "normalized_noise_clipped",
     "success",
 }
+# Non-metric bookkeeping columns that are also not config keys. `termination_reason`
+# rides along in the cached_metrics CSVs but must never become a group-by key
+# (it would split every config into success/failure rows).
+NON_CONFIG_COLS = {"termination_reason", "start_angle", "alpha"}
 SEED_COL = "seed"
 
 # Reward shaping constants, matching the training reward (see add_reward).
@@ -68,7 +72,8 @@ def add_derived(df: pd.DataFrame, fuel_weight: float) -> None:
 
 def auto_group_by(df: pd.DataFrame) -> list[str]:
     """Config columns to group on: everything that is not a metric or the seed."""
-    return [c for c in df.columns if c not in METRIC_COLS and c != SEED_COL]
+    return [c for c in df.columns
+            if c not in METRIC_COLS and c not in NON_CONFIG_COLS and c != SEED_COL]
 
 
 def aggregate(df: pd.DataFrame, group_by: list[str]) -> pd.DataFrame:
