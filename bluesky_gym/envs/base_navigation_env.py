@@ -16,6 +16,7 @@ import bluesky_gym.envs.common.functions as fn
 from bluesky_gym.envs.common.screen_dummy import ScreenDummy
 from bluesky_gym.metrics.fuel_model import FuelModel
 from bluesky_gym.utils.sampling_config import SamplingConfig, ExclusionZone
+from scripts.common.colors import *
 
 
 class InitialConditionsSamplingConfig(BaseModel):
@@ -593,30 +594,30 @@ class BaseNavigationEnv(gym.Env):
                     self._show_radius = not self._show_radius
 
     def draw_airport(self, canvas):
-        airport_color = pygame.Color("black")
-        red_dot_color = pygame.Color("red")
+        airport_color = get_pygame_color(TRAJECTORY_COLOR)
+        restrict_color = get_pygame_color(RESTRICT_COLOR)
+        sink_color = get_pygame_color(SINK_COLOR)
 
         airport_x_position, airport_y_position = self.lat_lon_to_pix(self.destination)
         shapes = bs.tools.areafilter.basic_shapes
         line_sink = np.reshape(shapes["SINK"].coordinates, (len(shapes["SINK"].coordinates) // 2, 2))
         line_restrict = np.reshape(shapes["RESTRICT"].coordinates, (len(shapes["RESTRICT"].coordinates) // 2, 2))
 
-        pygame.draw.circle(canvas, red_dot_color, (int(airport_x_position), int(airport_y_position)), 5)
+        pygame.draw.circle(canvas, airport_color, (int(airport_x_position), int(airport_y_position)), 5)
 
-        self._draw_line_from_points(canvas, airport_color, list(line_sink))
+        self._draw_line_from_points(canvas, restrict_color, list(line_restrict))
 
-        self._draw_line_from_points(canvas, airport_color, list(line_restrict))
+        self._draw_line_from_points(canvas, sink_color, list(line_sink))
 
     def draw_aircraft(self, canvas):
-        aircraft_color = pygame.Color("black")
+        trajectory_color = get_pygame_color(TRAJECTORY_COLOR)
         ac_position = self.get_aircraft_position()
         ac_heading = self.get_aircraft_heading()
 
-        red_line_color = pygame.Color("red")
         for point_1, point_2 in itertools.pairwise(self.aircraft_positions):
             x1, y1 = self.lat_lon_to_pix(point_1)
             x2, y2 = self.lat_lon_to_pix(point_2)
-            pygame.draw.line(canvas, red_line_color, (x1, y1), (x2, y2), 2)
+            pygame.draw.line(canvas, trajectory_color, (x1, y1), (x2, y2), 4)
 
         ac_x_position, ac_y_position = self.lat_lon_to_pix(ac_position)
 
@@ -624,20 +625,20 @@ class BaseNavigationEnv(gym.Env):
                                                                     self.aircraft_heading_length, ac_heading)
         heading_end_x, heading_end_y = self.lat_lon_to_pix(bs_position(lat=heading_end_lat, lon=heading_end_lon))
 
-        pygame.draw.circle(canvas, aircraft_color, (int(ac_x_position), int(ac_y_position)), 5)
+        pygame.draw.circle(canvas, trajectory_color, (int(ac_x_position), int(ac_y_position)), 5)
 
         pygame.draw.line(canvas,
-                         aircraft_color,
+                         trajectory_color,
                          (ac_x_position, ac_y_position),
                          (heading_end_x, heading_end_y),
-                         width=2
+                         width=3
                          )
 
     def _draw_line_from_points(self, canvas: pygame.Surface, color: pygame.Color, points: list[Position]) -> None:
         for point_1, point_2 in itertools.pairwise(points):
             x1, y1 = self.lat_lon_to_pix(bs_position(lat=point_1[0], lon=point_1[1]))
             x2, y2 = self.lat_lon_to_pix(bs_position(lat=point_2[0], lon=point_2[1]))
-            pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 2)
+            pygame.draw.line(canvas, color, (x1, y1), (x2, y2), 3)
 
     def draw_spawn_boundaries(self, canvas):
         """Draw the inner rectangle indicating where aircraft can spawn (10% margin from each edge).

@@ -15,6 +15,7 @@ from bluesky_gym.envs.base_navigation_env import BaseNavigationEnv, TerminationR
 from bluesky_gym.maps.map_sources import MapSourceConfigType
 from bluesky_gym.maps.raster_sampler import RasterSampler, MapObservationConfig
 from bluesky_gym.metrics.noise_model import NoiseModel, NoiseConfig
+from scripts.common.colors import *
 
 
 class PopulationConfig(BaseModel):
@@ -35,7 +36,7 @@ class PopulationConfig(BaseModel):
 
 
 class Population(gym.Wrapper):
-    def __init__(self, env: gym.Env, config: PopulationConfig, color_map: str = "Blues"):
+    def __init__(self, env: gym.Env, config: PopulationConfig, color_map: str = HEATMAP_COLORS):
         super().__init__(env)
         self.total_episode_noise_reward = None
         self.total_episode_noise = None
@@ -227,7 +228,7 @@ class Population(gym.Wrapper):
     def get_base_render_layers(self) -> list[Callable]:
         """Override to insert custom layers into rendering pipeline."""
         layers = [
-            lambda canvas: canvas.fill(pygame.Color("grey")),
+            lambda canvas: canvas.fill(pygame.Color(get_pygame_color(BACKGROUND_COLOR))),
             partial(self._render_array, render_size=self.base_env.window_size, array=self.background_map),
         ]
         if self.base_env._show_boundaries:
@@ -290,4 +291,4 @@ class Population(gym.Wrapper):
                                                            orientation=ac_hdg,
                                                            observation_config=observation_config)
             corners = [self.base_env.meters_to_pix(corner) for corner in corners]
-            pygame.draw.polygon(canvas, pygame.color.Color("red"), corners, width=2)
+            pygame.draw.polygon(canvas, pygame.color.Color(get_pygame_color(OBSERVATION_WINDOW_COLOR)), corners, width=2)

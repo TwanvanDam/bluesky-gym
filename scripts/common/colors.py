@@ -10,6 +10,7 @@ not apply to continuous data.
 """
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 DARK2 = plt.colormaps["Dark2"]
 
@@ -30,6 +31,17 @@ def _qual(i: int):
     """Discrete color ``i`` from the Dark2 qualitative colormap (wraps at 8)."""
     return DARK2(i % DARK2.N)
 
+def get_pygame_color(matplotlib_color_name):
+    """Converts any Matplotlib color name or hex string to a Pygame RGBA tuple."""
+    rgba_float = mcolors.to_rgba(matplotlib_color_name)
+    return tuple(int(channel * 255) for channel in rgba_float)
+
+TRAJECTORY_COLOR = "black"
+SINK_COLOR = "green"
+RESTRICT_COLOR = "red"
+BACKGROUND_COLOR = "grey"
+OBSERVATION_WINDOW_COLOR = "red"
+HEATMAP_COLORS = "Blues"
 
 # Semantic assignments — keep these consistent across all scripts.
 BASELINE_COLOR = _qual(7)                                 # Dark2's gray

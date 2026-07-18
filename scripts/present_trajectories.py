@@ -67,8 +67,8 @@ def plot_trajectories(
     else:
         raise ValueError(f"Unknown normalization_mode: {normalization_mode!r}")
     fig, ax = plt.subplots(figsize=(0.33 * TEXTWIDTH_IN, 0.33 * TEXTWIDTH_IN))
-    cmap = plt.get_cmap("Blues").copy()
-    cmap.set_bad("grey")  # NaN pixels (no-data / ocean) render grey instead of transparent
+    cmap = plt.get_cmap(HEATMAP_COLORS).copy()
+    cmap.set_bad(BACKGROUND_COLOR)  # NaN pixels (no-data / ocean) render grey instead of transparent
 
     im = plt.imshow(
         background_data,
@@ -90,16 +90,16 @@ def plot_trajectories(
     #     cbar.set_ticklabels([f"{t:.0f}" for t in ticks])
     plt.xlim(extent[0], extent[1])
     plt.ylim(extent[2], extent[3])
-    plt.scatter(*destination_xy, marker=".", linewidths=5, color="black")
+    plt.scatter(*destination_xy, marker=".", linewidths=5, color=TRAJECTORY_COLOR)
 
     plt.xticks([destination_xy[0]-range*1000, destination_xy[0], destination_xy[0]+range*1000], [f"-{range}", "0", f"{range}"])
     plt.yticks([destination_xy[1]-range*1000, destination_xy[1], destination_xy[1]+range*1000], [f"-{range}", "0", f"{range}"])
     for start_angle, group in trajectories.groupby("start_angle"):
         if not "termination_reason" in group.columns:
-            color = "black"
+            color = TRAJECTORY_COLOR
             print(f"No 'termination_reason' column found. Assuming 'success' everywhere")
         else:
-            color = "black" if group["termination_reason"].iloc[0] == "success" else "red"
+            color = TRAJECTORY_COLOR if group["termination_reason"].iloc[0] == "success" else RESTRICT_COLOR
         plt.plot(group["x"], group["y"], color=color, linewidth=1)
         # plt.plot(group["x"].iloc[0], group["y"].iloc[0], marker=".", color="black", linewidth=1,
         #          label="Start" if start_angle == trajectories["start_angle"].min() else "")
@@ -110,8 +110,8 @@ def plot_trajectories(
     arc_angles = np.linspace(back_bearing + IAF_ANGLE_DEG / 2, back_bearing - IAF_ANGLE_DEG / 2, ARC_NUM_POINTS)
     arc_lat, arc_lon = fn.get_point_at_distance(faf_lat, faf_lon, IAF_DISTANCE_KM, arc_angles)
     arc_x, arc_y = coordinate_transformer.transform(arc_lon, arc_lat)
-    plt.plot([arc_x[0], destination_xy[0], arc_x[-1]], [arc_y[0], destination_xy[1], arc_y[-1]], color="red", linewidth=2, label="Failed approach")
-    plt.plot(arc_x, arc_y, color="green", linewidth=2, label="Success arc")
+    plt.plot([arc_x[0], destination_xy[0], arc_x[-1]], [arc_y[0], destination_xy[1], arc_y[-1]], color=RESTRICT_COLOR, linewidth=2, label="Failed approach")
+    plt.plot(arc_x, arc_y, color=SINK_COLOR, linewidth=2, label="Success arc")
 
     plt.xlabel(r"$x$-coordinate [km]")
     plt.ylabel(r"$y$-coordinate [km]")

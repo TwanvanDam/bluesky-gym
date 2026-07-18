@@ -21,6 +21,7 @@ import matplotlib.patches as mpatches
 from pyproj import Geod, Transformer
 
 from bluesky_gym.utils.sampling_config import ExclusionZone
+from scripts.common.colors import BACKGROUND_COLOR
 
 MAP_DIR = Path(__file__).parent / "population_maps"
 OUT_DIR = Path("./plots/population_maps")
@@ -30,10 +31,6 @@ WGS84_CRS = "EPSG:4326"
 PLOT_CMAP = "Blues"
 FIGSIZE = (10, 8)
 DPI = 150
-
-# Matches pygame.Color("grey") = (190, 190, 190, 255), used as the canvas
-# background fill in Population.get_base_render_layers.
-PYGAME_GREY = (190 / 255, 190 / 255, 190 / 255)
 
 MAX_PIXELS = 4_000_000  # downsample files larger than this on read
 
@@ -102,7 +99,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         display = np.where(finite, np.log1p(np.clip(proj, 0, None)), np.nan)
         left, bottom, right, top = array_bounds(dst_h, dst_w, dst_transform)
         cmap = matplotlib.colormaps[PLOT_CMAP].copy()
-        cmap.set_bad(color=PYGAME_GREY)
+        cmap.set_bad(color=BACKGROUND_COLOR)
         fig, ax = plt.subplots(figsize=FIGSIZE)
         ax.imshow(
             display, cmap=cmap, origin="upper",
