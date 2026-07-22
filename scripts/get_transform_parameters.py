@@ -228,8 +228,8 @@ def main() -> None:
 
     # name -> (transform, color), shared by both plots.
     transforms = {
-        r"Power $\gamma=0.7$": (gamma, POWER_COLOR),
-        r"Scale $c=7.59$": (scale, SCALE_COLOR),
+        r"Power $\eta=0.7$": (gamma, POWER_COLOR),
+        r"Scale $k=7.59$": (scale, SCALE_COLOR),
         r"Floor $b=40.2$": (floor, FLOOR_COLOR),
     }
 
