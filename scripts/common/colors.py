@@ -18,13 +18,14 @@ plt.rcParams.update({
     "font.family": "serif",
     "font.serif": ["Times New Roman", "Nimbus Roman", "Liberation Serif"],
     "mathtext.fontset": "stix",   # Times-like math
-    "font.size": 10,              # base size = body text
-    "axes.titlesize": 10,
-    "axes.labelsize": 10,
+    "font.size": 9,              # base size = body text
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
     "xtick.labelsize": 9,         # AIAA captions/small text ~9pt
     "ytick.labelsize": 9,
     "legend.fontsize": 9,
     "legend.frameon": True,
+    "pdf.fonttype": 42,           # TrueType, not Type 3 (searchable, no checker complaints)
 })
 
 def _qual(i: int):
@@ -58,8 +59,13 @@ UNKNOWN_COLOR = _qual(6)                                  # config matched no co
 
 BOXPLOT_ALPHA = 0.6
 BOXPLOT_ALPHA_LIGHT = 0.4
-TEXTWIDTH_PT = 469
-TEXTWIDTH_IN = TEXTWIDTH_PT / 72.7
+TEXTWIDTH_PT = 469.755        # \the\textwidth of new-aiaa, in TeX points
+TEXTWIDTH_IN = TEXTWIDTH_PT / 72.27
+# Size subcaptions are set in, for panel captions drawn by matplotlib instead of
+# by `subcaption`. Measure it the same way as TEXTWIDTH_PT — put
+# \makeatletter\typeout{CAPSIZE=\f@size}\makeatother inside a \caption{} and
+# read the log — and correct this if the class disagrees.
+CAPTION_PT = 8.0
 
 METRIC_TO_AXIS_REVERS = {
     "fuel" : False,

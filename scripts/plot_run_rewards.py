@@ -11,6 +11,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from tqdm import tqdm
 
 from scripts.common.colors import *
+from scripts.common.figures import PLOT_TYPE_TO_SIZE, paper_axes, save
 from scripts.common.run_paths import RunPaths
 
 
@@ -20,7 +21,29 @@ TAG_FUEL = "episode/total_episode_fuel_reward"
 
 LEGEND_FILE = "name_to_legend.txt"
 
-figure_size = (0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN)
+# Training curves are a "wide strip" figure. The legend sits *inside* the axes:
+# these curves rise towards a plateau, so the lower right is always free, and an
+# inside legend keeps the figure geometry independent of how long the run labels
+# are — which is what used to make every reward plot a different size.
+FIGURE_WIDTH, FIGURE_HEIGHT = PLOT_TYPE_TO_SIZE["run_reward"]
+
+
+def _add_legend(ax, n_entries: int):
+    """Legend inside the axes, with the band it occupies cleared of data.
+
+    Call this last, after the limits are set. The y-axis is extended downwards
+    until the legend sits in empty space, rather than hoping the curves happen
+    to miss it — the figure geometry is unaffected either way, which is what
+    keeps every reward plot exactly the same size.
+    """
+    legend = ax.legend(loc="lower right", frameon=True, edgecolor="k",
+                       framealpha=1.0, ncols=3 if n_entries == 3 else 2)
+    ax.figure.canvas.draw()
+    band = legend.get_window_extent().transformed(ax.transAxes.inverted()).y1
+    if 0 < band < 1:
+        low, high = ax.get_ylim()
+        ax.set_ylim(high - (high - low) / (1 - band), high)
+    return legend
 
 RunData = dict[str, pd.DataFrame | None]
 
@@ -108,8 +131,9 @@ def _plot_and_save(
     output_dir: Path,
     limits: list | None
 ) -> None:
-    fig, ax = plt.subplots(figsize=figure_size)
+    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT)
     _max = []
+    plotted = 0
     for i, (data, label) in enumerate(zip(run_data, labels)):
         df = data.get(tag)
         if df is None:
@@ -119,22 +143,21 @@ def _plot_and_save(
         df["smoothed"] = df["value"].rolling(smoothing).mean()
         ax.plot(df["step"], df["smoothed"], color=color, linewidth=1.5, label=label)
         _max += [df["step"].max()]
+        plotted += 1
     ax.set_xlim([0, round(max(_max) / 100_000) * 100_000])
     ax.set_xlabel("Environment steps")
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
     if limits:
         ax.set_ylim(*limits)
-    legend = ax.legend(frameon=True, edgecolor="k", loc="center left",bbox_to_anchor=(1,0.5))
+    _add_legend(ax, plotted)
     ax.grid(alpha=0.3)
 
-    fig.tight_layout()
     out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{plot_name}{file_suffix}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
+    save(fig, out_path)
     plt.close(fig)
-    print(f"Saved → {out_path}")
 
 
 def _plot_sum_and_save(
@@ -151,8 +174,9 @@ def _plot_sum_and_save(
     output_dir: Path,
     limits: list | None
 ) -> None:
-    fig, ax = plt.subplots(figsize=figure_size)
+    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT)
 
+    plotted = 0
     for i, (data, label) in enumerate(zip(run_data, labels)):
         dfs = [data.get(t) for t in tags]
         if any(d is None for d in dfs):
@@ -165,22 +189,21 @@ def _plot_sum_and_save(
         ax.plot(merged["step"], merged["value"], color=color, alpha=0.1, linewidth=1)
         merged["smoothed"] = merged["value"].rolling(smoothing).mean()
         ax.plot(merged["step"], merged["smoothed"], color=color, linewidth=1.5, label=label)
+        plotted += 1
 
     ax.set_xlabel("Environment steps")
     ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0), useMathText=True)
     ax.set_ylabel(ylabel)
     if limits:
         ax.set_ylim(*limits)
-    legend = ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
+    _add_legend(ax, plotted)
     ax.grid(alpha=0.3)
 
-    fig.tight_layout()
     out_dir = output_dir / group_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{plot_name}{file_suffix}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
+    save(fig, out_path)
     plt.close(fig)
-    print(f"Saved → {out_path}")
 
 
 def main(runs: list[RunPaths], labels: list[str], smoothing: int, plot_name: str, output_dir: Path, legend_title: str = "runs") -> None:

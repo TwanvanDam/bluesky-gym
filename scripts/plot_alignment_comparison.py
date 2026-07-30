@@ -22,6 +22,7 @@ import pandas as pd
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
 from scripts.common.colors import *
+from scripts.common.figures import legend_right, paper_axes, save, PLOT_TYPE_TO_SIZE
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     REASON_ORDER,
@@ -97,9 +98,18 @@ REASON_HATCH = {
 FILLED_REASONS = {"success", "failed_approach"}
 
 BAR_ALPHA = BOXPLOT_ALPHA
-BAR_WIDTH = 0.8
+BAR_WIDTH = 0.35
 DOT_ALPHA = 0.85
 DOT_SIZE = 55
+
+# Both plots are standalone three-quarter-width figures with the legend in a
+# reserved right-hand strip — reserving it (rather than letting a tight bbox
+# discover it) is what keeps the axes box, and therefore the text size, the same
+# whatever the legend labels say. LEGEND_STRIP_IN is generous enough for the
+# widest entry ("Failed approach"); `save()` warns if a legend outgrows it.
+OUTCOME_WIDTH, OUTCOME_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
+METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["alignment"]
+LEGEND_STRIP_IN = 1.25
 
 # ---------------------------------------------------------------------------
 # DataFrame builders
@@ -189,7 +199,10 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
 
     seed_colors = seed_color_map(df)
 
-    fig, ax = plt.subplots(figsize=(0.5 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN))
+    # Extra bottom room for the "Centered"/"Forward" group annotations under the
+    # tick labels, extra top room for the before/after note.
+    fig, ax = paper_axes(OUTCOME_WIDTH, OUTCOME_HEIGHT,
+                         right=LEGEND_STRIP_IN + 0.25, bottom=0.62, top=0.26)
     seen_reasons: set = set()
 
     for mode, group, xi in combos:
@@ -248,8 +261,8 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
                       label=REASON_LABELS.get(reason, reason))
         for reason in REASON_HATCH if reason in seen_reasons
     ]
-    leg1 = ax.legend(handles=mode_handles + reason_handles, frameon=False, fontsize=8,
-                     title="Mode / outcome", loc="upper left", bbox_to_anchor=(1.01, 1.0))
+    leg1 = ax.legend(handles=mode_handles + reason_handles, frameon=False,
+                     title="Mode / outcome", loc="upper left", bbox_to_anchor=(1.02, 1.0))
     ax.add_artist(leg1)
 
     seed_handles = [
@@ -257,18 +270,17 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
                    markersize=8, label=f"Seed {s}")
         for s, c in seed_colors.items()
     ]
-    ax.legend(handles=seed_handles, frameon=False, fontsize=8,
-              title="Seed (success rate)", loc="lower left", bbox_to_anchor=(1.01, 0.0))
+    ax.legend(handles=seed_handles, frameon=False,
+              title="Seed (success rate)", loc="lower left", bbox_to_anchor=(1.02, 0.0))
 
-    fig.text(0.5, 1.01,
-             "Before / After = sweep_2 (original alignment) vs convergence (fixed alignment)",
-             ha="center", fontsize=8, style="italic", transform=fig.transFigure)
+    # Sits in the reserved top margin — a figure-level text would be clipped,
+    # since nothing outside the canvas survives without a tight bbox.
+    ax.set_title("Before / After = sweep_2 (original alignment) vs convergence (fixed alignment)",
+                 fontsize=8, style="italic")
 
     runway_id = runway.replace("/", "_")
-    fig.tight_layout()
     out_path = output_dir / f"outcome_comparison_{runway_id}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
 
 
@@ -287,13 +299,13 @@ def plot_metric_comparison(
     with a gap between the two mode groups.
     """
     combos = [
-        ("centered", "sweep_2",     0.0),
-        ("centered", "convergence", 1.0),
-        ("forward",  "sweep_2",     2.5),
-        ("forward",  "convergence", 3.5),
+        ("centered", "sweep_2",     BAR_WIDTH ), #0.5
+        ("centered", "convergence", 2 * BAR_WIDTH  + 0.1), #0.85
+        ("forward",  "sweep_2",     4 * BAR_WIDTH), # 1.5
+        ("forward",  "convergence", 5 * BAR_WIDTH + 0.1),
     ]
 
-    fig, ax = plt.subplots(figsize=(0.5 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN))
+    fig, ax = paper_axes(METRIC_WIDTH, METRIC_HEIGHT, right=LEGEND_STRIP_IN)
     mode_handles = []
     seen_modes = set()
 
@@ -303,7 +315,7 @@ def plot_metric_comparison(
         data = sub[metric].values
         if len(data) == 0:
             continue
-        draw_boxplot(ax, data, pos, color, box_width, hatch=GROUP_TO_HATCH[group])
+        draw_boxplot(ax, data, pos, color, BAR_WIDTH, hatch=GROUP_TO_HATCH[group])
         if mode not in seen_modes:
             mode_handles.append(plt.Rectangle((0, 0), 1, 1, fc=color, alpha=BOXPLOT_ALPHA,
                                               label=mode.capitalize()))
@@ -311,11 +323,11 @@ def plot_metric_comparison(
 
     # One tick per mode group, centred under the before/after pair. Before/after
     # is conveyed by the hatch (see legend), so no per-box "Before"/"After" labels.
-    ax.set_xticks([0.5, 3.0])
+    ax.set_xticks([(3 * BAR_WIDTH + 0.1) / 2 , (9 * BAR_WIDTH + 0.1) / 2])
     ax.set_xticklabels(["Centered", "Forward"])
     ax.set_xlabel("")
     ax.set_ylabel(ylabel)
-    ax.axvline(1.75, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
+    ax.axvline((6 * BAR_WIDTH + 0.1) / 2, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
     ax.grid(axis="y")
 
     fix_handles = [
@@ -323,14 +335,11 @@ def plot_metric_comparison(
         plt.Rectangle((0, 0), 1, 1, fc="lightgray", edgecolor="black",
                       hatch=GROUP_TO_HATCH["convergence"], label="After fix"),
     ]
-    ax.legend(handles=mode_handles + fix_handles, frameon=True, edgecolor="k",
-              loc="center left", bbox_to_anchor=(1.01, 0.5))
+    legend_right(ax, handles=mode_handles + fix_handles, frameon=True, edgecolor="k")
 
     runway_id = runway.replace("/", "_")
-    fig.tight_layout()
     out_path = output_dir / f"{metric}_comparison_{runway_id}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
 
 

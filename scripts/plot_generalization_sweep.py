@@ -9,6 +9,14 @@ Runs without a seed suffix (e.g. E_3_256-x1) are treated as a single-seed entry.
         runs/generalization/transformed_baseline_seed00 \\
         runs/generalization/transformed_baseline_seed01 \\
         runs/generalization/transformed_baseline_seed02
+
+The metrics view writes one PDF per metric *and*, per filter mode,
+`metrics_grid_*.pdf`: the reward/noise/fuel panels laid out as one matplotlib
+figure, the config key in the cell the odd panel count leaves free, and the
+(a), (b), … captions above the panels. That grid replaces the 2x2 block of
+`subfigure`s in the paper — the panels are laid out in inches, so they are
+guaranteed the same axes size and the same text size, and LaTeX never rescales
+them. The `figure` environment to paste is printed at the end.
 """
 
 import re
@@ -20,6 +28,11 @@ import numpy as np
 import pandas as pd
 
 from scripts.common.colors import *
+from scripts.common.figures import (
+    PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
+    grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
+    paper_axes, save,
+)
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     add_reward,
@@ -34,6 +47,16 @@ from scripts.common.sweep_plotting import (
     mean_breakdowns,
     run_sweep_args_parser,
 )
+
+# Figure geometry comes from common.figures: every panel is saved at exactly its
+# LaTeX slot size, so nothing is rescaled on inclusion. The breakdown legend lives
+# in a reserved right-hand strip; the config legend for the metric panels is a
+# separate PDF, one panel tall so the two line up side by side. That legend is two
+# columns wide (short code + full config name), hence its own strip width.
+METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
+BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
+LEGEND_STRIP_IN = 1.7
+CONFIG_LEGEND_STRIP_IN = 2.2
 
 BOX_WIDTH = 0.6
 BAR_WIDTH = 0.7
@@ -53,6 +76,16 @@ METRICS = [
     ("reward", "reward"),
     ("reward_unclipped", "reward (no noise clipping)"),
 ]
+
+# Panels of the combined figure (common.figures.metric_grid owns its geometry);
+# the leftover cell holds the config key. One grid per filter mode.
+GRID_METRICS = [
+    ("reward_unclipped", "Reward"),
+    ("normalized_noise", "Noise"),
+    ("normalized_fuel", "Fuel"),
+]
+GRID_COLS = 2
+GRID_WIDTH = W_FULL
 
 METRIC_TO_AXIS_REVERS = {
     "fuel": True,
@@ -265,17 +298,17 @@ def summarize_filter(metrics: pd.DataFrame, filtered: pd.DataFrame, mode: str) -
     }
 
 
-def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, filter_mode: str) -> list[dict]:
-    """Draw one metric's boxplot. `df` must already be filtered by the caller.
+def draw_metric_boxplot(ax, df, metric, ylabel, filter_mode: str, report: bool = True) -> list[dict]:
+    """Draw one metric's boxplot on `ax`. `df` must already be filtered by the caller.
 
     `df` holds both the swept configs and, if `is_baseline` is set on any row, the
     pooled baseline; the baseline gets position 0 and dashed reference lines,
-    everything else is a regular tick.
+    everything else is a regular tick. Split out of :func:`plot_metric_boxplot`
+    so the standalone PDF and the combined grid draw the exact same panel;
+    `report` is off for the grid so the stats are not printed a second time.
     """
     has_baseline = df["is_baseline"].any()
     configs = _ordered_configs(set(df.loc[~df["is_baseline"], "config"].dropna().unique()))
-
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
     rows: list[dict] = []
 
     if has_baseline:
@@ -283,8 +316,9 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
         if len(bvals):
             draw_boxplot(ax, bvals, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
             s = boxplot_stats(bvals)
-            print(f"  [{filter_mode}] {'baseline':>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
-                  f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={bvals.mean():8.3f}")
+            if report:
+                print(f"  [{filter_mode}] {'baseline':>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
+                      f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={bvals.mean():8.3f}")
             rows.append({"config": "baseline", "metric": metric, "filter_mode": filter_mode, "mean": bvals.mean(), **s})
             for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
                 ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=BOXPLOT_ALPHA)
@@ -294,8 +328,9 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
         data = df[df["config"] == config][metric].values
         if len(data):
             s = boxplot_stats(data)
-            print(f"  [{filter_mode}] {config:>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
-                  f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={data.mean():8.3f}")
+            if report:
+                print(f"  [{filter_mode}] {config:>18}  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}  "
+                      f"IQR={s['iqr']:8.3f}  whiskers=[{s['whisker_lo']:8.3f}, {s['whisker_hi']:8.3f}]  mean={data.mean():8.3f}")
             rows.append({"config": config, "metric": metric, "filter_mode": filter_mode, "mean": data.mean(), **s})
             draw_boxplot(ax, data, position=i + offset, color=config_color(config), box_width=BOX_WIDTH)
 
@@ -306,22 +341,30 @@ def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, fil
     ax.set_xticklabels(tick_labels, fontsize=9, rotation=0, ha="center")
     ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_ylabel(ylabel)
+    return rows
 
-    fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
+
+def plot_metric_boxplot(df, metric, ylabel, scenario, runs_name, output_dir, filter_mode: str) -> list[dict]:
+    fig, ax = paper_axes(METRIC_WIDTH, METRIC_HEIGHT)
+    rows = draw_metric_boxplot(ax, df, metric, ylabel, filter_mode)
+
     _, prefix = FILTERS[filter_mode]
-    out_path = output_dir/ prefix / f"{metric}_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    out_path = output_dir / prefix / f"{metric}_{runs_name}_{scenario}.pdf"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    save(fig, out_path)
     plt.close(fig)
     return rows
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
-    """One row per config: colour swatch + short code + full name."""
+def config_legend_entries() -> tuple[list, list[str]]:
+    """One row per config: colour swatch + short code + full name.
 
+    Returns ``(handles, labels)`` for a two-column legend. matplotlib fills
+    legend columns TOP-TO-BOTTOM (column-major), so this is the whole first
+    column (swatch + code) followed by the whole second column (full name).
+    """
     phantom = Rectangle((0, 0), 1, 1, fill=False, edgecolor="none", visible=False)
 
     swatch_handles, code_labels = [], []
@@ -333,12 +376,13 @@ def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
         name_handles.append(phantom)
         name_labels.append(config_tick_label(c))
 
-    # matplotlib fills legend columns TOP-TO-BOTTOM (column-major),
-    # so give it the whole first column, then the whole second column.
-    handles = swatch_handles + name_handles
-    labels  = code_labels    + name_labels
+    return swatch_handles + name_handles, code_labels + name_labels
 
-    fig = plt.figure(figsize=(2.0, 0.49 * 0.78 * TEXTWIDTH_IN), constrained_layout=True)
+
+def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
+    handles, labels = config_legend_entries()
+
+    fig = plt.figure(figsize=(CONFIG_LEGEND_STRIP_IN, METRIC_HEIGHT * TEXTWIDTH_IN))
     legend = fig.legend(
         handles=handles,
         labels=labels,
@@ -351,9 +395,37 @@ def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
     legend.get_frame().set_edgecolor("k")
 
     out_path = output_dir / f"legend_modes_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150)
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
+
+
+def plot_metric_grid(df, runs_name, scenario, output_dir, filter_mode: str,
+                     metrics: list[tuple[str, str]] = GRID_METRICS,
+                     width: float = GRID_WIDTH, ncols: int = GRID_COLS) -> Path:
+    """One figure per filter mode holding every grid metric, config key in the spare cell.
+
+    Replaces the 2x2 block of ``subfigure``s in the paper: laying the panels out
+    here means they are guaranteed the same axes size and the same text size,
+    and the legend costs nothing extra because it goes in the cell the odd
+    number of metrics leaves empty.
+    """
+    fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
+
+    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
+        draw_metric_boxplot(ax, df, metric, ylabel, filter_mode, report=False)
+        grid_caption(ax, letter, ylabel)
+    handles, labels = config_legend_entries()
+    legend_in_cell(fig, legend_ax, handles, labels=labels, ncol=2,
+                   handlelength=1.2, columnspacing=0.5, handletextpad=0.5)
+
+    _, prefix = FILTERS[filter_mode]
+    out_path = output_dir / prefix / f"metrics_grid_{runs_name}_{scenario}.pdf"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    save(fig, out_path)
+    plt.close(fig)
+    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    return out_path
+
 
 def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
     """`metrics` holds the swept configs and, if present, the pooled baseline (is_baseline column)."""
@@ -374,6 +446,7 @@ def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
         for metric, ylabel in METRICS:
             all_rows.extend(plot_metric_boxplot(filtered, metric, ylabel,
                                                 scenario, runs_root.name, output_dir, mode))
+        plot_metric_grid(filtered, runs_root.name, scenario, output_dir, mode)
     csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
@@ -454,15 +527,14 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
         markersize=8, label="Per-seed success rate"))
-    ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
+    legend_right(ax, handles=legend_handles, frameon=True, edgecolor="k")
 
 def plot_breakdown(breakdown, baseline_rate, runs_root, scenario, output_dir):
     rows = print_success_rates(breakdown, baseline_rate)
-    fig, ax = plt.subplots(figsize=(0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
+    fig, ax = paper_axes(BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT, right=LEGEND_STRIP_IN)
     plot_episode_success(ax, breakdown, baseline=baseline_rate)
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
 
     csv_path = output_dir / f"success_rates_{runs_root.name}_{scenario}.csv"

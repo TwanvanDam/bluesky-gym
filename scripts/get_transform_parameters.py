@@ -17,6 +17,7 @@ from pyproj import Transformer
 import rasterio
 from rasterio.windows import from_bounds
 from scripts.common.colors import *
+from scripts.common.figures import PLOT_TYPE_TO_SIZE, legend_right, paper_axes, save
 
 # --- Configuration ----------------------------------------------------------
 MAP_PATH = Path("scripts/population_maps/europe_3035_1km.tif")
@@ -26,6 +27,9 @@ CLIP_PERCENTILE = 99.9            # population clip; matches the reward's clip_n
 GAMMA_GRID = np.linspace(0.5, 1.0, 51)
 INFLATION_BAND = (1.0, 2.0)       # (lower, upper) allowed mean-inflation factor for the gamma range
 SEED = 42
+# Right-hand strip reserved for the tone-curve legend; the widest entry is the
+# clip line's "p99.9 clip (…)". save() warns if a label outgrows it.
+LEGEND_STRIP_IN = 1.6
 
 
 # --- Raster I/O -------------------------------------------------------------
@@ -177,7 +181,8 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
                      target_median: float, clip: float) -> None:
     """Input→output tone curve per transform, drawn at the extreme (high) end of its range."""
     x = np.logspace(0, 5, num=500)
-    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.78 * TEXTWIDTH_IN * 0.5))
+    FIGURE_WIDTH, FIGURE_HEIGHT = PLOT_TYPE_TO_SIZE["transforms"]
+    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT, right=LEGEND_STRIP_IN)
     ax.plot(x, x, label=r"$y=x$", color=BASELINE_COLOR,linewidth=1, linestyle="dashed")
     ax.plot([sim_median], [target_median], ".", linewidth=2, color='k', zorder=5, label=r"$(\tilde{x}_\text{env},\tilde{x}_\text{target})$")
     for (transform, color), label in zip(transforms, labels):
@@ -190,11 +195,10 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
     ax.set(xscale="log", yscale="log", xlabel="Input ppl/km²", ylabel="Output ppl/km²")
     ax.set_ylim(1,1e5)
     ax.set_xlim(1,1e5)
-    legend = ax.legend(frameon=True, framealpha=1, loc='center left', bbox_to_anchor=(1.02, 0.5))
+    legend = legend_right(ax, frameon=True, framealpha=1)
     legend.get_frame().set_edgecolor('k')
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig("plots/augmentation/tone_curves.pdf", transparent=True, bbox_inches='tight')
+    save(fig, "plots/augmentation/tone_curves.pdf", transparent=True)
     plt.show()
 
 

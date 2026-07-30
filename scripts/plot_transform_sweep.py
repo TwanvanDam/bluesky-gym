@@ -7,6 +7,14 @@ breakdown for runs named transformed_{variant}_seed{NN}.
 
 --plots {both,metrics,breakdown} selects the views (default both). Only the
 metrics view needs BlueSky + the noise/fuel metric fn.
+
+The metrics view writes one PDF per metric *and* `metrics_grid_*.pdf`: the
+reward/noise/fuel panels laid out as one matplotlib figure, the ID → variant
+key in the cell the odd panel count leaves free, and the (a), (b), … captions
+above the panels. That grid replaces the 2x2 block of `subfigure`s in the paper
+— the panels are laid out in inches, so they are guaranteed the same axes size
+and the same text size, and LaTeX never rescales them. The `figure` environment
+to paste is printed at the end.
 """
 
 import re
@@ -17,6 +25,11 @@ import numpy as np
 import pandas as pd
 
 from scripts.common.colors import *
+from scripts.common.figures import (
+    PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
+    grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
+    paper_axes, save,
+)
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
@@ -28,6 +41,23 @@ from scripts.common.sweep_plotting import (
     collect_baseline_breakdown, collect_baseline_seed_rates,
     run_sweep_args_parser,
 )
+
+# Figure geometry comes from common.figures: every panel is saved at exactly its
+# LaTeX slot size, so nothing is rescaled on inclusion. The breakdown legend lives
+# in a reserved right-hand strip rather than being discovered by a tight bbox.
+METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
+BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
+LEGEND_STRIP_IN = 1.7
+
+# Panels of the combined figure (common.figures.metric_grid owns its geometry);
+# the leftover cell holds the ID → variant key.
+GRID_METRICS = [
+    ("reward_unclipped", "Reward"),
+    ("normalized_noise", "Noise"),
+    ("normalized_fuel", "Fuel"),
+]
+GRID_COLS = 2
+GRID_WIDTH = W_FULL
 
 BOX_WIDTH = 0.6
 BAR_WIDTH = 0.7
@@ -73,19 +103,21 @@ def _ordered_variants(present: set[str]) -> list[str]:
 
 # ---------------------------------------------------------------------------- metrics
 
-def plot_metric_boxplot(
+def draw_metric_boxplot(
+    ax,
     df: pd.DataFrame,
     baseline_df: pd.DataFrame | None,
     metric: str,
     ylabel: str,
-    scenario: str,
-    runs_name: str,
-    output_dir: Path,
+    report: bool = True,
 ) -> list[dict]:
-    variants = _ordered_variants(set(df["variant"].dropna().unique()))
+    """Draw one metric's boxplot group on ``ax`` and return its box statistics.
 
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * 0.78 * TEXTWIDTH_IN))
-    legend_handles = []
+    Split out of :func:`plot_metric_boxplot` so the standalone PDF and the
+    combined grid draw the exact same panel; ``report`` is off for the grid so
+    the ID/variant mapping is not printed a second time.
+    """
+    variants = _ordered_variants(set(df["variant"].dropna().unique()))
     rows: list[dict] = []
 
     # Reference baseline box + quartile lines spanning the plot for comparison.
@@ -114,17 +146,77 @@ def plot_metric_boxplot(
     ]
     ax.grid(axis='y')
     ax.set_xticks(tick_x)
-    print(list(zip(tick_x, tick_labels)))
+    if report:
+        print(list(zip(tick_x, tick_labels)))
     ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
     ax.set_ylabel(ylabel)
     ax.set_xlabel("Domain Randomization ID")
-    fig.tight_layout()
+    return rows
+
+
+def variant_legend_handles(df: pd.DataFrame) -> list:
+    """One entry per variant: the box colour, keyed by its x-axis ID.
+
+    The x axis only carries the ID, so this legend is the key that tells the
+    reader which randomisation each number is.
+    """
+    return [
+        plt.Rectangle((0, 0), 1, 1, fc=VARIANT_TO_COLOR.get(variant, BASELINE_COLOR),
+                      alpha=BOXPLOT_ALPHA, label=f"{i}: {VARIANT_TO_CAPTION.get(variant, variant)}")
+        for i, variant in enumerate(_ordered_variants(set(df["variant"].dropna().unique())))
+    ]
+
+
+def plot_metric_boxplot(
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    metric: str,
+    ylabel: str,
+    scenario: str,
+    runs_name: str,
+    output_dir: Path,
+) -> list[dict]:
+    fig, ax = paper_axes(METRIC_WIDTH, METRIC_HEIGHT)
+    rows = draw_metric_boxplot(ax, df, baseline_df, metric, ylabel)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
     return rows
+
+
+def plot_metric_grid(
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    runs_name: str,
+    scenario: str,
+    output_dir: Path,
+    metrics: list[tuple[str, str]] = GRID_METRICS,
+    width: float = GRID_WIDTH,
+    ncols: int = GRID_COLS,
+) -> Path:
+    """One figure holding every grid metric, with the ID key in the spare cell.
+
+    Replaces the 2x2 block of ``subfigure``s in the paper: laying the panels out
+    here means they are guaranteed the same axes size and the same text size,
+    and the legend costs nothing extra because it goes in the cell the odd
+    number of metrics leaves empty.
+    """
+    # No legend cell: the x axis carries the variant IDs and the ID → variant
+    # key lives in the paper's text, so the spare cell is left empty.
+    fig, panel_axes, _ = metric_grid(len(metrics), ncols=ncols, width=width, legend=False)
+
+    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
+        draw_metric_boxplot(ax, df, baseline_df, metric, ylabel, report=False)
+        grid_caption(ax, letter, ylabel)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"metrics_grid_{runs_name}_{scenario}.pdf"
+    save(fig, out_path)
+    plt.close(fig)
+    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    return out_path
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
@@ -137,6 +229,7 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
     csv_path = output_dir / f"boxplot_stats_{runs_root.name}_{scenario}.csv"
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
+    plot_metric_grid(run_metrics, baseline_metrics, runs_root.name, scenario, output_dir)
 
 
 # --------------------------------------------------------------------------- breakdown
@@ -222,18 +315,15 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
         markersize=8, label="Per-seed success rate"))
-    ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
+    legend_right(ax, handles=legend_handles, frameon=True, edgecolor="k")
 
 
 def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root, scenario, output_dir):
     print_success_rates(breakdown, baseline_seed_rates)
-    fig, ax = plt.subplots(
-        figsize=(TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True
-    )
+    fig, ax = paper_axes(BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT, right=LEGEND_STRIP_IN)
     plot_episode_success(ax, breakdown, baseline_breakdown=baseline_breakdown, baseline_seed_rates=baseline_seed_rates)
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
 
 

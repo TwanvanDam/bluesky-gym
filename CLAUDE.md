@@ -49,6 +49,14 @@ python -m scripts.present_trajectories "PopulationWrapper-v0/RealMap_base_2026-.
 python -m scripts.present_trajectories --env PopulationWrapper-v0
 ```
 
+**Compose a multi-panel trajectory figure for the paper:**
+```bash
+python -m scripts.plot_trajectory_figure figures/resolution.txt --out figures/resolution.pdf
+```
+The spec file is one `path/to/trajectories.csv, caption` per line; a blank line
+starts a new row of panels. Panels get `(a)`, `(b)`, … automatically and the
+script prints the `figure` environment to paste into the `.tex`.
+
 **HPC (SLURM + Apptainer):**
 ```bash
 apptainer build HPC/rl_env.sif HPC/container.def

@@ -37,6 +37,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from scripts.common.colors import *
+from scripts.common.figures import PLOT_TYPE_TO_SIZE, paper_axes, right_margin_x, save
 from scripts.common.sweep_plotting import compute_episode_metrics, find_csv
 
 # Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
@@ -63,8 +64,11 @@ DEFAULT_OUTPUT_DIR = Path("plots/sweep_overview_plots")
 # Alphas shown in the marker-size legend and used as failure-rate x-ticks.
 LEGEND_ALPHAS = (0.25, 0.5, 1, 2, 4)
 METRIC_REDUCTION = "mean"
-WIDTH = 0.75* TEXTWIDTH_IN
-AXES_ASPECT = 0.78  # figure height / width, shared by both plots
+# Figure geometry comes from common.figures, shared by both plots: the frontier
+# carries two stacked legends (configs, marker size <-> alpha), so the right-hand
+# strip has to be reserved up front instead of being discovered by a tight bbox.
+FIGURE_WIDTH, FIGURE_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_frontier"]
+LEGEND_STRIP_IN = 1.35
 CONFIG_COLOR_RULES = {
     "no_map" : BASELINE_COLOR,
     "centered": CENTERED_COLOR,
@@ -261,7 +265,7 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
                   variant: str = "") -> Path:
     configs = sorted(pts["config"].unique())
 
-    fig, ax = plt.subplots(figsize=(WIDTH, AXES_ASPECT * WIDTH))
+    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT, right=LEGEND_STRIP_IN)
 
     linestyles = config_linestyles(configs)
     config_handles = []
@@ -293,12 +297,13 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
     ax.set_ylabel(f"normalized noise ({METRIC_REDUCTION} over bearings)")
     ax.grid(True, alpha=0.3)
 
-    # Both legends sit outside the axes on the right, stacked, and share the framed
-    # black-edged style used across the other sweep plots.
+    # Both legends sit in the right-hand strip reserved by paper_axes, stacked at
+    # the top and bottom of the axes, and share the framed black-edged style used
+    # across the other sweep plots.
+    margin_x = right_margin_x(ax)
     legend_main = ax.legend(handles=config_handles, frameon=True, edgecolor="k",
-                            loc="upper left", bbox_to_anchor=(1, 1))
+                            loc="upper left", bbox_to_anchor=(margin_x, 1))
     ax.add_artist(legend_main)
-    extra_artists = [legend_main]
 
     # Secondary legend: marker size <-> alpha.
     size_alphas = [a for a in LEGEND_ALPHAS if a in set(pts["alpha"])]
@@ -310,17 +315,14 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
                        label=r"$\alpha = $" + f"{a:g}")
             for a in size_alphas
         ]
-        legend_size = ax.legend(handles=size_handles,
-                                frameon=True, edgecolor="k", loc="lower left", bbox_to_anchor=(1, 0),
-                                ncol=1, handletextpad=0.2)
-        extra_artists.append(legend_size)
+        ax.legend(handles=size_handles,
+                  frameon=True, edgecolor="k", loc="lower left", bbox_to_anchor=(margin_x, 0),
+                  ncol=1, handletextpad=0.2)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"_{variant}" if variant else ""
     out_path = output_dir / f"frontier_{METRIC_REDUCTION}_{runs_name}_{runway}{suffix}.pdf"
-    # bbox_extra_artists forces the out-of-axes legends into the saved tight bbox;
-    # tight_layout alone doesn't reserve room for them, so they'd be clipped.
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=extra_artists)
+    save(fig, out_path)
     plt.close(fig)
     return out_path
 
@@ -330,7 +332,11 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
     """Percentage of non-completing episodes vs. density-scale alpha, per config."""
     configs = sorted(rates["config"].unique())
 
-    fig, ax = plt.subplots(figsize=(WIDTH, AXES_ASPECT * WIDTH))
+    # Extra top room for the title, extra bottom for the math x-label's descender,
+    # and a wider strip than the frontier's because the single-point configs carry
+    # a "(fixed)" suffix in their legend label.
+    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT,
+                         right=LEGEND_STRIP_IN + 0.3, top=0.30, bottom=0.50)
     linestyles = config_linestyles(configs)
     for c in configs:
         sub = rates[rates["config"] == c].sort_values("alpha")
@@ -351,11 +357,12 @@ def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
     ax.grid(True, alpha=0.3)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    legend = ax.legend(frameon=True, edgecolor="k", loc="upper left", bbox_to_anchor=(1, 1))
+    ax.legend(frameon=True, edgecolor="k", loc="upper left",
+              bbox_to_anchor=(right_margin_x(ax), 1))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"failure_rate_{runs_name}_{runway}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", bbox_extra_artists=[legend])
+    save(fig, out_path)
     plt.close(fig)
     return out_path
 

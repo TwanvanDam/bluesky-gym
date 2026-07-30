@@ -12,8 +12,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from scripts.common.colors import *
+from scripts.common.figures import H_STRIP, W_HALF, paper_axes, save
 
 PLOTS_DIR = Path(__file__).parent.parent / "plots"
+
+# The panels carry no ticks or axis labels, so they need only enough margin to
+# keep the dimension arrows and the unclipped "64 km" callout off the canvas edge.
+PANEL_MARGIN_IN = 0.10
+
+# Dimension callouts match the 9 pt of the tick labels in every other figure,
+# and of the sibling schematic in figures/1D_vector_definition_top_view.tex.
+DIM_LABEL_PT = 9
 
 # Observation parameters (from centered_1.yaml / forward_1.yaml)
 SHAPE_PX = (16, 16)          # (cols, rows)
@@ -78,14 +87,14 @@ def add_dim_annotations(ax, left, bottom, mode):
                 arrowprops=dict(arrowstyle="<->", color=color, lw=1.1), zorder=6)
     ax.text(left + OBS_KM / 2, ann_y - 2,
             f"{int(OBS_KM)} km  ({SHAPE_PX[0]} px)",
-            ha="center", va="top", color=color, zorder=6)
+            ha="center", va="top", color=color, fontsize=DIM_LABEL_PT, zorder=6)
 
     ann_x = left + OBS_KM + 5
     ax.annotate("", xy=(ann_x, bottom + OBS_KM), xytext=(ann_x, bottom),
                 arrowprops=dict(arrowstyle="<->", color=color, lw=1.1), zorder=6)
     ax.text(ann_x + 2, bottom + OBS_KM / 2,
             f"{int(OBS_KM)} km\n({SHAPE_PX[1]} px)",
-            ha="left", va="center", color=color, zorder=6)
+            ha="left", va="center", color=color, fontsize=DIM_LABEL_PT, zorder=6)
 
 
 def plot_panel(ax, mode: str):
@@ -111,15 +120,20 @@ for mode, suffix in [
     ("centered", "centered"),
     ("forward",  "forward"),
 ]:
-    size = 0.49 * 0.75 * TEXTWIDTH_IN
-    fig, ax = plt.subplots(figsize=(size, size))
+    # One panel per 0.49\textwidth subfigure at width=\textwidth, so the saved PDF
+    # is exactly its LaTeX slot and the 9 pt labels above are the 9 pt that reaches
+    # the page; a tight bbox would undo that. W_HALF x H_STRIP is the same slot as
+    # every boxplot panel. The 86:78 km span drawn below is far narrower than the
+    # axes box that leaves, so equal aspect fits the drawing to the height and
+    # centres it, which is what keeps the schematic itself compact.
+    fig, ax = paper_axes(W_HALF, H_STRIP,
+                         left=PANEL_MARGIN_IN, right=PANEL_MARGIN_IN,
+                         bottom=PANEL_MARGIN_IN, top=PANEL_MARGIN_IN)
     fig.patch.set_facecolor(BG_COLOR)
 
     plot_panel(ax, mode)
-    fig.tight_layout(pad=1.5)
 
     out_path = out_dir / f"observation_mode_{suffix}.pdf"
-    fig.savefig(out_path, bbox_inches="tight", facecolor=fig.get_facecolor())
-    print(f"Saved → {out_path}")
+    save(fig, out_path, facecolor=fig.get_facecolor())
 
 plt.close()

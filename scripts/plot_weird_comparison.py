@@ -17,7 +17,19 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 from scripts.common.colors import *
+from scripts.common.figures import PLOT_TYPE_TO_SIZE, legend_right, paper_axes, save
 from scripts.common.sweep_plotting import add_reward, boxplot_stats, draw_boxplot
+
+# Figure geometry comes from common.figures: the panel is saved at exactly its
+# LaTeX slot size, so nothing is rescaled on inclusion. Like the episode-outcome
+# breakdowns, the legend sits in a right-hand strip reserved through the margin
+# override — without a tight bbox nothing grows the canvas, so an unreserved
+# legend outside the axes is simply clipped.
+PANEL_WIDTH, PANEL_HEIGHT = PLOT_TYPE_TO_SIZE["weird_plot"]
+LEGEND_STRIP_IN = 1.7
+# The multi-scale ticks are two lines ("5a" over "(C2 + C16)"), which the default
+# 0.42 in bottom margin does not cover — reserve the extra line plus the xlabel.
+BOTTOM_MARGIN_IN = 0.56
 
 BOX_WIDTH = 0.8
 
@@ -53,21 +65,15 @@ VARIANT_TO_COLOR = {
     "5b" : MULTI_SCALE_COLOR,
 }
 
+# Only the unclipped reward is plotted here — the point of the figure is the
+# multi-scale gain on one axis, and the fuel/noise breakdown already has its own
+# panels in the two source sweeps. The axis is labelled plain "Reward".
+PLOT_METRICS = [("reward_unclipped", "Reward")]
+
 COMPARISONS = [
     ("c2", "5a", "c16"),
     ("c2", "5b", "c8")
 ]
-
-METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping)"),
-]
-
 
 def _load_cache(runs_root: Path, scenario: str) -> pd.DataFrame:
     """Read the cached per-episode metric table a sweep script wrote with --cache."""
@@ -119,8 +125,8 @@ def plot_metric_boxplot(
         runs_name: str,
         output_dir: Path,
 ) -> list[dict]:
-    fig, ax = plt.subplots(figsize=(0.75 * TEXTWIDTH_IN, 0.35 * TEXTWIDTH_IN), constrained_layout=True)
-    legend_handles = []
+    fig, ax = paper_axes(PANEL_WIDTH, PANEL_HEIGHT,
+                         right=LEGEND_STRIP_IN, bottom=BOTTOM_MARGIN_IN)
     rows: list[dict] = []
 
     # One box per transform variant.
@@ -138,22 +144,28 @@ def plot_metric_boxplot(
             tick_labels.append(VARIANT_TO_CAPTION[variant])
             i += 1
         if comparison == COMPARISONS[0]:
-            plt.axvline(x=i+0.75, color=plt.rcParams["grid.color"], linewidth=plt.rcParams["grid.linewidth"], linestyle=plt.rcParams["grid.linestyle"])
+            ax.axvline(x=i + 0.75, color=plt.rcParams["grid.color"],
+                       linewidth=plt.rcParams["grid.linewidth"],
+                       linestyle=plt.rcParams["grid.linestyle"])
         i += 0.5
-    legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=CENTERED_COLOR, alpha=BOXPLOT_ALPHA, label="Single Scale\n(Centered)"))
-    legend_handles.append(plt.Rectangle((0, 0), 1, 1, fc=MULTI_SCALE_COLOR, alpha=BOXPLOT_ALPHA, label="Multi Scale"))
 
     ax.grid(axis='y')
     ax.set_xticks(tick_x)
     ax.set_xticklabels(tick_labels)
+    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
+    ax.set_xlabel("Observation configuration")
     ax.set_ylabel(ylabel)
-    if legend_handles:
-        ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
+
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, fc=CENTERED_COLOR, alpha=BOXPLOT_ALPHA, label="Single Scale\n(Centered)"),
+        plt.Rectangle((0, 0), 1, 1, fc=MULTI_SCALE_COLOR, alpha=BOXPLOT_ALPHA, label="Multi Scale"),
+    ]
+    legend_right(ax, handles=legend_handles, frameon=True, edgecolor="k")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
+    plt.close(fig)
     return rows
 
 
@@ -168,7 +180,7 @@ if __name__ == "__main__":
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     all_rows: list[dict] = []
-    for metric, ylabel in METRICS:
+    for metric, ylabel in PLOT_METRICS:
         all_rows.extend(plot_metric_boxplot(
             df, None, metric, ylabel, args.scenario, "weird_comparison", args.output_dir,
         ))

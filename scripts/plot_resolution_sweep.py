@@ -9,6 +9,14 @@ episode-outcome breakdown for runs named {forward|centered}_{resolution}_seed{NN
 --plots {both,metrics,breakdown} selects the views (default both). Only the
 metrics view needs BlueSky + the noise/fuel metric fn.
 
+The metrics view writes one PDF per metric *and* `metrics_grid_*.pdf`: the
+reward/noise/fuel panels laid out as one matplotlib figure, the mode legend in
+the cell the odd panel count leaves free, and the (a), (b), … captions above
+the panels. That grid replaces the 2x2 block of `subfigure`s in the paper —
+same reason as plot_trajectory_figure: the panels are laid out in inches here,
+so they are guaranteed the same axes size and the same text size, and LaTeX
+never rescales them. The `figure` environment to paste is printed at the end.
+
 The breakdown stacks each bar by termination reason (success / failed approach /
 max steps / out of bounds), so the success segment height is the arrival rate and
 the segments above show *why* the rest failed.
@@ -22,6 +30,11 @@ import numpy as np
 import pandas as pd
 
 from scripts.common.colors import *
+from scripts.common.figures import (
+    PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
+    grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
+    paper_axes, save,
+)
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     SUCCESS_REASON,
@@ -32,9 +45,26 @@ from scripts.common.sweep_plotting import (
     collect_breakdown_data, compute_baseline, collect_baseline_breakdown, collect_baseline_seed_rates,
 )
 
-# Source width of every metric figure, in inches. Figures are included at
-# \textwidth in LaTeX, so the legend is exported at this same width and included
-# at \textwidth too — both scale by the same factor, keeping text sizes matched.
+# Figure geometry comes from common.figures: every panel is saved at exactly its
+# LaTeX slot size, so nothing is rescaled on inclusion and the text sizes set in
+# common.colors are the ones that reach the page. The breakdown legend lives in a
+# right-hand strip reserved through the margin override; the mode legend for the
+# metric panels is exported as its own PDF, at the same height as those panels so
+# the two line up when placed side by side.
+METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
+BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
+LEGEND_STRIP_IN = 1.7
+
+# Panels of the combined figure (common.figures.metric_grid owns its geometry);
+# the leftover cell holds the mode legend.
+GRID_METRICS = [
+    ("reward_unclipped", "Reward"),
+    ("normalized_noise", "Noise"),
+    ("normalized_fuel", "Fuel"),
+]
+GRID_COLS = 2
+GRID_WIDTH = W_FULL
+
 BOX_OFFSET = 0.2
 BOX_WIDTH = 0.35
 BAR_WIDTH = 0.5
@@ -70,6 +100,61 @@ FILLED_REASONS = {"success", "failed_approach"}
 
 # ---------------------------------------------------------------------------- metrics
 
+def draw_metric_boxplot(
+    ax,
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    metric: str,
+    ylabel: str,
+    report: bool = True,
+) -> list[dict]:
+    """Draw one metric's boxplot group on ``ax`` and return its box statistics.
+
+    Split out of :func:`plot_metric_boxplot` so the standalone PDF and the
+    combined grid draw the exact same panel; ``report`` is off for the grid so
+    the stats are not printed a second time.
+    """
+    resolutions = sorted(df["resolution"].dropna().unique())
+    # baseline at 0, resolutions start at 1
+    x_positions = {res: i + 1 for i, res in enumerate(resolutions)}
+    rows: list[dict] = []
+
+    for mode in MODE_TO_OFFSET:
+        mode_df = df[df["mode"] == mode]
+        if mode != "baseline":
+            for res in resolutions:
+                data = mode_df[mode_df["resolution"] == res][metric].values
+                s = boxplot_stats(data)
+                if report:
+                    print(f"  {mode:>8}  {res:>3} km/px  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+                rows.append({"mode": mode, "resolution": res, "metric": metric, **s})
+                if len(data) == 0:
+                    continue
+                draw_boxplot(ax, data, position=x_positions[res] + MODE_TO_OFFSET[mode], color=MODE_TO_COLOR[mode], box_width=BOX_WIDTH, alpha=BOXPLOT_ALPHA)
+        else:
+            draw_boxplot(ax, baseline_df[metric].values, position=MODE_TO_OFFSET["baseline"], color=MODE_TO_COLOR["baseline"], box_width=BOX_WIDTH)
+            s = boxplot_stats(baseline_df[metric].values)
+            if report:
+                print(f"  {'baseline':>8}       N/A  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
+            rows.append({"mode": "baseline", "resolution": float("nan"), "metric": metric, **s})
+
+    ax.set_xticks([0] + list(range(1, len(resolutions) + 1)))
+    ax.set_xticklabels(["No map"] + [f"{r}" for r in resolutions])
+    ax.set_xlabel("Observation resolution [km/px]")
+    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
+    ax.set_ylabel(ylabel)
+    ax.grid(axis="y")
+    return rows
+
+
+def mode_legend_handles() -> list:
+    return [
+        plt.Rectangle((0, 0), 1, 1, fc=MODE_TO_COLOR[mode], alpha=BOXPLOT_ALPHA,
+                      label=mode.capitalize())
+        for mode in MODE_TO_OFFSET
+    ]
+
+
 def plot_metric_boxplot(
     df: pd.DataFrame,
     baseline_df: pd.DataFrame | None,
@@ -79,42 +164,12 @@ def plot_metric_boxplot(
     runs_name: str,
     output_dir: Path,
 ) -> list[dict]:
-    resolutions = sorted(df["resolution"].dropna().unique())
-    # baseline at 0, resolutions start at 1
-    x_positions = {res: i + 1 for i, res in enumerate(resolutions)}
+    fig, ax = paper_axes(METRIC_WIDTH, METRIC_HEIGHT)
+    rows = draw_metric_boxplot(ax, df, baseline_df, metric, ylabel)
 
-    fig, ax = plt.subplots(figsize=(0.49 * TEXTWIDTH_IN, 0.49 * TEXTWIDTH_IN * 0.78), constrained_layout=True)
-    rows: list[dict] = []
-
-    for mode in MODE_TO_OFFSET:
-        mode_df = df[df["mode"] == mode]
-        if mode != "baseline":
-            for res in resolutions:
-                data = mode_df[mode_df["resolution"] == res][metric].values
-                s = boxplot_stats(data)
-                print(f"  {mode:>8}  {res:>3} km/px  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
-                rows.append({"mode": mode, "resolution": res, "metric": metric, **s})
-                if len(data) == 0:
-                    continue
-                draw_boxplot(ax, data, position=x_positions[res] + MODE_TO_OFFSET[mode], color=MODE_TO_COLOR[mode], box_width=BOX_WIDTH, alpha=BOXPLOT_ALPHA)
-        else:
-            draw_boxplot(ax, baseline_df[metric].values, position=MODE_TO_OFFSET["baseline"], color=MODE_TO_COLOR["baseline"], box_width=BOX_WIDTH)
-            s = boxplot_stats(baseline_df[metric].values)
-            print(f"  {'baseline':>8}       N/A  {metric:<22}  Q1={s['q25']:8.3f}  median={s['q50']:8.3f}  Q3={s['q75']:8.3f}")
-            rows.append({"mode": "baseline", "resolution": float("nan"), "metric": metric, **s})
-
-    ax.set_xticks([0] + list(range(1, len(resolutions) + 1)))
-    ax.set_xticklabels(["No map"] + [f"{r}" for r in resolutions])
-    ax.set_xlabel("Observation resolution [km/px]")
-    ax.yaxis.set_inverted(METRIC_TO_AXIS_REVERS[metric])
-    ax.set_ylabel(ylabel)
-    ax.grid(axis="y")
-
-    fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{metric}_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
     return rows
 
@@ -122,25 +177,51 @@ def plot_metric_boxplot(
 def save_mode_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
     """Export the mode legend (Baseline / Centered / Forward) as a standalone PDF.
 
-    Rendered at PLOT_WIDTH_IN — the same source width as every metric figure — so
-    that when both are included at \\textwidth in LaTeX they scale by the same
-    factor and the legend text matches the in-plot text size exactly. The save box
-    keeps the full figure width but is cropped tight in height.
+    Sized LEGEND_STRIP_IN wide by exactly the height of a metric panel, so it can
+    be included next to one at its natural size: neither is rescaled, and the
+    legend text matches the in-plot text size exactly.
     """
-    handles = [
-        plt.Rectangle((0, 0), 1, 1, fc=MODE_TO_COLOR[mode], alpha=BOXPLOT_ALPHA,
-                      label=mode.capitalize())
-        for mode in MODE_TO_OFFSET
-    ]
-    fig = plt.figure(figsize=(1, 0.49 * TEXTWIDTH_IN * 0.6))
-    legend = fig.legend(handles=handles, loc="center left", ncol=1)
+    fig = plt.figure(figsize=(LEGEND_STRIP_IN, METRIC_HEIGHT * TEXTWIDTH_IN))
+    legend = fig.legend(handles=mode_legend_handles(), loc="center left", ncol=1)
 
     legend.get_frame().set_edgecolor('k')
 
     out_path = output_dir / f"legend_modes_{runs_name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150)
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
+
+
+def plot_metric_grid(
+    df: pd.DataFrame,
+    baseline_df: pd.DataFrame | None,
+    runs_name: str,
+    scenario: str,
+    output_dir: Path,
+    metrics: list[tuple[str, str]] = GRID_METRICS,
+    width: float = GRID_WIDTH,
+    ncols: int = GRID_COLS,
+) -> Path:
+    """One figure holding every grid metric, with the mode legend in the spare cell.
+
+    Replaces the 2x2 block of ``subfigure``s in the paper: laying the panels out
+    here means they are guaranteed the same axes size and the same text size,
+    and the legend costs nothing extra because it goes in the cell the odd
+    number of metrics leaves empty.
+    """
+    fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
+
+    rows: list[dict] = []
+    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
+        rows.extend(draw_metric_boxplot(ax, df, baseline_df, metric, ylabel, report=False))
+        grid_caption(ax, letter, ylabel)
+    legend_in_cell(fig, legend_ax, mode_legend_handles())
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"metrics_grid_{runs_name}_{scenario}.pdf"
+    save(fig, out_path)
+    plt.close(fig)
+    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    return out_path
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
@@ -154,6 +235,7 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
     save_mode_legend(output_dir, runs_root.name, scenario)
+    plot_metric_grid(run_metrics, baseline_metrics, runs_root.name, scenario, output_dir)
 
 
 # --------------------------------------------------------------------------- breakdown
@@ -182,8 +264,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     resolutions = sorted(breakdown["resolution"].unique())
     # baseline at 0, resolutions start at 1 — mirrors the metric boxplot layout
     x = np.arange(1, len(resolutions) + 1)
-    fig, ax = plt.subplots(figsize=(0.85 * TEXTWIDTH_IN, 0.4 * TEXTWIDTH_IN), constrained_layout=True)
-
+    fig, ax = paper_axes(BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT, right=LEGEND_STRIP_IN)
 
     seen_reasons: set = set()
 
@@ -269,12 +350,10 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     legend_handles.append(plt.Line2D(
         [0], [0], marker="o", color="w", markerfacecolor="black",
         markersize=8, label="Per-seed success rate"))
-    ax.legend(handles=legend_handles, frameon=True, edgecolor="k", loc="center left", bbox_to_anchor=(1, 0.5))
+    legend_right(ax, handles=legend_handles, frameon=True, edgecolor="k")
 
-    fig.tight_layout()
     out_path = output_dir / f"episode_success_{runs_root.name}_{scenario}.pdf"
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
-    print(f"Saved → {out_path}")
+    save(fig, out_path)
     plt.close(fig)
 
 
