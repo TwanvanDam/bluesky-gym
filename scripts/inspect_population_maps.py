@@ -210,6 +210,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
         if scale_bar:
             draw_scale_bar(ax)
 
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
         plot_path = OUT_DIR / f"{tiff_path.stem}_coverage.png"
         # No axis decorations and a zero-pad tight bbox: the figure is included
         # at a fixed height in the paper, so any white margin saved here just

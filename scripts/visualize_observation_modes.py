@@ -144,6 +144,7 @@ def plot_panel(ax, mode: str):
 # ---------------------------------------------------------------------------
 
 out_dir = PLOTS_DIR / "population_maps"
+out_dir.mkdir(exist_ok=True)
 
 for mode, suffix in [
     ("centered", "centered"),

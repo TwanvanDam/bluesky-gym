@@ -94,7 +94,7 @@ uv run scripts/inspect_population_maps.py --exclusion 52.308 4.764 250
 
 ### Transform Parameters
 ```shell
-uv run scripts/get_transform_parameters.py `
+uv run scripts/get_transform_parameters.py
 ```
 ### Run experiment (Train a policy)
 To run the training of experiment defined by `config.yaml` with seed `0`
