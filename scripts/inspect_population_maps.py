@@ -143,7 +143,7 @@ def inspect_file(tiff_path: Path, exclusion_zones: list[ExclusionZone] | None = 
                 lon_edge, lat_edge, _ = geod.fwd(zone.lon, zone.lat, 90.0, zone.radius_km * 1000.0)
                 x_edge, y_edge = to_plot_crs.transform(lon_edge, lat_edge)
                 r = np.hypot(x_edge - x, y_edge - y)
-                draw_exclusion_zone(ax, x, y, r, zone.radius_km, label=label_exclusions)
+                draw_exclusion_zone(ax, x, y, r)
 
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         plot_path = OUT_DIR / f"{tiff_path.stem}_coverage.png"
