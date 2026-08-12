@@ -486,33 +486,36 @@ if __name__ == "__main__":
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if "metrics" in selected:
-        import bluesky as bs
-        from bluesky_gym.maps.map_sources import TransformedTiffMapSourceConfig
-        from bluesky_gym.metrics.evaluation_metrics import (
-            bounds_from_df,
-            build_metric_fn,
-            make_pop_samplers,
-        )
-
-        bs.init()
-        all_csvs = [
-            find_csv(run_dir, args.scenario)
-            for run_dir in runs_root.iterdir()
-            if run_dir.is_dir()
-        ]
-        all_csvs = [p for p in all_csvs if p is not None]
-        if not all_csvs:
-            raise FileNotFoundError(f"No trajectory CSVs found under {runs_root} for scenario '{args.scenario}'")
-        combined_df = pd.concat([pd.read_csv(p) for p in all_csvs], ignore_index=True)
-        bounds = bounds_from_df(combined_df)
-
-        samplers = make_pop_samplers(
-            TransformedTiffMapSourceConfig(file_path=args.map_path), bounds=bounds,
-            clip_percentile=args.noise_clip_percentile, train_resampling="average", true_resampling="average")
-        calculate_metrics = build_metric_fn(samplers)
-
         cache_path = runs_root / f"cached_metrics_{args.scenario}.csv"
-        if args.cache and cache_path.exists():
+        cached_metrics = args.cache and cache_path.exists()
+        calculate_metrics = None
+        if not cached_metrics or args.baseline:
+            import bluesky as bs
+            from bluesky_gym.maps.map_sources import TransformedTiffMapSourceConfig
+            from bluesky_gym.metrics.evaluation_metrics import (
+                bounds_from_df,
+                build_metric_fn,
+                make_pop_samplers,
+            )
+
+            bs.init()
+            all_csvs = [
+                find_csv(run_dir, args.scenario)
+                for run_dir in runs_root.iterdir()
+                if run_dir.is_dir()
+            ]
+            all_csvs = [p for p in all_csvs if p is not None]
+            if not all_csvs:
+                raise FileNotFoundError(f"No trajectory CSVs found under {runs_root} for scenario '{args.scenario}'")
+            combined_df = pd.concat([pd.read_csv(p) for p in all_csvs], ignore_index=True)
+            bounds = bounds_from_df(combined_df)
+
+            samplers = make_pop_samplers(
+                TransformedTiffMapSourceConfig(file_path=args.map_path), bounds=bounds,
+                clip_percentile=args.noise_clip_percentile, train_resampling="average", true_resampling="average")
+            calculate_metrics = build_metric_fn(samplers)
+
+        if cached_metrics:
             print("Using cached metrics...")
             run_metrics = pd.read_csv(cache_path)
         else:

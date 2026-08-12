@@ -330,20 +330,23 @@ if __name__ == "__main__":
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if "metrics" in selected:
-        import bluesky as bs
-        from bluesky_gym.maps.map_sources import TiffMapSourceConfig
-        from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
-
-        bs.init()
-        # Fixed-map overview: legacy TiffMapSource branch ignores bounds and is shared
-        # across all sweep runs (post-resample clip at the given percentile).
-        samplers = make_pop_samplers(
-            TiffMapSourceConfig(file_path=args.map_path), bounds=None,
-            clip_percentile=args.noise_clip_percentile, train_resampling="cubic_spline", true_resampling="average")
-        calculate_metrics = build_metric_fn(samplers)
-
         cache_path = runs_root / f"cached_metrics_{args.scenario}.csv"
-        if args.cache and cache_path.exists():
+        baseline_cache_path = runs_root / f"cached_baseline_metrics_{args.scenario}.csv"
+        cached_metrics = args.cache and cache_path.exists()
+        cached_baseline = args.cache and baseline_cache_path.exists()
+        calculate_metrics = None
+        if not cached_metrics or (args.baseline and not cached_baseline):
+            import bluesky as bs
+            from bluesky_gym.maps.map_sources import TiffMapSourceConfig
+            from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
+
+            bs.init()
+            samplers = make_pop_samplers(
+                TiffMapSourceConfig(file_path=args.map_path), bounds=None,
+                clip_percentile=args.noise_clip_percentile, train_resampling="cubic_spline", true_resampling="average")
+            calculate_metrics = build_metric_fn(samplers)
+
+        if cached_metrics:
             print("Using cached metrics...")
             run_metrics = pd.read_csv(cache_path)
         else:
@@ -355,8 +358,7 @@ if __name__ == "__main__":
 
         baseline_metrics = None
         if args.baseline:
-            baseline_cache_path = runs_root / f"cached_baseline_metrics_{args.scenario}.csv"
-            if args.cache and baseline_cache_path.exists():
+            if cached_baseline:
                 print("Using cached baseline metrics...")
                 baseline_metrics = pd.read_csv(baseline_cache_path)
             else:
