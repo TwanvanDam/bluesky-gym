@@ -1,6 +1,6 @@
 [project]
 name = "bluesky-gym"
-dynamic = ["version"]
+version = "0.1.0"
 dependencies = [
     "torch>=2.3.1",
     "pygame",
@@ -57,11 +57,8 @@ Homepage = "https://github.com/TUDelft-CNS-ATM/bluesky-gym"
 Issues = "https://github.com/TUDelft-CNS-ATM/bluesky-gym/issues"
 
 [build-system]
-requires = ["hatchling==1.26.3", "hatch-vcs"]
+requires = ["hatchling==1.26.3"]
 build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "vcs"
 
 [tool.hatch.build.targets.sdist]
 include = [
