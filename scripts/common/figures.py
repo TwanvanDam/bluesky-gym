@@ -4,22 +4,6 @@ The point of this module is that the *saved* PDF is exactly as wide as the
 LaTeX slot it gets included in, and that every figure in a slot shares one
 axes box. LaTeX then never rescales anything, so the 10 pt / 9 pt text set in
 ``common.colors`` is the text size that actually reaches the page.
-
-Two rules come with it:
-
-1. Save through :func:`save` — never ``bbox_inches="tight"``. A tight bounding
-   box makes the saved width depend on how long the tick and legend labels
-   happen to be; LaTeX then normalises that away to a fixed fraction of
-   ``\\textwidth`` and drags the font sizes with it.
-2. Anything drawn outside the axes (legends, notes) has to live in a margin
-   reserved through the ``left``/``right``/``top``/``bottom`` overrides. With
-   no tight bbox there is nothing to grow the canvas, so an unreserved artist
-   is simply clipped. :func:`save` warns when that happens.
-
-Widths *and* heights are fractions of ``\\textwidth`` and describe the whole
-figure canvas, so ``paper_axes(0.75, 0.33)`` saves a PDF that is exactly
-0.75 x 0.33 ``\\textwidth``. Pick one of each from the constants below rather
-than inventing a new number — that is what keeps the figures looking like a set.
 """
 
 from collections.abc import Sequence
@@ -31,17 +15,13 @@ import matplotlib.text as mtext
 from scripts.common.colors import CAPTION_PT, TEXTWIDTH_IN
 
 
-# Widths — these mirror the LaTeX slots. A figure built at W_WIDE is included
-# with `width=0.85\textwidth`, and so on.
+# Widths (Latex \textwidth).
 W_FULL = 1.00
 W_WIDE = 0.85
 W_THREEQ = 0.75
 W_HALF = 0.49    # two per row
 W_THIRD = 0.32   # three per row
 
-# Heights — also fractions of \textwidth, so a figure is `W_* x H_*` on the
-# page. They are absolute rather than a multiple of the width: figures of
-# different widths standing on the same page line up when they share a height.
 H_STRIP = 0.33   # short strip: training curves, wide category bars
 H_PLOT = 0.45    # default single-panel plot
 H_TALL = 0.55    # long tick labels or an annotation band under the axes

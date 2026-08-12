@@ -22,13 +22,6 @@ REASON_LABELS = {
 }
 
 def find_csv(run_dir: Path, scenario: str) -> Path | None:
-    """Trajectory CSV for one exact evaluation scenario, or None.
-
-    `scenario` is the trajectory subdir name written by generate_trajectories,
-    i.e. {runway}_{label} (e.g. "EHAM_RW27",
-    "EHAM_RW18R_scaling"). Selection is exact: the scenario label is the
-    key, so multiple scenarios for the same runway never collide.
-    """
     csv = run_dir / "trajectories" / scenario / "trajectories.csv"
     return csv if csv.exists() else None
 
@@ -95,11 +88,7 @@ def draw_boxplot(ax, data, position, color, box_width,alpha=0.6, showfliers=True
 
 
 def boxplot_stats(data) -> dict:
-    """Box statistics matching matplotlib's default boxplot (whis=1.5).
-
-    Returns the quartiles, the IQR, and the whisker caps — the most extreme data
-    points still within [Q1 - 1.5*IQR, Q3 + 1.5*IQR], exactly where draw_boxplot
-    renders the whiskers. NaNs are dropped; an all-empty input yields all-NaN.
+    """Box statistics matching matplotlib's default.
     """
     data = np.asarray(data, dtype=float)
     data = data[~np.isnan(data)]
@@ -150,9 +139,6 @@ def per_episode_reasons(run_dir: Path, scenario: str) -> pd.Series | None:
         return None
     df = pd.read_csv(csv_path)
     if "termination_reason" not in df.columns:
-        # Older trajectory CSVs predate termination logging; treat every episode as a
-        # success, matching compute_episode_metrics' default for the metric path so such
-        # runs still appear (instead of being dropped) in the outcome breakdown.
         return pd.Series(SUCCESS_REASON, index=df.groupby("start_angle").size().index,
                          name="termination_reason")
     return df.groupby("start_angle")["termination_reason"].last()
@@ -270,23 +256,9 @@ def mean_breakdowns(df: pd.DataFrame, positions: list, pos_col: str = "resolutio
             means[reason][i] = mean_breakdown.get(reason, 0.0)
     return ordered_reasons, means
 
-
-# =====================================================================================
-# Generic, regex-driven data collection
-#
-# A "sweep" is just the set of runs whose directory name matches one regex. The regex's
-# named groups become DataFrame columns: e.g.
-#   r"^transformed_(?P<variant>.+)_seed(?P<seed>\d+)$"
-# yields columns "variant" and "seed". All-digit groups are cast to int. Everything
-# cosmetic — ordering, colors, x-layout, labels, savefig — lives in the per-sweep
-# plotting script, NOT here.
-# =====================================================================================
-
-
 def _coerce(value: str | None):
     """Cast an all-digit regex group to int; leave everything else as-is."""
     return int(value) if value is not None and value.isdigit() else value
-
 
 def collect_run_metrics(
     runs_root: Path,

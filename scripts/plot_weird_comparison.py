@@ -20,15 +20,8 @@ from scripts.common.colors import *
 from scripts.common.figures import PLOT_TYPE_TO_SIZE, legend_right, paper_axes, save
 from scripts.common.sweep_plotting import add_reward, boxplot_stats, draw_boxplot
 
-# Figure geometry comes from common.figures: the panel is saved at exactly its
-# LaTeX slot size, so nothing is rescaled on inclusion. Like the episode-outcome
-# breakdowns, the legend sits in a right-hand strip reserved through the margin
-# override — without a tight bbox nothing grows the canvas, so an unreserved
-# legend outside the axes is simply clipped.
 PANEL_WIDTH, PANEL_HEIGHT = PLOT_TYPE_TO_SIZE["weird_plot"]
 LEGEND_STRIP_IN = 1.7
-# The multi-scale ticks are two lines ("5a" over "(C2 + C16)"), which the default
-# 0.42 in bottom margin does not cover — reserve the extra line plus the xlabel.
 BOTTOM_MARGIN_IN = 0.56
 
 BOX_WIDTH = 0.8
@@ -36,9 +29,6 @@ BOX_WIDTH = 0.8
 RESOLUTION_ROOT = Path("runs/resolution_sweep_2")
 MULTI_SCALE_ROOT = Path("runs/multi-scale-sweep")
 
-# Each comparison variant: (label, runs_root, row filter into that sweep's cache).
-# c{N} are single-scale centered runs from the resolution sweep; 5a/5b are the
-# multi-scale configs that combine those same resolutions.
 VARIANT_SPECS: list[tuple[str, Path, dict]] = [
     ("c2",  RESOLUTION_ROOT,  {"mode": "centered", "resolution": 2}),
     ("c8",  RESOLUTION_ROOT,  {"mode": "centered", "resolution": 8}),
@@ -65,10 +55,6 @@ VARIANT_TO_COLOR = {
     "5b" : MULTI_SCALE_COLOR,
 }
 
-# Only the unclipped reward is plotted here — the point of the figure is the
-# multi-scale gain on one axis, and the fuel/noise breakdown already has its own
-# panels in the two source sweeps. The axis label is the shared one, so this
-# panel reads the same as the reward panel of either source sweep.
 PLOT_METRICS = ["reward_unclipped"]
 
 COMPARISONS = [

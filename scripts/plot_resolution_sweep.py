@@ -46,18 +46,10 @@ from scripts.common.sweep_plotting import (
     collect_breakdown_data, compute_baseline, collect_baseline_breakdown, collect_baseline_seed_rates,
 )
 
-# Figure geometry comes from common.figures: every panel is saved at exactly its
-# LaTeX slot size, so nothing is rescaled on inclusion and the text sizes set in
-# common.colors are the ones that reach the page. The breakdown legend lives in a
-# right-hand strip reserved through the margin override; the mode legend for the
-# metric panels is exported as its own PDF, at the same height as those panels so
-# the two line up when placed side by side.
 METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
 BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 LEGEND_STRIP_IN = 1.7
 
-# Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the mode legend.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -81,18 +73,6 @@ MODE_TO_COLOR = {
     "centered": CENTERED_COLOR,
     "forward":  FORWARD_COLOR,
 }
-
-REASON_HATCH = {
-    "success":        "",
-    "failed_approach": "////",
-    "max_steps":       "....",
-    "out_of_bounds":   "xxxx",
-}
-
-# success/failed_approach are filled with the mode/baseline color (hatch drawn on
-# top); the remaining failure modes are hatch-only so they don't compete visually
-# with the arrival-rate segments.
-FILLED_REASONS = {"success", "failed_approach"}
 
 # ---------------------------------------------------------------------------- metrics
 
@@ -233,14 +213,6 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
     save_mode_legend(output_dir, runs_root.name, scenario)
     plot_metric_grid(run_metrics, baseline_metrics, runs_root.name, scenario, output_dir)
 
-
-# --------------------------------------------------------------------------- breakdown
-
-def _draw_baseline(ax, value: float | None, label: str) -> None:
-    if value is not None:
-        ax.axhline(value, color=BASELINE_COLOR, linestyle="--", linewidth=1.2,
-                   label=f"Baseline ({label})", zorder=3)
-        ax.legend(frameon=False)
 
 def print_success_rates(breakdown: pd.DataFrame, baseline_breakdown=None, baseline_seed_rates=None) -> None:
     if baseline_seed_rates:

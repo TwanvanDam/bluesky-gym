@@ -43,15 +43,10 @@ from scripts.common.sweep_plotting import (
     run_sweep_args_parser,
 )
 
-# Figure geometry comes from common.figures: every panel is saved at exactly its
-# LaTeX slot size, so nothing is rescaled on inclusion. The breakdown legend lives
-# in a reserved right-hand strip rather than being discovered by a tight bbox.
 METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
 BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 LEGEND_STRIP_IN = 1.7
 
-# Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the ID → variant key.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -64,7 +59,6 @@ BAR_ALPHA = 0.6
 # transformed_{variant}_seed{N}, e.g. transformed_power_flip_zoom_seed2
 PATTERN = re.compile(r"^transformed_(?P<variant>.+)_seed(?P<seed>\d+)$")
 
-# Caption per transform variant. Key order also defines the left-to-right plot order.
 VARIANT_TO_CAPTION = {
     "baseline": "Baseline",
     "scale": "Scale",
@@ -97,8 +91,6 @@ def _ordered_variants(present: set[str]) -> list[str]:
     return [v for v in VARIANT_ORDER if v in present] + sorted(present - set(VARIANT_TO_CAPTION))
 
 
-# ---------------------------------------------------------------------------- metrics
-
 def draw_metric_boxplot(
     ax,
     df: pd.DataFrame,
@@ -108,25 +100,14 @@ def draw_metric_boxplot(
     report: bool = True,
 ) -> list[dict]:
     """Draw one metric's boxplot group on ``ax`` and return its box statistics.
-
-    Split out of :func:`plot_metric_boxplot` so the standalone PDF and the
-    combined grid draw the exact same panel; ``report`` is off for the grid so
-    the ID/variant mapping is not printed a second time.
     """
     variants = _ordered_variants(set(df["variant"].dropna().unique()))
     rows: list[dict] = []
 
-    # Reference baseline box + quartile lines spanning the plot for comparison.
     has_baseline = baseline_df is not None and not baseline_df.empty
     if has_baseline:
-        # draw_boxplot(ax, baseline_df[metric].values, position=0, color=BASELINE_COLOR, box_width=BOX_WIDTH)
-        # legend_handles.append(
-        #     plt.Rectangle((0, 0), 1, 1, fc=BASELINE_COLOR, alpha=BOXPLOT_ALPHA, label="Baseline (C4)")
-        # )
         s = boxplot_stats(baseline_df[metric].values)
         rows.append({"variant": "baseline", "metric": metric, **s})
-        # for val, ls in [(s["q50"], "--"), (s["q25"], ":"), (s["q75"], ":")]:
-        #     ax.axhline(val, color=BASELINE_COLOR, linestyle=ls, linewidth=0.8, alpha=0.6)
 
     # One box per transform variant.
     for i, variant in enumerate(variants):
@@ -226,22 +207,6 @@ def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir)
     pd.DataFrame(all_rows).to_csv(csv_path, index=False)
     print(f"Saved → {csv_path}")
     plot_metric_grid(run_metrics, baseline_metrics, runs_root.name, scenario, output_dir)
-
-
-# --------------------------------------------------------------------------- breakdown
-
-REASON_HATCH = {
-    "success":         "",
-    "failed_approach": "////",
-    "max_steps":       "....",
-    "out_of_bounds":   "xxxx",
-}
-
-# success/failed_approach are filled with the variant color (hatch drawn on top);
-# the remaining failure modes are hatch-only so they don't compete visually with
-# the arrival-rate segments.
-FILLED_REASONS = {"success", "failed_approach"}
-
 
 def print_success_rates(breakdown: pd.DataFrame, baseline_seed_rates=None) -> None:
     if baseline_seed_rates:

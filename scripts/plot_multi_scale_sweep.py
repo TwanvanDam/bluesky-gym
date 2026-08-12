@@ -42,17 +42,10 @@ from scripts.common.sweep_plotting import (
     run_sweep_args_parser,
 )
 
-# Figure geometry comes from common.figures: every panel is saved at exactly its
-# LaTeX slot size, so nothing is rescaled on inclusion. The breakdown legend lives
-# in a reserved right-hand strip; the variant legend for the metric panels is a
-# separate PDF, one panel tall so the two line up side by side.
 METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
 BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 LEGEND_STRIP_IN = 1.7
 
-# Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the variant legend. Which metrics get a panel is
-# common.colors.METRIC_TO_CAPTION, shared with every other sweep grid.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -61,11 +54,6 @@ BOX_OFFSET = 0.2  # half-gap between the two variants in a group
 BAR_WIDTH = 0.6
 DOT_ALPHA = 0.8
 DOT_SIZE = 60
-
-# success/failed_approach are filled with the mode/baseline color (hatch drawn on
-# top); the remaining failure modes are hatch-only so they don't compete visually
-# with the arrival-rate segments.
-FILLED_REASONS = {"success", "failed_approach"}
 
 # {multi_scale_}{group}{variant}_seed{NN}, group 1-5, variant a/b
 PATTERN = re.compile(r"^(?:multi_scale_)?(?P<group_num>\d)(?P<variant>[ab])_seed(?P<seed>\d+)$")

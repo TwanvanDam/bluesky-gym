@@ -102,12 +102,7 @@ def eval_map_config(train_map_config: MapSourceConfigType, trajectory_config: Tr
             "value_transforms": value_transforms
         })
     elif isinstance(train_map_config, TiffMapSourceConfig):
-        # Legacy tiff sources have no value pipeline, so density scaling is expressed by
-        # promoting to a TransformedTiffMapSource carrying a single ScaleValues transform.
-        # No Clip is added here: clipping stays part of the observation pipeline (after
-        # resampling), and the resampling method is unchanged. window_margin_m is set large
-        # enough that the widest observation window never reads artificial nodata (the legacy
-        # source read the whole raster, so any nodata at the edge would be a new artifact).
+        # Promote to transformed tiff mapsource if scaling is applied
         if trajectory_config.scale_density:
             value_transforms = [ScaleValues(factor=(trajectory_config.scale_density, trajectory_config.scale_density))]
             return TransformedTiffMapSourceConfig(
@@ -133,8 +128,7 @@ def generate_for_run(run_paths: RunPaths, eval_config: TrajectoryEvalConfig) -> 
 
     trajectory_folder = run_paths.trajectory_subdir(subdir_label)
 
-    # Skip (and short-circuit) before loading the config, so pre-generated runs without
-    # a config.yaml (e.g. the legacy benchmark) are skipped rather than crashing the load.
+    # skip files without a config.yaml
     try:
         trajectory_folder.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -144,8 +138,6 @@ def generate_for_run(run_paths: RunPaths, eval_config: TrajectoryEvalConfig) -> 
     train_config = ExperimentConfig.load(run_paths.config)
     write_trajectory_details(trajectory_folder, dataclasses.asdict(eval_config))
 
-    # A run without a population_config was trained map-free: load_env_and_model ignores
-    # any map override for it, so fly it on a zeroed map (--no_map is a no-op there).
     if eval_config.map_path and train_config.population_config is not None:
         validation_map = eval_map_config(train_config.population_config.map_source_config, eval_config)
     else:

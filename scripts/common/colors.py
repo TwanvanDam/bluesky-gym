@@ -106,3 +106,5 @@ REASON_HATCH = {
     "out_of_bounds":   "xxxx",
 }
 
+FILLED_REASONS = {"success", "failed_approach"}
+

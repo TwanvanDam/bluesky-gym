@@ -1,24 +1,10 @@
 """Merge one or more Mollweide GeoTIFF tiles and reproject to a target CRS.
 
-Typical use: combine GHS-POP tiles covering Europe and reproject to EPSG:3035
-so the environment can use a smaller, faster-loading regional raster.
-
-Usage examples
---------------
 # Merge two tiles and reproject to EPSG:3035 at 1 km resolution
 python -m scripts.merge_population_maps \\
     scripts/population_maps/GHS_POP_*_R3_C19.tif \\
     scripts/population_maps/GHS_POP_*_R3_C18.tif \\
     --output scripts/population_maps/europe_3035_1km.tif
-
-# Single file — just reprojects
-python -m scripts.merge_population_maps \\
-    scripts/population_maps/GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0.tif \\
-    --output scripts/population_maps/europe_3035_1km.tif \\
-    --bounds 2500000 1400000 7500000 5500000   # EPSG:3035 extent for Europe
-
-Resolution defaults to the source pixel size (1000 m for GHS 1 km tiles).
-Bounds are in the OUTPUT CRS (xmin ymin xmax ymax).
 """
 
 import argparse
@@ -76,9 +62,7 @@ def main():
     for p in input_paths:
         print(f"  {p}")
 
-    # ------------------------------------------------------------------
-    # Step 1: merge tiles in their native CRS
-    # ------------------------------------------------------------------
+    # merge tiles in their native CRS
     datasets = [rasterio.open(p) for p in input_paths]
 
     src_crs = datasets[0].crs
@@ -93,9 +77,7 @@ def main():
     src_height, src_width = merged_data.shape[1], merged_data.shape[2]
     print(f"  Merged shape: {src_width} x {src_height} px")
 
-    # ------------------------------------------------------------------
-    # Step 2: calculate output transform in the target CRS
-    # ------------------------------------------------------------------
+    # calculate output transform in the target CRS
     dst_crs = CRS.from_string(args.crs)
     resolution = args.resolution  # None → calculate_default_transform picks it
 
@@ -129,9 +111,7 @@ def main():
     print(f"  Output shape: {dst_width} x {dst_height} px")
     print(f"  Resampling:   {args.resampling}")
 
-    # ------------------------------------------------------------------
-    # Step 3: reproject
-    # ------------------------------------------------------------------
+    # reproject
     out_nodata = -9999.0
     dst_data = np.full((1, dst_height, dst_width), nodata, dtype=src_dtype)
 
@@ -147,16 +127,12 @@ def main():
         resampling=getattr(Resampling, args.resampling),
     )
 
-    # Pixels that stayed at the source nodata sentinel are outside coverage.
-    # Pixels with small negative values (e.g. -14) are interpolation artefacts
-    # at valid/nodata boundaries — clamp them to 0.
+    # set nodata values
     nodata_mask = dst_data[0] == nodata
     dst_data[0] = np.clip(dst_data[0], 0, None)
     dst_data[0][nodata_mask] = out_nodata
 
-    # ------------------------------------------------------------------
-    # Step 4: save as tiled, compressed GeoTIFF
-    # ------------------------------------------------------------------
+    # save as tiled, compressed GeoTIFF
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -172,7 +148,7 @@ def main():
         transform=dst_transform,
         nodata=out_nodata,
         compress="lzw",
-        predictor=2,        # horizontal differencing — good for float rasters
+        predictor=2,
         tiled=True,
         blockxsize=256,
         blockysize=256,

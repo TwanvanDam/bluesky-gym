@@ -21,27 +21,23 @@ from pathlib import Path
 
 import pandas as pd
 
-# Metric columns written by compute_episode_metrics. Everything else that is not
-# the seed column is treated as a config-identifying column (the group-by keys).
-METRIC_COLS = {
+METRIC_COLUMNS = {
     "fuel", "noise", "noise_clipped",
     "normalized_fuel", "normalized_noise", "normalized_noise_clipped",
     "success",
 }
-# Non-metric bookkeeping columns that are also not config keys. `termination_reason`
-# rides along in the cached_metrics CSVs but must never become a group-by key
-# (it would split every config into success/failure rows).
+
+# Use non config columns to properly group entries
 NON_CONFIG_COLS = {"termination_reason", "start_angle", "alpha"}
 SEED_COL = "seed"
 
-# Reward shaping constants, matching the training reward (see add_reward).
+# Reward shaping constants
 SUCCESS_BONUS = 5.0
 FAILURE_PENALTY = -1.0
 
 BASELINE_LABEL = "No-map"
 
-# (aggregate key, number of decimals, "max"|"min" for best-value bolding). Order
-# is the left-to-right column order of the table body.
+# function to determine what value to bold
 VALUE_COLUMNS = [
     ("reward_mean", 3, "max"),
     ("reward_median", 3, "max"),
@@ -73,7 +69,7 @@ def add_derived(df: pd.DataFrame, fuel_weight: float) -> None:
 def auto_group_by(df: pd.DataFrame) -> list[str]:
     """Config columns to group on: everything that is not a metric or the seed."""
     return [c for c in df.columns
-            if c not in METRIC_COLS and c not in NON_CONFIG_COLS and c != SEED_COL]
+            if c not in METRIC_COLUMNS and c not in NON_CONFIG_COLS and c != SEED_COL]
 
 
 def aggregate(df: pd.DataFrame, group_by: list[str]) -> pd.DataFrame:

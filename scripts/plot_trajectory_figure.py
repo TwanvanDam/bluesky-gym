@@ -17,24 +17,6 @@ Run it with::
 Each line is the path to a ``trajectories.csv``, a comma, and the panel caption.
 Only the first comma separates the two, so captions may contain commas. The
 ``(a)``, ``(b)``, … prefix is added automatically in reading order.
-
-Captions are wrapped to the panel width automatically; ``\\`` forces a break
-where you want one, as in LaTeX::
-
-    …/trajectories.csv, C4-old on EDDF RW25R \\ $\kappa = 4$
-
-Why one figure instead of one PDF per panel inside ``subfigure``s: the panels
-are laid out in inches here, so they are guaranteed the same size and the same
-km-per-inch, and the tick labels, colorbar, legend and axis labels are paid for
-once out of the shared margin rather than once per panel. The captions are drawn
-by matplotlib in the caption font at ``CAPTION_PT``, so they match what
-``subcaption`` would have produced. For ``\subref`` support, declare phantom
-subcaptions in the ``.tex`` — the snippet printed at the end does that.
-
-Maths in captions is rendered by matplotlib's mathtext, not by LaTeX: write it
-exactly as in a ``.tex`` file (``$\kappa = 4$``, one backslash) and stick to
-plain maths. LaTeX macros — ``\textbf``, ``\SI``, custom ones — do not exist
-here and are reported as an error naming the offending spec line.
 """
 
 import argparse
@@ -269,31 +251,17 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
     ncols = max(len(row) for row in panels)
 
     tick_block = fg.TICK_LABEL_IN if draw_axes else 0.0
-    # Captions below the panels have to clear the tick labels, and every row
-    # needs the same stack under it — otherwise the last row's captions get
-    # pushed away from their panels and the rows read as two separate figures.
-    # That costs a row of tick labels per row; above/inside cost nothing, which
-    # is why they can share the x tick labels down to the bottom row.
     xticks_every_row = captions == "below"
-    # The axis labels describe the whole grid, so they go below every caption
-    # rather than between a panel and its own caption.
     label_block = fg.AXIS_LABEL_IN + 0.06 if (draw_axes and axis_labels) else 0.0
 
-    # ``width`` sizes the panels and the colorbar; the canvas is wider than that
-    # whenever the legend is drawn, and the difference is split evenly between
-    # the side margins so the panel block stays centred on the page.
     canvas = canvas_width(width, draw_legend)
     side_pad = 0.5 * (canvas - width) * fg.TEXTWIDTH_IN
 
-    # The legend may be wider than the panel block; it sits under the panels and
-    # clear of the colorbar, so it is only the canvas width that constrains it.
     handles = legend_handles()
     legend_ncol, legend_rows, legend_width = legend_layout(
         handles, canvas * fg.TEXTWIDTH_IN - 2 * EDGE_IN)
     legend_block = legend_rows * LEGEND_LINE_IN + 0.08
 
-    # A ragged row leaves a hole in the grid; the colorbar goes there instead of
-    # into a reserved right margin, which gives that margin back to the panels.
     empty_cells = [(row, col) for row in range(nrows)
                    for col in range(len(panels[row]), ncols)]
     colorbar_cell = empty_cells[0] if (draw_colorbar and empty_cells) else None
@@ -303,8 +271,6 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
     right = side_pad + (COLORBAR_IN if draw_colorbar and colorbar_cell is None
                         else (XTICK_OVERHANG_IN if draw_axes else EDGE_IN))
 
-    # Panel width is fixed by the horizontal margins alone, so captions can be
-    # wrapped to it before the figure — which is what decides its height.
     wspace = panel_gap
     panel_width_in = (canvas * fg.TEXTWIDTH_IN - left - right - wspace * (ncols - 1)) / ncols
     row_lines = [1] * nrows
@@ -316,8 +282,6 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
                                              panel_width_in, weight=CAPTION_WEIGHT)
                 row_lines[row_index] = max(row_lines[row_index], panel.caption.count("\n") + 1)
 
-    # Per row, so a row of one-line captions does not reserve room for the
-    # tallest caption elsewhere in the figure.
     def caption_block(row_index: int) -> float:
         height = row_lines[row_index] * fg.CAPTION_LINE_IN
         if captions == "below":
@@ -326,17 +290,11 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
             return height + 0.08   # the title's pad above the axes
         return 0.0
 
-    # Between two rows sits the upper row's tick labels and caption (below mode)
-    # or the lower row's title (above mode) — plus the same free space as
-    # between the columns.
     gaps = [(tick_block if xticks_every_row else 0.0)
             + (caption_block(row) if captions == "below" else caption_block(row + 1))
             + wspace
             for row in range(nrows - 1)]
 
-    # A colorbar down the right margin spans the panel block, so its end tick
-    # labels stick out past the top and bottom of the grid by half a line. One
-    # inside the grid is inset instead and needs no extra room.
     edge = max(EDGE_IN, YTICK_OVERHANG_IN if colorbar_cell is None and draw_colorbar else 0.0)
     fig, axes = fg.paper_grid(
         ncols, nrows, width=canvas, panel_aspect=1.0, wspace_in=wspace, hspace_in=gaps,
@@ -397,7 +355,6 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
         fg.grid_labels(fig, [axes[row, 0] for row in range(nrows)],
                        ylabel=r"$y$-coordinate [km]")
         if captions == "below":
-            # Under the last row's captions, not between the panels and theirs.
             positions = [ax.get_position() for ax in used_axes]
             x_mid = 0.5 * (min(p.x0 for p in positions) + max(p.x1 for p in positions))
             fig.text(x_mid, last_caption_y - (fg.CAPTION_LINE_IN + 0.06) / fig.get_figheight(),
@@ -415,8 +372,6 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
             cax = fig.add_axes([last.x1 + 0.10 / fig_w, last.y0, bar, first.y1 - last.y0])
             label_room = fig_h - 2 * EDGE_IN
         else:
-            # Centre the whole bar-plus-labels block in the empty cell, and keep
-            # it a little shorter than the cell so the end tick labels stay in.
             cell = axes[colorbar_cell].get_position()
             block = (0.13 + 0.05 + YTICK_LABEL_IN + fg.AXIS_LABEL_IN) / fig_w
             height = 0.86 * cell.height
@@ -428,10 +383,6 @@ def plot_figure(panels: list[list[TrajectoryPanel]], save_path: Path, background
 
     if draw_legend:
         positions = [ax.get_position() for ax in used_axes]
-        # Below whatever the bottom margin actually reaches. The tick labels,
-        # the panel captions and the shared axis label are all drawn by now, so
-        # measuring them beats re-deriving their block heights here — and the
-        # captions are the ones whose height is not known until they are wrapped.
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         to_figure = fig.transFigure.inverted()

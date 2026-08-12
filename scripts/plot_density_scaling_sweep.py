@@ -43,12 +43,10 @@ from scripts.common.sweep_plotting import compute_episode_metrics, find_csv
 # Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
 PATTERN = re.compile(r"^(?P<config>.+?)(?:_seed(?P<seed>\d+))?$")
 
-# "Successful" outcomes for the failure-rate plot and the failure table: anything else
-# (failed_approach / max_steps / out_of_bounds) counts as a failure there.
-KEEP_REASONS = {"success"} #, "failed_approach"}
+# Only "success" counts as successful
+KEEP_REASONS = {"success"}
 
-# Episodes that complete a flight and therefore carry valid fuel/noise metrics; max_steps /
-# out_of_bounds episodes are truncated and would inflate fuel. Used by the frontier filters.
+# Failed approach is still considered as 'complete'
 COMPLETED_REASONS = {"success", "failed_approach"}
 
 ANCHOR_ALPHA = 1.0  # the trained operating point
@@ -61,12 +59,8 @@ DEFAULT_MEAN_EPISODE_LENGTH = 1400.0
 DEFAULT_NOISE_CLIP_PERCENTILE = 99.9
 DEFAULT_OUTPUT_DIR = Path("plots/sweep_overview_plots")
 
-# Alphas shown in the marker-size legend and used as failure-rate x-ticks.
 LEGEND_ALPHAS = (0.25, 0.5, 1, 2, 4)
 METRIC_REDUCTION = "mean"
-# Figure geometry comes from common.figures, shared by both plots: the frontier
-# carries two stacked legends (configs, marker size <-> alpha), so the right-hand
-# strip has to be reserved up front instead of being discovered by a tight bbox.
 FIGURE_WIDTH, FIGURE_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_frontier"]
 LEGEND_STRIP_IN = 1.35
 CONFIG_COLOR_RULES = {
@@ -86,9 +80,6 @@ def config_color(config: str) -> str:
                   "(add a CONFIG_COLOR_RULES entry to give it its own color).")
     return UNKNOWN_COLOR
 
-# Exact-match display labels for legend text, one entry per config name produced by
-# PATTERN (run dir name minus any trailing _seedNN suffix). Keeps the legend short
-# enough to fit alongside the axes instead of being clipped by long raw config names.
 CONFIG_DISPLAY_NAMES = {
     "sweep_2_no_map": "No-map",
     "sweep_2_centered_4": "C4-old",
@@ -122,7 +113,6 @@ def config_display_name(config: str) -> str:
         return config
     return label
 
-# ----------------------------------------------------------------------------- collection
 
 def _seed_of(name: str):
     m = re.search(r"seed(\d+)", name)
@@ -210,23 +200,19 @@ def frontier_points(df: pd.DataFrame) -> pd.DataFrame:
 def failure_rate_points(df: pd.DataFrame, keep_reasons: set) -> pd.DataFrame:
     """Fraction of episodes that did NOT complete per (config, alpha).
 
-    "Not successful" means the episode's termination_reason is outside keep_reasons
-    (i.e. max_steps / out_of_bounds), pooled over bearings and seeds. Computed on the
-    unmatched dataframe, since the matched filter would otherwise drop these episodes.
+    "Not successful" means the episode's termination_reason is not in keep_reasons
     """
     df = df.copy()
     df["failed"] = ~df["termination_reason"].isin(keep_reasons)
-    g = (
+    group = (
         df.groupby(["config", "alpha"])
         .agg(failure_rate=("failed", "mean"), n_episodes=("failed", "size"))
         .reset_index()
         .sort_values(["config", "alpha"])
     )
-    g["failure_pct"] = 100.0 * g["failure_rate"]
-    return g
+    group["failure_pct"] = 100.0 * group["failure_rate"]
+    return group
 
-
-# -------------------------------------------------------------------------------- plotting
 
 # Marker area (points^2) as a function of alpha. Grows on a log2 scale so the
 # multiplicative density factor reads linearly, and stays strictly positive for
@@ -242,13 +228,6 @@ def alpha_to_size(alpha) -> np.ndarray:
 
 
 def config_linestyles(configs: list[str]) -> dict[str, str]:
-    """Map each line-drawn config to its linestyle, shared by both plots so a config
-    keeps the same colour+linestyle everywhere.
-
-    Solid is the default; a config whose colour has already been used gets a dashed
-    line so overlapping-colour series stay distinguishable. no_map configs are omitted
-    (they render as a standalone point, not a line, and so don't consume a colour slot).
-    """
     color_use_count: dict = {}
     styles: dict[str, str] = {}
     for c in configs:
@@ -326,49 +305,6 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
     plt.close(fig)
     return out_path
 
-
-def plot_failure_rate(rates: pd.DataFrame, runway: str, runs_name: str,
-                      output_dir: Path) -> Path:
-    """Percentage of non-completing episodes vs. density-scale alpha, per config."""
-    configs = sorted(rates["config"].unique())
-
-    # Extra top room for the title, extra bottom for the math x-label's descender,
-    # and a wider strip than the frontier's because the single-point configs carry
-    # a "(fixed)" suffix in their legend label.
-    fig, ax = paper_axes(FIGURE_WIDTH, FIGURE_HEIGHT,
-                         right=LEGEND_STRIP_IN + 0.3, top=0.30, bottom=0.50)
-    linestyles = config_linestyles(configs)
-    for c in configs:
-        sub = rates[rates["config"] == c].sort_values("alpha")
-        col = config_color(c)
-        if len(sub) >= 2:
-            ax.plot(sub["alpha"], sub["failure_pct"], linestyle=linestyles[c], marker="o",
-                    color=col, label=config_display_name(c), markersize=5)
-        else:  # single point: no-map / legacy benchmark
-            ax.scatter(sub["alpha"], sub["failure_pct"], marker="*", s=240,
-                       facecolors=col, edgecolors="black", linewidths=1.0,
-                       label=f"{config_display_name(c)} (fixed)")
-
-    ax.set_xscale("log")
-    ax.set_xticks(list(LEGEND_ALPHAS), labels=[str(a) for a in LEGEND_ALPHAS])
-    ax.set_xlabel(r"density-scale factor $\alpha$")
-    ax.set_ylabel("non-completing episodes (%)")
-    ax.set_title(f"Unsuccessful-run rate under density scaling — {runway}")
-    ax.grid(True, alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(frameon=True, edgecolor="k", loc="upper left",
-              bbox_to_anchor=(right_margin_x(ax), 1))
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"failure_rate_{runs_name}_{runway}.pdf"
-    save(fig, out_path)
-    plt.close(fig)
-    return out_path
-
-
-# Order in which failure reasons appear inside a table cell; only reasons that actually
-# occur in the data get a slot.
 FAILURE_REASON_ORDER = ("failed_approach", "max_steps", "out_of_bounds")
 
 
@@ -431,8 +367,6 @@ def export_failure_table(df: pd.DataFrame, keep_reasons: set, runway: str,
     return out_path
 
 
-# ------------------------------------------------------------------------------------ main
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -468,25 +402,19 @@ def _check_cache_complete(df: pd.DataFrame, runs_root: Path, requested: list[flo
         raise KeyError(
             f"Cache is missing config(s) {sorted(missing_configs)} present under {runs_root}. "
             "Regenerate without --use-cache to include them.")
-    missing_alphas = set(requested) - set(df["alpha"].unique())
-    if missing_alphas:
+    missing_kappas = set(requested) - set(df["alpha"].unique())
+    if missing_kappas:
         raise KeyError(
-            f"Cache is missing alpha(s) {sorted(missing_alphas)}. "
+            f"Cache is missing alpha(s) {sorted(kappa_alphas)}. "
             "Regenerate without --use-cache to include them.")
 
 
-def _load_cached_metrics(cache_path: Path, alphas: list[str], runs_root: Path) -> pd.DataFrame:
-    """Reload the previously-saved per-bearing metrics, filtered to `alphas`.
-
-    This is the raw per-trajectory table (fuel/noise/termination_reason per
-    config/seed/alpha/start_angle) — the same granularity the other sweeps cache — so the
-    filtering + reduction (frontier_points / failure_rate_points) can be changed later
-    without re-reading every trajectory CSV. Errors if the cache lacks any config found
-    under `runs_root` or any requested alpha.
+def _load_cached_metrics(cache_path: Path, kappas: list[str], runs_root: Path) -> pd.DataFrame:
+    """Reload the previously-saved per-bearing metrics, filtered to `kappas`.
     """
     if not cache_path.exists():
         raise FileNotFoundError(f"Cache not found: {cache_path}")
-    requested = [float(a) for a in alphas]
+    requested = [float(a) for a in kappas]
     df = pd.read_csv(cache_path)
     _check_cache_complete(df, runs_root, requested)
     df = df[df["alpha"].isin(requested)]
@@ -544,8 +472,6 @@ def main() -> None:
     output_dir = args.output_dir / args.runs_root.name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # The per-bearing metrics cache lives alongside the runs it summarizes (runs/<sweep>/),
-    # not with the plot images, so the recomputed data stays next to its source trajectories.
     cache_path = args.runs_root / f"cached_metrics_{args.runs_root.name}_{args.runway}.csv"
 
     if args.use_cache:
@@ -553,17 +479,11 @@ def main() -> None:
     else:
         df = _collect_metrics(args, cache_path)
 
-    # Reduction happens here (not in the cache) so the filtering / data-reduction method can
-    # be changed and replayed with --use-cache. Failure rate is computed on the unmatched df,
-    # since a matched filter would drop the very (non-completing) episodes it is meant to show.
-    rates = failure_rate_points(df, KEEP_REASONS)
     pts = frontier_points(df)
     print(pts.to_string(index=False))
 
     out_path = plot_frontier(pts, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {out_path}")
-    # Completion-filtered variants (see module docstring): omit whole points vs. omit the
-    # non-completing bearings everywhere.
     for variant, filtered in (
         ("omit_incomplete", drop_incomplete_points(df, COMPLETED_REASONS)),
         ("matched_bearings", matched_filter(df, COMPLETED_REASONS)),
@@ -571,8 +491,6 @@ def main() -> None:
         variant_path = plot_frontier(frontier_points(filtered), args.runway,
                                      args.runs_root.name, output_dir, variant=variant)
         print(f"Saved plot → {variant_path}")
-    failure_path = plot_failure_rate(rates, args.runway, args.runs_root.name, output_dir)
-    print(f"Saved plot → {failure_path}")
     table_path = export_failure_table(df, KEEP_REASONS, args.runway, args.runs_root.name, Path("tables"))
     print(f"Saved table → {table_path}")
 

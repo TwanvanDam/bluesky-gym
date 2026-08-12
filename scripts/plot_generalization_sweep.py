@@ -49,11 +49,6 @@ from scripts.common.sweep_plotting import (
     run_sweep_args_parser,
 )
 
-# Figure geometry comes from common.figures: every panel is saved at exactly its
-# LaTeX slot size, so nothing is rescaled on inclusion. The breakdown legend lives
-# in a reserved right-hand strip; the config legend for the metric panels is a
-# separate PDF, one panel tall so the two line up side by side. That legend is two
-# columns wide (short code + full config name), hence its own strip width.
 METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_metric"]
 BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 LEGEND_STRIP_IN = 1.7
@@ -65,30 +60,12 @@ DOT_SIZE = 60
 DOT_ALPHA = 0.8
 BAR_ALPHA = 0.6
 
-# Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
+# Extracts config
 PATTERN = re.compile(r"^(?P<config>.+?)(?:_seed(?P<seed>\d+))?$")
 
-# Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the config key. One grid per filter mode. Which
-# metrics get a panel, and every axis label, come from common.colors so this
-# sweep's panels match the other sweeps'.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
-REASON_HATCH = {
-    "success":         "",
-    "failed_approach": "////",
-    "max_steps":       "....",
-    "out_of_bounds":   "xxxx",
-}
-
-# success/failed_approach are filled with the config color (hatch drawn on top);
-# the remaining failure modes are hatch-only so they don't compete visually with
-# the arrival-rate segments.
-FILLED_REASONS = {"success", "failed_approach"}
-
-# Checked in order; first substring match wins. Config names come from PATTERN
-# (e.g. "centered_16_all"), so exact-match lookup would miss most real configs.
 CONFIG_COLOR_RULES = {
     "no_map": BASELINE_COLOR,
     "centered": CENTERED_COLOR,
@@ -107,9 +84,6 @@ def config_color(config: str) -> str:
                    "(add a CONFIG_COLOR_RULES entry to give it its own color).")
     return UNKNOWN_COLOR
 
-# Exact-match display labels for xtick text, one entry per config name produced by
-# PATTERN. Keep in sync with runs/generalization (config = run dir name minus any
-# trailing _seedNN suffix).
 CONFIG_TICK_LABELS = {
     "sweep_2_no_map": "No-map",
     "sweep_2_centered_4": "C4-old",
@@ -129,8 +103,6 @@ def config_tick_label(config: str) -> str:
     return label
 
 # Short x-axis codes. The legend panel (save_legend) expands these to full names,
-# so the axis stays uncluttered while the panel carries the key. Keep in sync with
-# CONFIG_TICK_LABELS.
 CONFIG_SHORT_CODES = {
     "sweep_2_no_map":       "NM",
     "transformed_baseline": "C4n",
@@ -149,16 +121,15 @@ def config_short_code(config: str) -> str:
         return config_tick_label(config)
     return code
 
-# Left-to-right x-axis order. Configs not listed here are appended afterwards,
-# alphabetically, with a warning (so a new run still plots instead of vanishing).
+# Left-to-right x-axis order.
 CONFIG_ORDER = [
-    "E_3_256-x1",           # yellow  — benchmark
-    "sweep_2_no_map",       # grey    — baseline
-    "transformed_baseline", # grey    — baseline
-    "sweep_2_centered_4",   # orange  — single-scale
-    "multi_scale_3a",       # purple  — multi-scale
-    "transformed_zoom",     # green   — domain randomisation
-    "transformed_scale",    # green   — domain randomisation
+    "E_3_256-x1",
+    "sweep_2_no_map",
+    "transformed_baseline",
+    "sweep_2_centered_4",
+    "multi_scale_3a",
+    "transformed_zoom",
+    "transformed_scale",
 ]
 
 def _ordered_configs(present: set[str]) -> list[str]:
@@ -186,20 +157,11 @@ def _seed_color_map(df: pd.DataFrame) -> dict:
 # filter_valid_perseed so the two can't silently drift onto different grouping keys.
 SCENARIO_GROUP_COLS = ["config", "seed"]
 
-# An episode reaching one of these termination_reasons flew the full approach, as
-# opposed to being cut off early (max_steps / out_of_bounds) before any outcome
-# was resolved. "Completed" says nothing about whether it landed successfully —
-# see filter_full / add_reward for that distinction.
 _COMPLETED_REASONS = {"success", "failed_approach"}
 
 
 def _is_completed(df: pd.DataFrame) -> pd.Series:
     """True for episodes that flew the full approach (success or failed_approach).
-
-    Cached metrics CSVs written before termination_reason was tracked only have a
-    `success` column and no way to distinguish "cut off early" from "flew the full
-    approach but failed" — for those, `success` is the closest available proxy and
-    is used as-is (regenerate the cache to get the precise split; see class docs).
     """
     if "termination_reason" not in df.columns:
         return df["success"]
@@ -207,18 +169,13 @@ def _is_completed(df: pd.DataFrame) -> pd.Series:
 
 
 def _scenario_ids_completed_everywhere(completed: pd.Series, scenario_id: pd.Series) -> set:
-    """scenario_ids where every row's `completed` value is True.
-
-    The caller may pass one config, the whole sweep, or the sweep plus baseline —
-    whatever rows are represented must ALL have completed a given bearing for its
-    scenario_id to survive here, which is what makes callers directly comparable
-    on that bearing.
+    """scenario_ids (bearing) where every row's `completed` value is True.
     """
     completed_per_scenario = completed.groupby(scenario_id).all()
     return set(completed_per_scenario.index[completed_per_scenario])
 
 def filter_full(df: pd.DataFrame) -> pd.DataFrame:
-    """All episodes, including failures — reward's -1 failure penalty must count them."""
+    """All episodes."""
     return df
 
 def filter_valid_perconfig(df: pd.DataFrame) -> pd.DataFrame:

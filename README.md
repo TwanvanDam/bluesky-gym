@@ -6,9 +6,15 @@ set up a virtual environment using `uv`
 ```shell
 uv sync
 ```
-Place the `europe_3035_1km.tif` population density 
-[dataset](https://human-settlement.emergency.copernicus.eu/download.php?ds=pop) 
-inside the `scripts/population_maps` directory
+Download a population density dataset 
+This paper uses:
+GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0_R{3,4,5}_C{18,19,20,21}.tif  
+from ([dataset](https://human-settlement.emergency.copernicus.eu/download.php?ds=pop)
+
+```shell
+uv run scripts/merge_population_maps.py /path/to/downloads/GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0_R{3,4,5}_C{18,19,20,21}.tif \
+    --output scripts/population_maps/europe_3035_1km.tif
+```
 
 ## Runs
 Extract the relevant zip-files in the `run` directory
@@ -91,6 +97,7 @@ uv run scripts/plot_transform_sweep.py runs/transforms --scenario EDDF_RW25R --c
 uv run scripts/plot_generalization_sweep.py runs/generalization --scenario EHAM_RW27 --cache
 uv run scripts/plot_density_scaling_sweep.py runs/scaling --runway EDDF_RW25R --use-cache
 uv run scripts/plot_resolution_sweep.py runs/appendix/resolution_sweep_1_backfill --scenario EDDF_RW25R --plots breakdown --baseline runs/BaseNavigationEnv-v0/no_map_seed0*
+uv run scripts/plot_alignment_comparison.py --cache --runway EDDF_RW25R
 ```
 
 ### Plot trajectories

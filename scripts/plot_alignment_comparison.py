@@ -35,10 +35,6 @@ from scripts.common.sweep_plotting import (
     seed_color_map,
 )
 
-# ---------------------------------------------------------------------------
-# Hard-coded run directories
-# ---------------------------------------------------------------------------
-
 ROOT = Path("runs")
 
 GROUPS = {
@@ -73,48 +69,35 @@ GROUP_LABELS = {
     "convergence": "After fix\n(convergence)",
 }
 
-# Bars are colored by observation mode (centered/forward) and hatched by
-# termination reason — the shared sweep-plot convention (see common.colors and
-# plot_resolution_sweep). Before/after (sweep_2 vs convergence) is encoded by
-# x-position, not hatch.
 MODE_TO_COLOR = {"centered": CENTERED_COLOR, "forward": FORWARD_COLOR}
 
-# Before/after the meridian-convergence fix is encoded by hatch: the fixed
-# ("convergence") version is hatched, the original ("sweep_2") is plain.
 GROUP_TO_HATCH = {
     "sweep_2":     "",
     "convergence": "////",
 }
-
-REASON_HATCH = {
-    "success":         "",
-    "failed_approach": "////",
-    "max_steps":       "....",
-    "out_of_bounds":   "xxxx",
-}
-# success/failed_approach are filled with the mode color (hatch drawn on top);
-# the remaining failure modes are hatch-only so they don't compete visually with
-# the arrival-rate segments.
-FILLED_REASONS = {"success", "failed_approach"}
 
 BAR_ALPHA = BOXPLOT_ALPHA
 BAR_WIDTH = 0.35
 DOT_ALPHA = 0.85
 DOT_SIZE = 55
 
-# Both plots are standalone three-quarter-width figures with the legend in a
-# reserved right-hand strip — reserving it (rather than letting a tight bbox
-# discover it) is what keeps the axes box, and therefore the text size, the same
-# whatever the legend labels say. LEGEND_STRIP_IN is generous enough for the
-# widest entry ("Failed approach"); `save()` warns if a legend outgrows it.
+# Load plot details
 OUTCOME_WIDTH, OUTCOME_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 METRIC_WIDTH, METRIC_HEIGHT = PLOT_TYPE_TO_SIZE["alignment"]
 LEGEND_STRIP_IN = 1.25
 
-# ---------------------------------------------------------------------------
-# DataFrame builders
-# ---------------------------------------------------------------------------
-
+# One x layout for every figure in this script: [centered before, centered after]
+# gap [forward before, forward after], so the outcome panel and the metric panels
+# read the same way and their boxes/bars sit at the same places.
+COMBOS = [
+    ("centered", "sweep_2",     1 * BAR_WIDTH),
+    ("centered", "convergence", 2 * BAR_WIDTH + 0.1),
+    ("forward",  "sweep_2",     4 * BAR_WIDTH),
+    ("forward",  "convergence", 5 * BAR_WIDTH + 0.1),
+]
+MODE_TICKS = [(3 * BAR_WIDTH + 0.1) / 2, (9 * BAR_WIDTH + 0.1) / 2]
+MODE_TICK_LABELS = ["C4", "F4"]
+DIVIDER_X = (6 * BAR_WIDTH + 0.1) / 2
 
 def collect_outcome_data(runway: str) -> pd.DataFrame:
     records = []
@@ -152,12 +135,6 @@ def collect_metric_data(runway: str, calculate_metrics, mean_episode_length: flo
                 frames.append(ep)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-
-# ---------------------------------------------------------------------------
-# Plot helpers
-# ---------------------------------------------------------------------------
-
-
 def _mean_breakdowns(group_df: pd.DataFrame) -> tuple[list, np.ndarray]:
     """Mean outcome fractions for a single (mode, group) slice, averaged across seeds."""
     present = set()
@@ -175,38 +152,24 @@ def _mean_breakdowns(group_df: pd.DataFrame) -> tuple[list, np.ndarray]:
             means[i] = mean_bd.get(reason, 0.0)
     return ordered, means
 
-
-# ---------------------------------------------------------------------------
-# Main plot functions
-# ---------------------------------------------------------------------------
-
-
 def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> None:
     """Stacked bar + per-seed dots.
 
-    Layout: four bars in a single panel grouped by mode —
-      [centered_before, centered_after]  [forward_before, forward_after]
-    with a gap between the two mode groups.
+    Same layout as :func:`plot_metric_comparison` — the shared :data:`COMBOS`
+    x positions, one framed legend in the reserved right strip. Before/after is
+    on the tick labels rather than in the hatch, since here the hatch already
+    encodes the termination reason.
     """
-    combos = [
-        ("centered", "sweep_2",     0.0),
-        ("centered", "convergence", 1.0),
-        ("forward",  "sweep_2",     2.5),
-        ("forward",  "convergence", 3.5),
-    ]
-    tick_positions = [c[2] for c in combos]
-    tick_labels    = ["Before", "After", "Before", "After"]
-
     seed_colors = seed_color_map(df)
 
-    # Extra bottom room for the "Centered"/"Forward" group annotations under the
-    # tick labels, extra top room for the before/after note.
+    # Extra bottom room for the "C4"/"F4" group labels under the tick labels;
+    # they sit where the (unused) x axis label would go.
     fig, ax = paper_axes(OUTCOME_WIDTH, OUTCOME_HEIGHT,
-                         right=LEGEND_STRIP_IN + 0.25, bottom=0.62, top=0.26)
+                         right=LEGEND_STRIP_IN + 0.25, bottom=0.55)
     seen_reasons: set = set()
     min_seed_rates = 1.0
 
-    for mode, group, xi in combos:
+    for mode, group, xi in COMBOS:
         sub = df[(df["mode"] == mode) & (df["group"] == group)]
         if sub.empty:
             continue
@@ -236,20 +199,19 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
                        color=seed_colors[seed], s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
                        edgecolors="white", linewidths=0.8)
 
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_labels)
+    ax.set_xticks([pos for _, _, pos in COMBOS])
+    ax.set_xticklabels(["Before", "After", "Before", "After"])
     ax.set_xlabel("")
-    ax.annotate("Centered", xy=(0.5, -0.12), xycoords="axes fraction",
-                ha="center", fontsize=10, fontweight="bold")
-    ax.annotate("Forward", xy=(0.82, -0.12), xycoords="axes fraction",
-                ha="center", fontsize=10, fontweight="bold")
+    # Mode labels on the line the x axis label would occupy, centred under each
+    # before/after pair — same "C4"/"F4" naming as the metric panels.
+    for pos, label in zip(MODE_TICKS, MODE_TICK_LABELS):
+        ax.annotate(label, xy=(pos, -0.20), xycoords=("data", "axes fraction"),
+                    ha="center", va="top")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
     outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.axvline(1.75, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
+    ax.axvline(DIVIDER_X, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
 
     mode_handles = [
         plt.Rectangle((0, 0), 1, 1, fc=color, alpha=BAR_ALPHA, label=mode.capitalize())
@@ -263,22 +225,15 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
                       label=REASON_LABELS.get(reason, reason))
         for reason in REASON_HATCH if reason in seen_reasons
     ]
-    leg1 = ax.legend(handles=mode_handles + reason_handles, frameon=False,
-                     title="Mode / outcome", loc="upper left", bbox_to_anchor=(1.02, 1.0))
-    ax.add_artist(leg1)
-
     seed_handles = [
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c,
                    markersize=8, label=f"Seed {s}")
         for s, c in seed_colors.items()
     ]
-    ax.legend(handles=seed_handles, frameon=False,
-              title="Seed (success rate)", loc="lower left", bbox_to_anchor=(1.02, 0.0))
-
-    # Sits in the reserved top margin — a figure-level text would be clipped,
-    # since nothing outside the canvas survives without a tight bbox.
-    ax.set_title("Before / After = sweep_2 (original alignment) vs convergence (fixed alignment)",
-                 fontsize=8, style="italic")
+    # One framed legend in the reserved strip, like the metric panels: two
+    # stacked legends collide in a figure this short.
+    legend_right(ax, handles=mode_handles + reason_handles + seed_handles,
+                 frameon=True, edgecolor="k")
 
     runway_id = runway.replace("/", "_")
     out_path = output_dir / f"outcome_comparison_{runway_id}.pdf"
@@ -300,18 +255,11 @@ def plot_metric_comparison(
       [centered_before, centered_after]  [forward_before, forward_after]
     with a gap between the two mode groups.
     """
-    combos = [
-        ("centered", "sweep_2",     BAR_WIDTH ), #0.5
-        ("centered", "convergence", 2 * BAR_WIDTH  + 0.1), #0.85
-        ("forward",  "sweep_2",     4 * BAR_WIDTH), # 1.5
-        ("forward",  "convergence", 5 * BAR_WIDTH + 0.1),
-    ]
-
     fig, ax = paper_axes(METRIC_WIDTH, METRIC_HEIGHT, right=LEGEND_STRIP_IN)
     mode_handles = []
     seen_modes = set()
 
-    for mode, group, pos in combos:
+    for mode, group, pos in COMBOS:
         color = MODE_TO_COLOR[mode]
         sub = df[(df["mode"] == mode) & (df["group"] == group)]
         data = sub[metric].values
@@ -325,11 +273,11 @@ def plot_metric_comparison(
 
     # One tick per mode group, centred under the before/after pair. Before/after
     # is conveyed by the hatch (see legend), so no per-box "Before"/"After" labels.
-    ax.set_xticks([(3 * BAR_WIDTH + 0.1) / 2 , (9 * BAR_WIDTH + 0.1) / 2])
-    ax.set_xticklabels(["C4", "F4"])
+    ax.set_xticks(MODE_TICKS)
+    ax.set_xticklabels(MODE_TICK_LABELS)
     ax.set_xlabel("")
     ax.set_ylabel(ylabel)
-    ax.axvline((6 * BAR_WIDTH + 0.1) / 2, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
+    ax.axvline(DIVIDER_X, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
     ax.grid(axis="y")
 
     fix_handles = [
