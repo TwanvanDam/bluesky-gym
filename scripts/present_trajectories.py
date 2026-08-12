@@ -22,8 +22,9 @@ import pyproj
 from bluesky.tools.position import Position
 from matplotlib import patheffects
 from matplotlib import pyplot as plt
-from matplotlib.colors import FuncNorm, Normalize
+from matplotlib.colors import FuncNorm, Normalize, to_rgba
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from rasterio.plot import plotting_extent
 from tqdm import tqdm
 
@@ -51,6 +52,12 @@ TICK_STEPS_KM = (10, 25, 50, 100, 200, 250, 500)
 # dark end of the density colormap, which is exactly where they matter. Set to
 # 0 to go back to plain lines.
 TRAJECTORY_HALO_LW = 1.8
+# Terminal geometry. The wedge is filled so it stays distinguishable from the
+# (also solid, also red) failed trajectories that cover it; the fill has to stay
+# light enough not to shift the density colours underneath it.
+GEOMETRY_LW = 1.5
+GEOMETRY_HALO_LW = 1.4
+GEOMETRY_FILL_ALPHA = 0.3
 
 
 @dataclass
@@ -140,7 +147,7 @@ def draw_background(ax, raster_sampler: RasterSampler, center: tuple[float, floa
 
 
 def draw_trajectories(ax, panel: TrajectoryPanel) -> None:
-    """Draw one line per start angle: black solid = success, red dashed = failure."""
+    """Draw one line per start angle: black = success, red = failure, both solid."""
     df = panel.trajectories
     if "termination_reason" not in df.columns:
         print("No 'termination_reason' column found. Assuming 'success' everywhere")
@@ -150,14 +157,19 @@ def draw_trajectories(ax, panel: TrajectoryPanel) -> None:
         success = reason == "success"
         ax.plot(group["x"], group["y"],
                 color=TRAJECTORY_COLOR if success else RESTRICT_COLOR,
-                linestyle="-",
                 linewidth=0.9, zorder=4)
 
 
 def draw_terminal_geometry(ax, destination: Position, transformer: pyproj.Transformer) -> None:
-    """Draw the success arc and the failed-approach boundary (SINK geometry).
+    """Draw the approach wedge: success arc and failed-approach boundary (SINK geometry).
 
     Same construction as ``BaseNavigationEnv._set_terminal_condition``.
+
+    The wedge is filled, not just outlined. Failed trajectories are solid red
+    too, so the geometry cannot be told apart from the data by colour or dash
+    pattern alone — an area versus a stroke reads unambiguously even where the
+    two overlap, which they do exactly where the wedge matters. The white
+    casing keeps the outline visible under a pile of trajectories.
     """
     destination_xy = transformer.transform(destination.lon, destination.lat)
     back_bearing = fn.bound_angle_0_360(destination.refhdg + 180)
@@ -166,20 +178,37 @@ def draw_terminal_geometry(ax, destination: Position, transformer: pyproj.Transf
     arc_lat, arc_lon = fn.get_point_at_distance(faf_lat, faf_lon, IAF_DISTANCE_KM, arc_angles)
     arc_x, arc_y = transformer.transform(arc_lon, arc_lat)
 
+    casing = [patheffects.withStroke(linewidth=GEOMETRY_LW + GEOMETRY_HALO_LW,
+                                     foreground="white", alpha=0.8)]
+    ax.fill(np.concatenate(([destination_xy[0]], arc_x)),
+            np.concatenate(([destination_xy[1]], arc_y)),
+            facecolor=SINK_COLOR, alpha=GEOMETRY_FILL_ALPHA, edgecolor="none", zorder=3)
     ax.plot([arc_x[0], destination_xy[0], arc_x[-1]], [arc_y[0], destination_xy[1], arc_y[-1]],
-            color=RESTRICT_COLOR, linewidth=1.5, zorder=5)
-    ax.plot(arc_x, arc_y, color=SINK_COLOR, linewidth=1.5, zorder=5)
+            color=RESTRICT_COLOR, linewidth=GEOMETRY_LW, zorder=5, path_effects=casing)
+    ax.plot(arc_x, arc_y, color=SINK_COLOR, linewidth=GEOMETRY_LW, zorder=5, path_effects=casing)
     ax.scatter(*destination_xy, marker=".", linewidths=3, color=TRAJECTORY_COLOR, zorder=6)
 
 
-def legend_handles() -> list[Line2D]:
-    """Handles for a legend shared by every trajectory panel."""
-    return [
+def legend_handles(include_failed_trajectory:bool=True) -> list:
+    """Handles for a legend shared by every trajectory panel.
+
+    The wedge entry is a patch so it matches how the geometry is drawn: the
+    trajectory entries are the only lines in the legend, which is what keeps
+    them apart from the geometry now that both are solid red.
+    """
+    if include_failed_trajectory:
+        return [
         Line2D([], [], color=TRAJECTORY_COLOR, linewidth=0.9, label="Successful trajectory"),
-        Line2D([], [], color=RESTRICT_COLOR, linewidth=0.9, linestyle=(0, (4, 2)), label="Failed trajectory"),
-        Line2D([], [], color=SINK_COLOR, linewidth=1.5, label="Success arc"),
-        Line2D([], [], color=RESTRICT_COLOR, linewidth=1.5, label="Failed approach"),
+        Line2D([], [], color=RESTRICT_COLOR, linewidth=0.9, label="Failed trajectory"),
+        Line2D([], [], color=SINK_COLOR, linewidth=1.5 * GEOMETRY_LW, label="Success arc"),
+        Line2D([], [], color=RESTRICT_COLOR, linewidth=1.5 * GEOMETRY_LW, label="Failure radial"),
     ]
+    else:
+        return [
+            Line2D([], [], color=TRAJECTORY_COLOR, linewidth=0.9, label="Successful trajectory"),
+            Line2D([], [], color=SINK_COLOR, linewidth=1.5 * GEOMETRY_LW, label="Success arc"),
+            Line2D([], [], color=RESTRICT_COLOR, linewidth=1.5 * GEOMETRY_LW, label="Failure radial"),
+        ]
 
 
 def _nice_step_km(half_width_m: float, max_ticks_per_side: int = 2) -> float:
@@ -228,7 +257,7 @@ def scale_bar(ax, half_width_m: float, length_km: float | None = None,
             path_effects=halo)
 
 
-DENSITY_LABELS = (r"Population density [people/km$^2$]", r"Density [people/km$^2$]", r"[people/km$^2$]")
+DENSITY_LABEL = r"Population density [ppl/km$^2$]"
 
 
 def density_label(available_in: float) -> str:
@@ -237,11 +266,7 @@ def density_label(available_in: float) -> str:
     The label is rotated, so its length is bounded by the figure *height* — and
     a label that runs off the top is silently clipped rather than resized.
     """
-    char_in = 0.40 * plt.rcParams["axes.labelsize"] / 72  # measured on Times, mathtext included
-    for label in DENSITY_LABELS:
-        if len(label) * char_in <= available_in:
-            return label
-    return DENSITY_LABELS[-1]
+    return DENSITY_LABEL
 
 
 def add_colorbar(fig, im, cax, normalization_mode: str, v_max: float, label: str | None = None):
@@ -252,7 +277,7 @@ def add_colorbar(fig, im, cax, normalization_mode: str, v_max: float, label: str
     plus the labelled top tick make that clip explicit.
     """
     cbar = fig.colorbar(im, cax=cax, extend="max")
-    cbar.set_label(label if label is not None else DENSITY_LABELS[0])
+    cbar.set_label(label if label is not None else DENSITY_LABEL)
     if normalization_mode == "log":
         nice_ticks = np.array([0, 1, 10, 100, 1_000, 10_000, 100_000], dtype=float)
         ticks = [t for t in nice_ticks if t < v_max] + [v_max]

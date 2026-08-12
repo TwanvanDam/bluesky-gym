@@ -90,10 +90,10 @@ def config_color(config: str) -> str:
 # PATTERN (run dir name minus any trailing _seedNN suffix). Keeps the legend short
 # enough to fit alongside the axes instead of being clipped by long raw config names.
 CONFIG_DISPLAY_NAMES = {
-    "sweep_2_no_map": "No map",
-    "sweep_2_centered_4": r"$\mathrm{C4}^{\mathrm{old}}$",
-    "multi_scale_3a": "Multi-scale",
-    "transformed_baseline": r"$\mathrm{C4}^{\mathrm{new}}$",
+    "sweep_2_no_map": "No-map",
+    "sweep_2_centered_4": "C4-old",
+    "multi_scale_3a": "3a (C4 + C16)",
+    "transformed_baseline": "C4-new",
     "transformed_zoom": "Zoom",
     "transformed_scale": "Scale",
     "E_3_256-x1": "Groot et al.",
@@ -293,8 +293,8 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
             plt.Line2D([0], [0], color=color, linestyle=linestyle, marker="o", markeredgecolor="k",
                        markeredgewidth=MARKER_EDGE_WIDTH, markersize=7, label=config_display_name(c)))
 
-    ax.set_xlabel(f"normalized fuel ({METRIC_REDUCTION} over bearings)")
-    ax.set_ylabel(f"normalized noise ({METRIC_REDUCTION} over bearings)")
+    ax.set_xlabel(f"{METRICS["normalized_fuel"]} ({METRIC_REDUCTION} over bearings)")
+    ax.set_ylabel(f"{METRICS["normalized_noise"]} ({METRIC_REDUCTION} over bearings)")
     ax.grid(True, alpha=0.3)
 
     # Both legends sit in the right-hand strip reserved by paper_axes, stacked at
@@ -312,7 +312,7 @@ def plot_frontier(pts: pd.DataFrame, runway: str, runs_name: str, output_dir: Pa
             plt.Line2D([0], [0], linestyle="none", marker="o", markeredgecolor="k" if a != 1 else "0.5",
                        markeredgewidth=MARKER_EDGE_WIDTH,
                        markersize=np.sqrt(alpha_to_size(a)), markerfacecolor="0.5" if a != 1 else "white",
-                       label=r"$\alpha = $" + f"{a:g}")
+                       label=r"$\kappa = $" + f"{a:g}")
             for a in size_alphas
         ]
         ax.legend(handles=size_handles,

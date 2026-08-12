@@ -22,7 +22,7 @@ import pandas as pd
 from bluesky_gym.maps.map_sources import TiffMapSourceConfig
 from bluesky_gym.metrics.evaluation_metrics import build_metric_fn, make_pop_samplers
 from scripts.common.colors import *
-from scripts.common.figures import legend_right, paper_axes, save, PLOT_TYPE_TO_SIZE
+from scripts.common.figures import legend_right, outcome_ylim, paper_axes, save, PLOT_TYPE_TO_SIZE
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
     REASON_ORDER,
@@ -204,6 +204,7 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
     fig, ax = paper_axes(OUTCOME_WIDTH, OUTCOME_HEIGHT,
                          right=LEGEND_STRIP_IN + 0.25, bottom=0.62, top=0.26)
     seen_reasons: set = set()
+    min_seed_rates = 1.0
 
     for mode, group, xi in combos:
         sub = df[(df["mode"] == mode) & (df["group"] == group)]
@@ -230,6 +231,7 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
             row = sub[sub["seed"] == seed]
             if row.empty:
                 continue
+            min_seed_rates = min(min_seed_rates, row["success_rate"].values[0])
             ax.scatter(xi + dx, row["success_rate"].values[0],
                        color=seed_colors[seed], s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
                        edgecolors="white", linewidths=0.8)
@@ -243,7 +245,7 @@ def plot_outcome_comparison(df: pd.DataFrame, runway: str, output_dir: Path) -> 
                 ha="center", fontsize=10, fontweight="bold")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    ax.set_ylim(0, 1.05)
+    outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -324,7 +326,7 @@ def plot_metric_comparison(
     # One tick per mode group, centred under the before/after pair. Before/after
     # is conveyed by the hatch (see legend), so no per-box "Before"/"After" labels.
     ax.set_xticks([(3 * BAR_WIDTH + 0.1) / 2 , (9 * BAR_WIDTH + 0.1) / 2])
-    ax.set_xticklabels(["Centered", "Forward"])
+    ax.set_xticklabels(["C4", "F4"])
     ax.set_xlabel("")
     ax.set_ylabel(ylabel)
     ax.axvline((6 * BAR_WIDTH + 0.1) / 2, color="gray", linewidth=0.8, linestyle=":", alpha=0.6)
@@ -404,12 +406,7 @@ if __name__ == "__main__":
         else:
             metric_df["combined"] = metric_df["normalized_fuel"] + metric_df["normalized_noise"]
             add_reward(metric_df, args.fuel_weight)
-            for metric, ylabel in [
-                ("fuel", "Fuel [kg]"),
-                ("noise", "Noise [W·s]"),
-                ("normalized_fuel", "Normalised fuel"),
-                ("normalized_noise", "Normalised noise"),
-                ("combined", "Normalised fuel + noise"),
-                ("reward", "Reward"),
-            ]:
-                plot_metric_comparison(metric_df, metric, ylabel, runway, output_dir, box_width=BAR_WIDTH)
+            for metric in ("fuel", "noise", "normalized_fuel", "normalized_noise",
+                           "combined", "reward", "reward_unclipped"):
+                plot_metric_comparison(metric_df, metric, METRICS[metric], runway,
+                                       output_dir, box_width=BAR_WIDTH)

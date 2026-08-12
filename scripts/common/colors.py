@@ -77,15 +77,27 @@ METRIC_TO_AXIS_REVERS = {
     "reward_unclipped": False
 }
 
-METRICS = [
-    ("fuel", "Fuel [kg]"),
-    ("noise", "Noise [W·s]"),
-    ("normalized_fuel", "Fuel"),
-    ("normalized_noise", "Noise"),
-    ("combined", "Fuel + Noise"),
-    ("reward", "Reward"),
-    ("reward_unclipped", "Reward"),
-]
+# Axis label per metric — what goes on the y axis wherever that metric is drawn,
+# standalone panel or grid cell.
+METRICS = {
+    "fuel": "Fuel [kg]",
+    "noise": "Noise [W·s]",
+    "normalized_fuel": r"$F_\text{ep}$ [-]",
+    "normalized_noise": r"$N_\text{ep}$ [-]",
+    "combined": "Fuel + Noise",
+    "reward": "Reward (clipped)",
+    "reward_unclipped": r"$R_\text{ep}$ [-]",
+}
+
+# The metric grid: which metrics get a panel, in reading order, and the short
+# name used for the (a), (b), … panel caption and the LaTeX \subref list. The
+# caption is deliberately shorter than the axis label — the symbol and unit are
+# already on the axis, so repeating them above the panel only adds noise.
+METRIC_TO_CAPTION = {
+    "reward_unclipped": "Reward",
+    "normalized_noise": "Noise",
+    "normalized_fuel": "Fuel",
+}
 
 REASON_HATCH = {
     "success":         "",

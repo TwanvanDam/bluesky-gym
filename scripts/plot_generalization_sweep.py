@@ -21,6 +21,7 @@ them. The `figure` environment to paste is printed at the end.
 
 import re
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ from scripts.common.colors import *
 from scripts.common.figures import (
     PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
     grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
-    paper_axes, save,
+    outcome_ylim, paper_axes, save,
 )
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
@@ -67,35 +68,12 @@ BAR_ALPHA = 0.6
 # Extracts config + optional seed; handles both "name_seed00" and bare "name" forms.
 PATTERN = re.compile(r"^(?P<config>.+?)(?:_seed(?P<seed>\d+))?$")
 
-METRICS = [
-    ("fuel", "fuel [kg]"),
-    ("noise", "noise [W·s]"),
-    ("normalized_fuel", "normalized fuel"),
-    ("normalized_noise", "normalized noise"),
-    ("combined", "normalized fuel + noise"),
-    ("reward", "reward"),
-    ("reward_unclipped", "reward (no noise clipping)"),
-]
-
 # Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the config key. One grid per filter mode.
-GRID_METRICS = [
-    ("reward_unclipped", "Reward"),
-    ("normalized_noise", "Noise"),
-    ("normalized_fuel", "Fuel"),
-]
+# the leftover cell holds the config key. One grid per filter mode. Which
+# metrics get a panel, and every axis label, come from common.colors so this
+# sweep's panels match the other sweeps'.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
-
-METRIC_TO_AXIS_REVERS = {
-    "fuel": True,
-    "noise": True,
-    "normalized_fuel": True,
-    "normalized_noise": True,
-    "combined": True,
-    "reward": False,
-    "reward_unclipped": False,
-}
 
 REASON_HATCH = {
     "success":         "",
@@ -133,9 +111,9 @@ def config_color(config: str) -> str:
 # PATTERN. Keep in sync with runs/generalization (config = run dir name minus any
 # trailing _seedNN suffix).
 CONFIG_TICK_LABELS = {
-    "sweep_2_no_map": "No map",
+    "sweep_2_no_map": "No-map",
     "sweep_2_centered_4": "C4-old",
-    "multi_scale_3a": "3a",
+    "multi_scale_3a": "3a (C4 + C16)",
     "transformed_baseline": "C4-new",
     "transformed_zoom": "Zoom",
     "transformed_scale": "Scale",
@@ -155,8 +133,8 @@ def config_tick_label(config: str) -> str:
 # CONFIG_TICK_LABELS.
 CONFIG_SHORT_CODES = {
     "sweep_2_no_map":       "NM",
-    "transformed_baseline": r"$\mathrm{C4}^{\mathrm{new}}$",
-    "sweep_2_centered_4":   r"$\mathrm{C4}^{\mathrm{old}}$",
+    "transformed_baseline": "C4n",
+    "sweep_2_centered_4":   "C4o",
     "multi_scale_3a":       "3a",
     "transformed_zoom":     "Z",
     "transformed_scale":    "S",
@@ -400,7 +378,7 @@ def save_legend(output_dir: Path, runs_name: str, scenario: str) -> None:
 
 
 def plot_metric_grid(df, runs_name, scenario, output_dir, filter_mode: str,
-                     metrics: list[tuple[str, str]] = GRID_METRICS,
+                     metrics: Mapping[str, str] = METRIC_TO_CAPTION,
                      width: float = GRID_WIDTH, ncols: int = GRID_COLS) -> Path:
     """One figure per filter mode holding every grid metric, config key in the spare cell.
 
@@ -411,9 +389,9 @@ def plot_metric_grid(df, runs_name, scenario, output_dir, filter_mode: str,
     """
     fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
 
-    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
-        draw_metric_boxplot(ax, df, metric, ylabel, filter_mode, report=False)
-        grid_caption(ax, letter, ylabel)
+    for ax, letter, (metric, caption) in zip(panel_axes, PANEL_LETTERS, metrics.items()):
+        draw_metric_boxplot(ax, df, metric, METRICS[metric], filter_mode, report=False)
+        grid_caption(ax, letter, caption)
     handles, labels = config_legend_entries()
     legend_in_cell(fig, legend_ax, handles, labels=labels, ncol=2,
                    handlelength=1.2, columnspacing=0.5, handletextpad=0.5)
@@ -423,7 +401,7 @@ def plot_metric_grid(df, runs_name, scenario, output_dir, filter_mode: str,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     save(fig, out_path)
     plt.close(fig)
-    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    print("\n" + grid_latex_snippet(out_path, list(metrics.values()), width) + "\n")
     return out_path
 
 
@@ -443,7 +421,7 @@ def plot_metrics(metrics, runs_root, scenario, output_dir) -> None:
               f"({summary['episodes_dropped']} dropped) — "
               f"configs fully dropped {summary['configs_fully_dropped']}/{summary['configs_total']}, "
               f"(config, seed) runs fully dropped {summary['config_seed_fully_dropped']}/{summary['config_seed_total']}")
-        for metric, ylabel in METRICS:
+        for metric, ylabel in METRICS.items():
             all_rows.extend(plot_metric_boxplot(filtered, metric, ylabel,
                                                 scenario, runs_root.name, output_dir, mode))
         plot_metric_grid(filtered, runs_root.name, scenario, output_dir, mode)
@@ -495,10 +473,12 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
         bottom += means[reason]
         seen_reasons.add(reason)
 
+    min_seed_rates = 1.0
     for i, config in enumerate(configs):
         seed_rates = {_normalize_seed(row["seed"]): row["success_rate"] for _, row in df[df["config"] == config].iterrows()}
         seeds = sorted(seed_rates, key=lambda s: s if s is not None else -1)
         jitter = np.linspace(-0.08, 0.08, len(seeds))
+        min_seed_rates = min([min_seed_rates, *seed_rates.values()])
         for xi, seed in zip(jitter, seeds):
             ax.scatter(x[i] + xi, seed_rates[seed],
                        color="black", s=DOT_SIZE, zorder=5,
@@ -512,7 +492,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline: float | None = None) ->
     ax.set_xticklabels([config_short_code(c) for c in configs], fontsize=9, rotation=0, ha="center")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    ax.set_ylim(0.8, 1.01)
+    outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
 
     legend_handles = []

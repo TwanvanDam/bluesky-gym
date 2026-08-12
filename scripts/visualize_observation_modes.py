@@ -1,7 +1,7 @@
 """
 Visualize forward vs centered observation window modes (schematic, no background map).
 
-Shows how the 16×16 px (1 km/pixel) observation grid is positioned
+Shows how the 16×16 px (4 km/pixel) observation grid is positioned
 relative to the aircraft for both 'centered' and 'forward' modes.
 """
 
@@ -24,11 +24,15 @@ PANEL_MARGIN_IN = 0.10
 # and of the sibling schematic in figures/1D_vector_definition_top_view.tex.
 DIM_LABEL_PT = 9
 
+# Horizontal pad (km) on either side of the observation window. Sized to hold
+# the fore/aft dimension labels on the right, and mirrored on the left.
+DIM_PAD_KM = 26
+
 # Observation parameters (from centered_1.yaml / forward_1.yaml)
 SHAPE_PX = (16, 16)          # (cols, rows)
 RANGE_M = (64_000, 64_000)   # meters
 KM_PER_PX = RANGE_M[0] / SHAPE_PX[0] / 1_000   # 4.0 km/pixel
-OBS_KM = SHAPE_PX[0] * KM_PER_PX               # 16 km
+OBS_KM = SHAPE_PX[0] * KM_PER_PX               # 64 km
 
 # Context area (km) around aircraft shown in each panel
 CTX_KM = 80.0
@@ -79,8 +83,8 @@ def draw_obs_window(ax, ac_x, ac_y, mode: str):
     return left, bottom
 
 
-def add_dim_annotations(ax, left, bottom, mode):
-    """Width and height dimension lines."""
+def add_dim_annotations(ax, left, bottom, ac_y, mode):
+    """Width dimension line, plus fore/aft ranges measured from the aircraft."""
     color  = FORWARD_COLOR if mode == "forward" else CENTERED_COLOR
     ann_y = bottom - 5
     ax.annotate("", xy=(left + OBS_KM, ann_y), xytext=(left, ann_y),
@@ -89,12 +93,34 @@ def add_dim_annotations(ax, left, bottom, mode):
             f"{int(OBS_KM)} km  ({SHAPE_PX[0]} px)",
             ha="center", va="top", color=color, fontsize=DIM_LABEL_PT, zorder=6)
 
+    # The fore/aft split is what distinguishes the two modes, so the vertical
+    # extent is dimensioned from the aircraft rather than as one total height.
     ann_x = left + OBS_KM + 5
-    ax.annotate("", xy=(ann_x, bottom + OBS_KM), xytext=(ann_x, bottom),
+    top = bottom + OBS_KM
+    ahead, behind = top - ac_y, ac_y - bottom
+    if ahead > 32:
+        px = 16
+    else:
+        px = 8
+    ax.annotate("", xy=(ann_x, top), xytext=(ann_x, ac_y),
                 arrowprops=dict(arrowstyle="<->", color=color, lw=1.1), zorder=6)
-    ax.text(ann_x + 2, bottom + OBS_KM / 2,
-            f"{int(OBS_KM)} km\n({SHAPE_PX[1]} px)",
+    # Kilometres only: the width arrow already gives the pixel count, and the
+    # longer form is too wide to fit beside a centred window.
+    ax.text(ann_x + 2, (ac_y + top) / 2, f"ahead\n{int(ahead)} km\n({px} px)",
             ha="left", va="center", color=color, fontsize=DIM_LABEL_PT, zorder=6)
+
+    if behind > 0:
+        ax.annotate("", xy=(ann_x, ac_y), xytext=(ann_x, bottom),
+                    arrowprops=dict(arrowstyle="<->", color=color, lw=1.1), zorder=6)
+        ax.text(ann_x + 2, (bottom + ac_y) / 2, f"behind\n{int(behind)} km \n(8 px)",
+                ha="left", va="center", color=color, fontsize=DIM_LABEL_PT, zorder=6)
+    else:
+        ax.text(ann_x + 2, ac_y, "behind\n0 km\n(0 px)",
+                ha="left", va="center", color=color, fontsize=DIM_LABEL_PT, zorder=6)
+
+    # Datum through the aircraft, so the split reads as measured from it.
+    ax.plot([left, ann_x], [ac_y, ac_y], color=color, lw=0.8,
+            ls=(0, (4, 3)), alpha=0.9, zorder=6)
 
 
 def plot_panel(ax, mode: str):
@@ -102,11 +128,14 @@ def plot_panel(ax, mode: str):
 
     left, bottom = draw_obs_window(ax, ac_x, ac_y, mode)
     draw_aircraft(ax, ac_x, ac_y)
-    add_dim_annotations(ax, left, bottom, mode)
+    add_dim_annotations(ax, left, bottom, ac_y, mode)
 
     # Limits derived from the actual window position so both modes stay in
     # frame; span is mode-independent, so panels crop to identical size.
-    ax.set_xlim(left - 6, left + OBS_KM + 16)
+    # The left pad matches the right one that holds the fore/aft labels, so the
+    # window itself sits centred in the panel and the two grids line up on the
+    # page. Both panels are height-limited, so the wider span costs no size.
+    ax.set_xlim(left - DIM_PAD_KM, left + OBS_KM + DIM_PAD_KM)
     ax.set_ylim(bottom - 8, bottom + OBS_KM + 6)
     ax.set_aspect("equal")
     ax.axis("off")

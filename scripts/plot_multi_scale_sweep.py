@@ -19,6 +19,7 @@ paste is printed at the end.
 """
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +29,7 @@ from scripts.common.colors import *
 from scripts.common.figures import (
     PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
     grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
-    paper_axes, save,
+    outcome_ylim, paper_axes, save,
 )
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
@@ -50,12 +51,8 @@ BREAKDOWN_WIDTH, BREAKDOWN_HEIGHT = PLOT_TYPE_TO_SIZE["sweep_breakdown"]
 LEGEND_STRIP_IN = 1.7
 
 # Panels of the combined figure (common.figures.metric_grid owns its geometry);
-# the leftover cell holds the variant legend.
-GRID_METRICS = [
-    ("reward_unclipped", "Reward"),
-    ("normalized_noise", "Noise"),
-    ("normalized_fuel", "Fuel"),
-]
+# the leftover cell holds the variant legend. Which metrics get a panel is
+# common.colors.METRIC_TO_CAPTION, shared with every other sweep grid.
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -209,7 +206,7 @@ def plot_metric_grid(
     runs_name: str,
     scenario: str,
     output_dir: Path,
-    metrics: list[tuple[str, str]] = GRID_METRICS,
+    metrics: Mapping[str, str] = METRIC_TO_CAPTION,
     width: float = GRID_WIDTH,
     ncols: int = GRID_COLS,
 ) -> Path:
@@ -222,23 +219,23 @@ def plot_metric_grid(
     """
     fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
 
-    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
-        draw_metric_boxplot(ax, df, baseline_df, metric, ylabel, report=False)
-        grid_caption(ax, letter, ylabel)
+    for ax, letter, (metric, caption) in zip(panel_axes, PANEL_LETTERS, metrics.items()):
+        draw_metric_boxplot(ax, df, baseline_df, metric, METRICS[metric], report=False)
+        grid_caption(ax, letter, caption)
     legend_in_cell(fig, legend_ax, variant_legend_handles())
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"metrics_grid_{runs_name}_{scenario}.pdf"
     save(fig, out_path)
     plt.close(fig)
-    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    print("\n" + grid_latex_snippet(out_path, list(metrics.values()), width) + "\n")
     return out_path
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     _add_config_id(run_metrics)
     all_rows: list[dict] = []
-    for metric, ylabel in METRICS:
+    for metric, ylabel in METRICS.items():
         all_rows.extend(plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
             scenario, runs_root.name, output_dir,
@@ -305,6 +302,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
                        edgecolors="white", linewidths=0.5)
 
     # --- per-variant stacked bars ---
+    min_seed_rates = 1.0
     for variant in ("a", "b"):
         variant_cids = [c for c in config_ids if c.endswith(variant)]
         if not variant_cids:
@@ -325,6 +323,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
                           for _, row in breakdown[breakdown["config_id"] == cid].iterrows()}
             seeds = sorted(seed_rates)
             jitter = np.linspace(-0.06, 0.06, len(seeds))
+            min_seed_rates = min([min_seed_rates, *seed_rates.values()])
             for jit, seed in zip(jitter, seeds):
                 ax.scatter(xi_base + jit, seed_rates[seed],
                            color="black", s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
@@ -335,7 +334,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     ax.set_xlabel("Observation configuration group")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    ax.set_ylim(0.87, 1.01)
+    outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
 
     legend_handles = []

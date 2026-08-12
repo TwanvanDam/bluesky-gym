@@ -23,6 +23,7 @@ the segments above show *why* the rest failed.
 """
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -33,7 +34,7 @@ from scripts.common.colors import *
 from scripts.common.figures import (
     PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
     grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
-    paper_axes, save,
+    outcome_ylim, paper_axes, save,
 )
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
@@ -57,11 +58,6 @@ LEGEND_STRIP_IN = 1.7
 
 # Panels of the combined figure (common.figures.metric_grid owns its geometry);
 # the leftover cell holds the mode legend.
-GRID_METRICS = [
-    ("reward_unclipped", "Reward"),
-    ("normalized_noise", "Noise"),
-    ("normalized_fuel", "Fuel"),
-]
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -197,7 +193,7 @@ def plot_metric_grid(
     runs_name: str,
     scenario: str,
     output_dir: Path,
-    metrics: list[tuple[str, str]] = GRID_METRICS,
+    metrics: Mapping[str, str] = METRIC_TO_CAPTION,
     width: float = GRID_WIDTH,
     ncols: int = GRID_COLS,
 ) -> Path:
@@ -211,22 +207,22 @@ def plot_metric_grid(
     fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
 
     rows: list[dict] = []
-    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
-        rows.extend(draw_metric_boxplot(ax, df, baseline_df, metric, ylabel, report=False))
-        grid_caption(ax, letter, ylabel)
+    for ax, letter, (metric, caption) in zip(panel_axes, PANEL_LETTERS, metrics.items()):
+        rows.extend(draw_metric_boxplot(ax, df, baseline_df, metric, METRICS[metric], report=False))
+        grid_caption(ax, letter, caption)
     legend_in_cell(fig, legend_ax, mode_legend_handles())
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"metrics_grid_{runs_name}_{scenario}.pdf"
     save(fig, out_path)
     plt.close(fig)
-    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    print("\n" + grid_latex_snippet(out_path, list(metrics.values()), width) + "\n")
     return out_path
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     all_rows: list[dict] = []
-    for metric, ylabel in METRICS:
+    for metric, ylabel in METRICS.items():
         all_rows.extend(plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
             scenario, runs_root.name, output_dir,
@@ -297,6 +293,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
                        edgecolors="white", linewidths=0.5)
 
     # --- per-mode stacked bars ---
+    min_seed_rates = 1.0
     for mode in MODE_TO_OFFSET:
         mode_df = breakdown[breakdown["mode"] == mode]
         if mode_df.empty:
@@ -310,7 +307,6 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
             _bar(ax, xi + MODE_TO_OFFSET[mode], means[reason], bottom, MODE_TO_COLOR[mode], reason)
             bottom += means[reason]
             seen_reasons.add(reason)
-        min_seed_rates = 1
         for res in mode_resolutions:
             xi_base = resolutions.index(res) + 1 + MODE_TO_OFFSET[mode]
             seed_rates = {row["seed"]: row["success_rate"]
@@ -328,10 +324,7 @@ def plot_breakdown(breakdown, baseline_breakdown, baseline_seed_rates, runs_root
     ax.set_xlabel("Observation resolution [km/px]")
     ax.set_ylabel("Episode outcome fraction")
     ax.grid(axis="y")
-    if min_seed_rates > 0.87:
-        ax.set_ylim(0.87, 1.01)
-    else:
-        ax.set_ylim(0.0, 1.05)
+    outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
 
     legend_handles = []

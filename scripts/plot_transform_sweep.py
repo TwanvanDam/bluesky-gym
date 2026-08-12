@@ -18,6 +18,7 @@ to paste is printed at the end.
 """
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -28,7 +29,7 @@ from scripts.common.colors import *
 from scripts.common.figures import (
     PANEL_LETTERS, PLOT_TYPE_TO_SIZE, W_FULL,
     grid_caption, grid_latex_snippet, legend_in_cell, legend_right, metric_grid,
-    paper_axes, save,
+    outcome_ylim, paper_axes, save,
 )
 from scripts.common.sweep_plotting import (
     REASON_LABELS,
@@ -51,11 +52,6 @@ LEGEND_STRIP_IN = 1.7
 
 # Panels of the combined figure (common.figures.metric_grid owns its geometry);
 # the leftover cell holds the ID → variant key.
-GRID_METRICS = [
-    ("reward_unclipped", "Reward"),
-    ("normalized_noise", "Noise"),
-    ("normalized_fuel", "Fuel"),
-]
 GRID_COLS = 2
 GRID_WIDTH = W_FULL
 
@@ -192,7 +188,7 @@ def plot_metric_grid(
     runs_name: str,
     scenario: str,
     output_dir: Path,
-    metrics: list[tuple[str, str]] = GRID_METRICS,
+    metrics: Mapping[str, str] = METRIC_TO_CAPTION,
     width: float = GRID_WIDTH,
     ncols: int = GRID_COLS,
 ) -> Path:
@@ -203,25 +199,25 @@ def plot_metric_grid(
     and the legend costs nothing extra because it goes in the cell the odd
     number of metrics leaves empty.
     """
-    # No legend cell: the x axis carries the variant IDs and the ID → variant
-    # key lives in the paper's text, so the spare cell is left empty.
-    fig, panel_axes, _ = metric_grid(len(metrics), ncols=ncols, width=width, legend=False)
+    fig, panel_axes, legend_ax = metric_grid(len(metrics), ncols=ncols, width=width)
 
-    for ax, letter, (metric, ylabel) in zip(panel_axes, PANEL_LETTERS, metrics):
-        draw_metric_boxplot(ax, df, baseline_df, metric, ylabel, report=False)
-        grid_caption(ax, letter, ylabel)
+    for ax, letter, (metric, caption) in zip(panel_axes, PANEL_LETTERS, metrics.items()):
+        draw_metric_boxplot(ax, df, baseline_df, metric, METRICS[metric], report=False)
+        grid_caption(ax, letter, caption)
+    legend_in_cell(fig, legend_ax, variant_legend_handles(df), ncol=2,
+                   handlelength=1.2, columnspacing=0.5, handletextpad=0.5)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"metrics_grid_{runs_name}_{scenario}.pdf"
     save(fig, out_path)
     plt.close(fig)
-    print("\n" + grid_latex_snippet(out_path, [label for _, label in metrics], width) + "\n")
+    print("\n" + grid_latex_snippet(out_path, list(metrics.values()), width) + "\n")
     return out_path
 
 
 def plot_metrics(run_metrics, baseline_metrics, runs_root, scenario, output_dir):
     all_rows: list[dict] = []
-    for metric, ylabel in METRICS:
+    for metric, ylabel in METRICS.items():
         all_rows.extend(plot_metric_boxplot(
             run_metrics, baseline_metrics, metric, ylabel,
             scenario, runs_root.name, output_dir,
@@ -282,11 +278,13 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
         bottom += means[reason]
         seen_reasons.add(reason)
 
+    min_seed_rates = 1.0
     for i, v in enumerate(variants):
         seed_rates = {row["seed"]: row["success_rate"]
                       for _, row in df[df["variant"] == v].iterrows()}
         seeds = sorted(seed_rates)
         jitter = np.linspace(-0.06, 0.06, len(seeds))
+        min_seed_rates = min([min_seed_rates, *seed_rates.values()])
         for jit, seed in zip(jitter, seeds):
             ax.scatter(x[i] + x_offset + jit, seed_rates[seed],
                        color="black", s=DOT_SIZE, zorder=5, alpha=DOT_ALPHA,
@@ -301,7 +299,7 @@ def plot_episode_success(ax, df: pd.DataFrame, baseline_breakdown=None, baseline
     ax.set_ylabel("Episode outcome fraction")
     ax.set_xlabel("Domain Randomization ID")
     ax.grid(axis="y")
-    ax.set_ylim(0.90, 1.01)
+    outcome_ylim(ax, min_seed_rates)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
 
     legend_handles = []

@@ -67,8 +67,9 @@ VARIANT_TO_COLOR = {
 
 # Only the unclipped reward is plotted here — the point of the figure is the
 # multi-scale gain on one axis, and the fuel/noise breakdown already has its own
-# panels in the two source sweeps. The axis is labelled plain "Reward".
-PLOT_METRICS = [("reward_unclipped", "Reward")]
+# panels in the two source sweeps. The axis label is the shared one, so this
+# panel reads the same as the reward panel of either source sweep.
+PLOT_METRICS = ["reward_unclipped"]
 
 COMPARISONS = [
     ("c2", "5a", "c16"),
@@ -180,9 +181,9 @@ if __name__ == "__main__":
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     all_rows: list[dict] = []
-    for metric, ylabel in PLOT_METRICS:
+    for metric in PLOT_METRICS:
         all_rows.extend(plot_metric_boxplot(
-            df, None, metric, ylabel, args.scenario, "weird_comparison", args.output_dir,
+            df, None, metric, METRICS[metric], args.scenario, "weird_comparison", args.output_dir,
         ))
 
     csv_path = args.output_dir / f"boxplot_stats_weird_comparison_{args.scenario}.csv"

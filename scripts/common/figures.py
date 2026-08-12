@@ -56,6 +56,22 @@ PLOT_TYPE_TO_SIZE = {
     "sweep_frontier" : (W_THREEQ, H_PLOT),   # fuel-noise frontier + two legends
 }
 
+OUTCOME_Y_LIMITS = ((0.8,1.01), (0.0,1.05))
+OUTCOME_Y_TICKS = 5
+
+
+def outcome_ylim(ax, min_seed_rate: float) -> None:
+    """Y-axis for an episode-outcome / success plot.
+
+    Zooms into the top of the range when every per-seed dot stays above it,
+    otherwise shows the full 0-100%. Ticks are evenly spaced up to 100% in
+    both cases so that outcome panels across the paper share tick positions.
+    """
+    zoomed, full = OUTCOME_Y_LIMITS
+    lo, hi = zoomed if min_seed_rate > zoomed[0] else full
+    ax.set_ylim(lo, hi)
+    ax.set_yticks(np.linspace(lo, 1.00, OUTCOME_Y_TICKS))
+
 # Margins in inches, identical for every figure so that axes boxes, tick text
 # and y-labels line up when two figures share a page.
 MARGIN_IN = {"left": 0.62, "right": 0.10, "bottom": 0.42, "top": 0.08}
