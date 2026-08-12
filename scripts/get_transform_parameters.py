@@ -198,7 +198,9 @@ def plot_tone_curves(transforms: list[tuple[object, str]], labels:list[str], sim
     legend = legend_right(ax, frameon=True, framealpha=1)
     legend.get_frame().set_edgecolor('k')
     ax.grid(True, alpha=0.3)
-    save(fig, "plots/augmentation/tone_curves.pdf", transparent=True)
+    save_dir = Path("plots/augmentation")
+    save_dir.mkdir(exist_ok=True, parents=True)
+    save(fig, save_dir / "tone_curves.pdf", transparent=True)
     plt.show()
 
 

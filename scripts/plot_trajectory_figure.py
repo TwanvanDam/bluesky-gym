@@ -523,7 +523,8 @@ if __name__ == "__main__":
 
     spec_rows = parse_spec(args.spec)
     print(f"{args.spec}: {sum(len(r) for r in spec_rows)} panels in {len(spec_rows)} row(s)")
-    out_path = args.out if args.out else args.spec.with_suffix(".pdf")
+    out_path = args.out if args.out else Path("plots/trajectories") / args.spec.with_suffix(".pdf").name
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     bs.init()
     panels = load_panels(spec_rows, make_transformer())
     plot_figure(panels, out_path, background_map=args.background_map_path, width=args.width,
