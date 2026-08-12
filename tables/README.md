@@ -5,6 +5,7 @@ uv run scripts/create_means_table.py runs/multi-scale-sweep/cached_metrics_EDDF_
 uv run scripts/create_means_table.py runs/transforms/cached_metrics_EDDF_RW25R.csv --baseline runs/transforms/cached_baseline_metrics_EDDF_RW25R.csv -o tables/transform_means.tex
 uv run scripts/create_means_table.py runs/generalization/cached_metrics_EHAM_RW27.csv --group-by config -o tables/generalization_means.tex
 ```
+`uv run scripts/plot_density_scaling_sweep.py runs/scaling --runway EDDF_RW25R --use-cache` Produces a table with failure rates, next to the frontier plot.
 ### Row labels used in the paper's tables
 | Paper label                     | Runs                                              |
 |---------------------------------| ------------------------------------------------- |

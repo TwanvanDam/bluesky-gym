@@ -18,14 +18,15 @@ uv run scripts/merge_population_maps.py /path/to/downloads/GHS_POP_E2025_GLOBE_R
 
 
 ## Model structure
-The model consists of a navigation module in `bluesky-gym/envs/base_navigation_env.py` and a wrapper `bluesky-gym/wrappers/population.py` that add the population density maps and noise reward
+The model consists of a navigation module in `bluesky_gym/envs/base_navigation_env.py` and a wrapper `bluesky_gym/wrappers/population.py` that add the population density maps and noise reward
+Different types of population density maps are supported: in `bluesky_gym/maps/` a Tiff, transformed-Tiff, and a procedurally generated random map are implemented. 
 
 ## Runs
-Extract the relevant zip-files in the `run` directory
+Extract the relevant zip-files in the `runs` directory
 Each run has the following structure:
 ```
 runs/
-└── {env_name}/
+└── {sweep_name}/
     └── {run_name}/
         ├── config.yaml           # Experiment configation as defined by config.py
         ├── best_model.zip        # Best trained model
@@ -33,15 +34,17 @@ runs/
         ├── tensorboard/          # TensorBoard event files (only for the runs that use it to plot training rewards)
         └── trajectories/         # Trajectory data using the trained policy (one directory per runway) 
 ```
+The zip archives contain cached metrics, so figures and tables are quickly generated.
+Superseded and stale runs are not included as zip files.
 
 ### Render environment
-`uv run scripts/show_experiment runs/{env_name}/{run_name} --runway EHAM/RW27`
+`uv run scripts/show_experiment.py runs/{sweep_name}/{run_name} --runway EHAM/RW27`
 
 Any runway in the BlueSky database will work.
-space pauses the simulation, r displays a radius of 250 km center at the airport, b displays the 10% borders
+space pauses the simulation, `r` displays a radius of 250 km center at the airport, `b` displays the 10% borders
 
 ### Run experiment (Train a policy)
-To run the training of experiment defined by `scripts/config.py` with seed `0`
+To run the training of experiment defined by `config.yaml`, with a schema from `scripts/config.py` with seed `0`
 ```shell
 uv run scripts/run_experiment.py config.yaml --seed 0
 ```
@@ -49,7 +52,7 @@ The scripts in `HPC` are used to train in parallel on a HPC.
 
 ### Generate trajectories
 ```shell
-scripts/generate_all_trajectories.sh`
+scripts/generate_all_trajectories.sh
 ```
 
 ### Transform Parameters
@@ -58,7 +61,7 @@ uv run scripts/get_transform_parameters.py
 ```
 ### Generate density scaling sweep
 ```shell
-scripts/generate_density_scaling.sh runs/scaling`
+scripts/generate_density_scaling.sh runs/scaling
 ```
 Performs the density scaling sweep for all the runs in the `runs/scaling` directory
 
@@ -76,9 +79,8 @@ Instructions on how to generate the tables and figures in the paper can be found
 | Density frontier     | `generalization-density-scaling` | `runs/scaling/`              | contains duplicates                 |
 | Appendix             | `appendix`                       | `runs/appendix/`             | contains tensorboard training logs  |
 | Alignment            | `appendix-map-alignment`         | `runs/convergence/`          | contains duplicates                 |
-| Groot et al. model | `groot-reference-model` | `runs/groot_legacy_model` | Used as a comparison at EHAM RW27   |
 
-The Groot et al. model is represented by `groot-reference-model` (`runs/groot_legacy_model`) and is  used as a comparison at EHAM RW27
+The Groot et al. model is represented by `groot-reference-model` (`runs/groot_legacy_model`) and is used as a comparison at EHAM RW27
 
 # BlueSky-Gym
 A gymnasium style library for standardized Reinforcement Learning research in Air Traffic Management developed in Python.
