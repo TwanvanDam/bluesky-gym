@@ -15,15 +15,13 @@
 set -euo pipefail
 
 source_root="runs"
-map_tiff="scripts/population_maps/europe_3035_1km.tif"
 export_root="$HOME/Downloads/runs_export"
 archive_root="$HOME/Downloads/runs_export_zips"
 
 # Per-run files, copied when present.
 run_files=(config.yaml metadata.json best_model.zip)
 
-# Per-run directories, copied whole. tensorboard/ is left out for now; the
-# appendix reward-curve figures will need it back.
+# Per-run directories, copied whole. tensorboard/ is only copied for the runs that need it (appendix)
 run_directories=(eval)
 
 # The only files kept from a run's trajectories/ directory.
@@ -172,14 +170,6 @@ fi
 echo "Exporting $source_root -> $export_root"
 mkdir -p "$export_root"
 export_directory "$source_root" "$export_root"
-
-# The population map is exported to the repository root
-if [[ -f "$map_tiff" ]]; then
-    echo "  map  $map_tiff"
-    cp --preserve=timestamps "$map_tiff" "$export_root/"
-else
-    echo "warning: $map_tiff not found, map not exported" >&2
-fi
 
 if [[ "$create_archives" == true ]]; then
     echo
