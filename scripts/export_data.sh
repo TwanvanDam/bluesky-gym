@@ -3,11 +3,8 @@
 # Copy the published subset of runs/ into runs_export/.
 #
 # Keeps: config.yaml, metadata.json, best_model.zip, trajectory data,
-# tensorboard event files, cached metrics.
+# tensorboard event files (only for runs that have training reward plots), cached metrics.
 # Drops: checkpoints/, slurm/, rendered plots.
-#
-# Symlinks are dereferenced, so every run in the export is a real directory and
-# the views (generalization/, scaling/, appendix/) hold their own copies.
 #
 # Usage: scripts/export_data.sh [--zip]
 #
@@ -18,8 +15,9 @@
 set -euo pipefail
 
 source_root="runs"
-export_root="~/Downloads/runs_export"
-archive_root="~/Downloads/runs_export_zips"
+map_tiff="scripts/population_maps/europe_3035_1km.tif"
+export_root="$HOME/Downloads/runs_export"
+archive_root="$HOME/Downloads/runs_export_zips"
 
 # Per-run files, copied when present.
 run_files=(config.yaml metadata.json best_model.zip)
@@ -33,6 +31,21 @@ trajectory_files=(trajectories.csv details.json details.pkl)
 
 # Loose files kept from a sweep root: cached metrics, frontier tables, legends.
 sweep_root_files=("*.csv" "*.txt")
+
+# Archive filenames only. The directory names stored inside an archive are
+# unchanged, so scripts and documented commands keep working after extraction.
+# Anything not listed here keeps its directory name.
+declare -A archive_names=(
+    [resolution_sweep_2]="observation-geometry"
+    [multi-scale-sweep]="multi-scale"
+    [transforms]="domain-randomization"
+    [convergence]="appendix-map-alignment"
+    [BaseNavigationEnv-v0]="baseline-no-map"
+    [generalization]="generalization-EHAM"
+    [scaling]="generalization-density-scaling"
+    [appendix]="appendix"
+    [groot_legacy_model]="groot-reference-model"
+)
 
 tensorboard_directory="tensorboard"
 keep_tensorboard=(
@@ -160,14 +173,25 @@ echo "Exporting $source_root -> $export_root"
 mkdir -p "$export_root"
 export_directory "$source_root" "$export_root"
 
+# The population map is exported to the repository root
+if [[ -f "$map_tiff" ]]; then
+    echo "  map  $map_tiff"
+    cp --preserve=timestamps "$map_tiff" "$export_root/"
+else
+    echo "warning: $map_tiff not found, map not exported" >&2
+fi
+
 if [[ "$create_archives" == true ]]; then
     echo
     echo "Archiving $export_root -> $archive_root"
     mkdir -p "$archive_root"
+    archive_path="$(realpath "$archive_root")"
     for directory in "$export_root"/*/; do
         name="$(basename "$directory")"
-        ( cd "$export_root" && zip --recurse-paths --quiet "../$archive_root/$name.zip" "$name" )
-        printf '  %-28s %s\n' "$name.zip" "$(du -h "$archive_root/$name.zip" | cut -f1)"
+        archive_name="${archive_names[$name]:-$name}"
+        ( cd "$export_root" && zip --recurse-paths --quiet "$archive_path/$archive_name.zip" "$name" )
+        printf '  %-26s %6s  (extracts to %s/)\n' \
+            "$archive_name.zip" "$(du -h "$archive_path/$archive_name.zip" | cut -f1)" "$name"
     done
 fi
 
