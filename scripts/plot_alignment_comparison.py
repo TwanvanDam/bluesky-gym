@@ -365,7 +365,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-metrics", action="store_true",
                         help="Skip metrics plots (quicker; does not require bluesky/map)")
     parser.add_argument("--cache", action="store_true", default=False,
-                        help="Read/write cached per-runway metric CSV under runs/; "
+                        help="Read/write cached per-runway metric CSV under runs/convergence; "
                              "a cache hit skips bluesky init and metric recomputation")
     args = parser.parse_args()
 
@@ -383,7 +383,7 @@ if __name__ == "__main__":
 
     if not args.no_metrics:
         runway_id = runway.replace("/", "_")
-        cache_path = ROOT / f"cached_alignment_metrics_{runway_id}.csv"
+        cache_path = ROOT / "convergence" / f"cached_alignment_metrics_{runway_id}.csv"
         if args.cache and cache_path.exists():
             print(f"\nUsing cached metric data from {cache_path} ...")
             metric_df = pd.read_csv(cache_path)

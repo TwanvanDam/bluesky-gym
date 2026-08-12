@@ -1,3 +1,152 @@
+# To get all plots run:
+## uv venv:
+```shell
+uv sync
+```
+
+### Observation modes figure
+```shell
+uv run scripts/visualize_observation_modes.py 
+```
+
+## Runs
+Extract the relevant zip-files in the `run` directory
+Each run has the following structure:
+```
+runs/
+└── {env_name}/
+    └── {run_name}/
+        ├── config.yaml           # Experiment configation as defined by config.py
+        ├── best_model.zip        # Best trained model
+        ├── metadata.json         # Run metadata (slurm_job_id, status, timestamps)
+        ├── tensorboard/          # TensorBoard event files
+        └── trajectories/         # Trajectory data using the trained policy (one directory per runway) 
+```
+
+## Paper ↔ run directory map
+
+Directory names predate the labels used in the paper. Each run also records its own
+identity in `metadata.json` (`run_name`, `config_stem`), so a name found in a config,
+a log or a filename can always be traced back here.
+
+### Sweeps → paper sections
+
+| Paper section        | Directory                   | Models |
+| -------------------- | --------------------------- | ------ |
+| Observation geometry | `runs/resolution_sweep_2/`  | 33     |
+| Multi-scale          | `runs/multi-scale-sweep/`   | 30     |
+| Domain randomization | `runs/transforms/`          | 30     |
+| Alignment            | `runs/convergence/`         | 6      |
+| Baseline (no map)    | `runs/BaseNavigationEnv-v0/`| 6      |
+| Generalization       | `runs/generalization/`      | *view* |
+| Density frontier     | `runs/scaling/`             | *view* |
+| Appendix             | `runs/appendix/`            | *none* |
+
+`runs/generalization/` and `runs/scaling/` hold no models of their own — they are
+symlink views selecting runs from the sweeps above, so one trained policy can be
+evaluated under a second scenario without being duplicated.
+
+`runs/appendix/` contains evaluation trajectories only. Those figures can be
+regenerated, but the corresponding agents cannot be replayed.
+
+### Row labels used in the paper's tables
+
+| Paper label                  | Runs                                              |
+| ---------------------------- | ------------------------------------------------- |
+| `No-map`                     | `runs/BaseNavigationEnv-v0/sweep_2_no_map_seed0*` |
+| `C4`                         | `runs/resolution_sweep_2/sweep_2_centered_4_seed0*` |
+| `Baseline` (transform table) | `runs/transforms/transformed_baseline_seed0*`     |
+
+`C4` is the reference row of the multi-scale and transform tables and is supplied via
+`--baseline`. Note that `create_means_table.py` labels any `--baseline` row `No-map`,
+so the first row of the transform table has to be relabelled `C4` by hand.
+
+### Appendix
+
+| Appendix content                        | Directory                                     | Produced by                                     |
+| --------------------------------------- | --------------------------------------------- | ----------------------------------------------- |
+| First resolution sweep (breakdown)      | `runs/appendix/resolution_sweep_1_backfill/`  | `plot_resolution_sweep.py --plots breakdown`    |
+| Converged vs. never-converged seed      | `runs/appendix/resolution_sweep_1_backfill/centered_16_seed0{1,2}` | `plots/trajectories/appendix_trajectories.txt` |
+| Initial exploration trajectories        | `runs/appendix/{Small_high_rewards,Mulitscale_bigger}/` | `plots/trajectories/initial_exploration.txt` |
+| Reward curves — baseline seeds          | `runs/appendix/centered_16/`                  | `plot_run_rewards.py`                           |
+| Reward curves — lower learning rate     | `runs/appendix/centered_16_learning_lower_correct/` | `plot_run_rewards.py`                     |
+| Reward curves — ablation                | `runs/appendix/centered_16_ablation/`         | `plot_run_rewards.py`                           |
+
+The three reward-curve directories are symlink views into the exploratory run set
+(`resolution_sweep_1` and `stability_sweep`), and `plot_run_rewards.py` reads
+TensorBoard event files directly — so those runs must include their `tensorboard/`
+directory, unlike the sweep runs above, which are driven from cached metrics.
+
+`runs/appendix/forward_16/` is a symlink view that no figure or command references.
+Place the dataset inside
+`scripts/population_maps`
+
+### Render environment
+`uv run scripts/show_experiment runs/{env_name}/{run_name} --runway EHAM/RW27`
+
+Any runway in the BlueSky database will work.
+space pauses the simulation, r displays a radius of 250 km center at the airport, b displays the 10% borders
+
+### Map dataset coverage
+```shell
+uv run scripts/inspect_population_maps.py --exclusion 52.308 4.764 250
+```
+
+### Transform Parameters
+```shell
+uv run scripts/get_transform_parameters.py `
+```
+### Run experiment (Train a policy)
+To run the training of experiment defined by `config.yaml` with seed `0`
+```shell
+uv run scripts/run_experiment.py config.yaml --seed 0
+```
+The scripts in `HPC` are used to train in parallel on a HPC.
+
+### Generate trajectories
+```shell
+scripts/generate_all_trajectories.sh`
+```
+
+### Generate density scaling sweep
+```shell
+scripts/generate_density_scaling.sh runs/scaling`
+```
+Performs the density scaling sweep for all the runs in the `runs/scaling` directory
+
+## Plots
+```shell
+uv run scripts/plot_resolution_sweep.py runs/resolution_sweep_2 --scenario EDDF_RW25R --cache --baseline runs/BaseNavigationEnv-v0/sweep_2_no_map_seed0*
+uv run scripts/plot_multi_scale_sweep.py runs/multi-scale-sweep --scenario EDDF_RW25R --cache --baseline runs/resolution_sweep_2/sweep_2_centered_4_seed0*
+uv run scripts/plot_transform_sweep.py runs/transforms --scenario EDDF_RW25R --cache --baseline runs/resolution_sweep_2/sweep_2_centered_4_seed0*  
+uv run scripts/plot_generalization_sweep.py runs/generalization --scenario EHAM_RW27 --cache
+uv run scripts/plot_density_scaling_sweep.py runs/scaling --runway EDDF_RW25R --use-cache
+uv run scripts/plot_resolution_sweep.py runs/appendix/resolution_sweep_1_backfill --scenario EDDF_RW25R --plots breakdown --baseline runs/BaseNavigationEnv-v0/no_map_seed0*
+```
+```shell
+uv run scripts/plot_trajectory_figure.py plots/trajectories/observation_geometry.txt --legend
+uv run scripts/plot_trajectory_figure.py plots/trajectories/generalization_trajectories.txt --legend
+uv run scripts/plot_trajectory_figure.py plots/trajectories/generalization_scaling.txt --legend
+uv run scripts/plot_trajectory_figure.py plots/trajectories/generalization_failures.txt --legend
+uv run scripts/plot_trajectory_figure.py plots/trajectories/initial_exploration.txt --width 0.75 --legend
+uv run scripts/plot_trajectory_figure.py plots/trajectories/appendix_trajectories.txt --width 0.75 --legend
+```
+
+## Means tables
+```shell
+uv run scripts/create_means_table.py runs/resolution_sweep_2/cached_metrics_EDDF_RW25R.csv --baseline runs/resolution_sweep_2/cached_baseline_metrics_EDDF_RW25R.csv -o tables/observation_geometry_means.tex
+uv run scripts/create_means_table.py runs/multi-scale-sweep/cached_metrics_EDDF_RW25R.csv --baseline runs/multi-scale-sweep/cached_baseline_metrics_EDDF_RW25R.csv -o tables/multi_scale_means.tex
+uv run scripts/create_means_table.py runs/transforms/cached_metrics_EDDF_RW25R.csv --baseline runs/transforms/cached_baseline_metrics_EDDF_RW25R.csv -o tables/transform_means.tex
+uv run scripts/create_means_table.py runs/generalization/cached_metrics_EHAM_RW27.csv --group-by config -o tables/generalization_means.tex
+```
+
+## Training reward curves
+```shell
+uv run scripts/plot_run_rewards.py runs/appendix/centered_16
+uv run scripts/plot_run_rewards.py runs/appendix/centered_16_learning_lower_correct
+uv run scripts/plot_run_rewards.py runs/appendix/centered_16_ablation
+```
+
 # BlueSky-Gym
 A gymnasium style library for standardized Reinforcement Learning research in Air Traffic Management developed in Python.
 Built on [BlueSky](https://github.com/TUDelft-CNS-ATM/bluesky) and The Farama Foundation's [Gymnasium](https://github.com/Farama-Foundation/Gymnasium)

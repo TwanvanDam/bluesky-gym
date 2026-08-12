@@ -40,6 +40,7 @@ if __name__ == '__main__':
     parser.add_argument("run_name", type=str, help="Run reference (e.g. 'PopulationWrapper-v0/RealMap_base_2026-...')")
     parser.add_argument("--runway", type=str, help="Runway to set as destination for rendering (e.g.: EHAM/RW18R)")
     parser.add_argument("--map_type", type=str, default="real_clipped", help="Whether to use the real population map for this example (overrides any map in the original config)")
+    parser.add_argument("--map_path", type=str, default="scripts/population_maps/europe_3035_1km.tif", help="map dataset location (default = scripts/population_maps/europe_3035_1km.tif)")
     args = parser.parse_args()
 
     run_ref = args.run_name
@@ -49,9 +50,9 @@ if __name__ == '__main__':
         case "original":
             validation_map = None  # Use the map from the original config (if any)
         case "real":
-            validation_map = TiffMapSourceConfig(file_path="scripts/population_maps/europe_3035_1km.tif", source_unit="people_per_pixel")
+            validation_map = TiffMapSourceConfig(file_path=args.map_path, source_unit="people_per_pixel")
         case "real_clipped":
-            validation_map = TransformedTiffMapSourceConfig(file_path="scripts/population_maps/europe_3035_1km.tif", source_unit="people_per_pixel", spatial_transforms=[], value_transforms=[Clip(percentile=99.9)], window_margin_m=0)
+            validation_map = TransformedTiffMapSourceConfig(file_path=args.map_path, source_unit="people_per_pixel", spatial_transforms=[], value_transforms=[Clip(percentile=99.9)], window_margin_m=0)
         case "zero":
             validation_map = RandomMapSourceConfig(type="zero", resolution_m=1000, source_unit="people_per_pixel")
         case "random":

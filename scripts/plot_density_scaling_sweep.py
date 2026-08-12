@@ -573,7 +573,7 @@ def main() -> None:
         print(f"Saved plot → {variant_path}")
     failure_path = plot_failure_rate(rates, args.runway, args.runs_root.name, output_dir)
     print(f"Saved plot → {failure_path}")
-    table_path = export_failure_table(df, KEEP_REASONS, args.runway, args.runs_root.name, Path("~/Thesis-Paper---Twan-van-Dam/content/results/tables"))
+    table_path = export_failure_table(df, KEEP_REASONS, args.runway, args.runs_root.name, Path("tables"))
     print(f"Saved table → {table_path}")
 
 

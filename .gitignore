@@ -15,3 +15,8 @@ dist/
 /scripts/population_maps/
 /AGENTS.md
 *.png
+/plots/
+/scratch/
+/comparisons/
+/videos/
+/figures/
