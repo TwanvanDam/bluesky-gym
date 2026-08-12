@@ -9,12 +9,16 @@ uv sync
 Download a population density dataset 
 This paper uses:
 GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0_R{3,4,5}_C{18,19,20,21}.tif  
-from ([dataset](https://human-settlement.emergency.copernicus.eu/download.php?ds=pop)
+from ([dataset](https://human-settlement.emergency.copernicus.eu/download.php?ds=pop))
 
 ```shell
 uv run scripts/merge_population_maps.py /path/to/downloads/GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0_R{3,4,5}_C{18,19,20,21}.tif \
     --output scripts/population_maps/europe_3035_1km.tif
 ```
+
+
+## Model structure
+The model consists of a navigation module in `bluesky-gym/envs/base_navigation_env.py` and a wrapper `bluesky-gym/wrappers/population.py` that add the population density maps and noise reward
 
 ## Runs
 Extract the relevant zip-files in the `run` directory
@@ -29,6 +33,36 @@ runs/
         ├── tensorboard/          # TensorBoard event files (only for the runs that use it to plot training rewards)
         └── trajectories/         # Trajectory data using the trained policy (one directory per runway) 
 ```
+
+### Render environment
+`uv run scripts/show_experiment runs/{env_name}/{run_name} --runway EHAM/RW27`
+
+Any runway in the BlueSky database will work.
+space pauses the simulation, r displays a radius of 250 km center at the airport, b displays the 10% borders
+
+### Run experiment (Train a policy)
+To run the training of experiment defined by `scripts/config.py` with seed `0`
+```shell
+uv run scripts/run_experiment.py config.yaml --seed 0
+```
+The scripts in `HPC` are used to train in parallel on a HPC.
+
+### Generate trajectories
+```shell
+scripts/generate_all_trajectories.sh`
+```
+
+### Transform Parameters
+```shell
+uv run scripts/get_transform_parameters.py
+```
+### Generate density scaling sweep
+```shell
+scripts/generate_density_scaling.sh runs/scaling`
+```
+Performs the density scaling sweep for all the runs in the `runs/scaling` directory
+
+Instructions on how to generate the tables and figures in the paper can be found in [Figures readme](plots/README.md) and [Tables readme](tables/README.md)
 
 ### Sweeps → paper sections
 
@@ -45,95 +79,6 @@ runs/
 | Groot et al. model | `groot-reference-model` | `runs/groot_legacy_model` | Used as a comparison at EHAM RW27   |
 
 The Groot et al. model is represented by `groot-reference-model` (`runs/groot_legacy_model`) and is  used as a comparison at EHAM RW27
-
-
-
-### Render environment
-`uv run scripts/show_experiment runs/{env_name}/{run_name} --runway EHAM/RW27`
-
-Any runway in the BlueSky database will work.
-space pauses the simulation, r displays a radius of 250 km center at the airport, b displays the 10% borders
-
-### Map dataset coverage
-```shell
-uv run scripts/inspect_population_maps.py --exclusion 52.308 4.764 250
-```
-
-### Observation modes figure
-```shell
-uv run scripts/visualize_observation_modes.py 
-```
-
-### Transform Parameters
-```shell
-uv run scripts/get_transform_parameters.py
-```
-
-
-### Run experiment (Train a policy)
-To run the training of experiment defined by `config.yaml` with seed `0`
-```shell
-uv run scripts/run_experiment.py config.yaml --seed 0
-```
-The scripts in `HPC` are used to train in parallel on a HPC.
-
-### Generate trajectories
-```shell
-scripts/generate_all_trajectories.sh`
-```
-
-### Generate density scaling sweep
-```shell
-scripts/generate_density_scaling.sh runs/scaling`
-```
-Performs the density scaling sweep for all the runs in the `runs/scaling` directory
-
-## Plots
-### plot sweep overviews
-```shell
-uv run scripts/plot_resolution_sweep.py runs/resolution_sweep_2 --scenario EDDF_RW25R --cache --baseline runs/BaseNavigationEnv-v0/sweep_2_no_map_seed0*
-uv run scripts/plot_multi_scale_sweep.py runs/multi-scale-sweep --scenario EDDF_RW25R --cache --baseline runs/resolution_sweep_2/sweep_2_centered_4_seed0*
-uv run scripts/plot_transform_sweep.py runs/transforms --scenario EDDF_RW25R --cache --baseline runs/resolution_sweep_2/sweep_2_centered_4_seed0*  
-uv run scripts/plot_generalization_sweep.py runs/generalization --scenario EHAM_RW27 --cache
-uv run scripts/plot_density_scaling_sweep.py runs/scaling --runway EDDF_RW25R --use-cache
-uv run scripts/plot_resolution_sweep.py runs/appendix/resolution_sweep_1_backfill --scenario EDDF_RW25R --plots breakdown --baseline runs/BaseNavigationEnv-v0/no_map_seed0*
-uv run scripts/plot_alignment_comparison.py --cache --runway EDDF_RW25R
-```
-
-### Plot trajectories
-```shell
-uv run scripts/plot_trajectory_figure.py runs/resolution_sweep_2/observation_geometry.txt --legend
-uv run scripts/plot_trajectory_figure.py runs/generalization/generalization_trajectories.txt --legend
-uv run scripts/plot_trajectory_figure.py runs/generalization/generalization_scaling.txt --legend
-uv run scripts/plot_trajectory_figure.py runs/generalization/generalization_failures.txt --legend
-uv run scripts/plot_trajectory_figure.py runs/appendix/initial_exploration.txt --width 0.75 --legend
-uv run scripts/plot_trajectory_figure.py runs/appendix/appendix_trajectories.txt --width 0.75 --legend
-```
-
-## Means tables
-```shell
-uv run scripts/create_means_table.py runs/resolution_sweep_2/cached_metrics_EDDF_RW25R.csv --baseline runs/resolution_sweep_2/cached_baseline_metrics_EDDF_RW25R.csv -o tables/observation_geometry_means.tex
-uv run scripts/create_means_table.py runs/multi-scale-sweep/cached_metrics_EDDF_RW25R.csv --baseline runs/multi-scale-sweep/cached_baseline_metrics_EDDF_RW25R.csv -o tables/multi_scale_means.tex
-uv run scripts/create_means_table.py runs/transforms/cached_metrics_EDDF_RW25R.csv --baseline runs/transforms/cached_baseline_metrics_EDDF_RW25R.csv -o tables/transform_means.tex
-uv run scripts/create_means_table.py runs/generalization/cached_metrics_EHAM_RW27.csv --group-by config -o tables/generalization_means.tex
-```
-### Row labels used in the paper's tables
-| Paper label                     | Runs                                              |
-|---------------------------------| ------------------------------------------------- |
-| `No-map` (observation geometry) | `runs/BaseNavigationEnv-v0/sweep_2_no_map_seed0*` |
-| `No-map` (appendix)             | `runs/BaseNavigationEnv-v0/no_map_seed0*` |
-| `C4` / `C4-old`                 | `runs/resolution_sweep_2/sweep_2_centered_4_seed0*` |
-
-`C4` is the reference row of the multi-scale and transform tables and is supplied via
-`--baseline`. Note that `create_means_table.py` labels any `--baseline` row `No-map`,
-so the first row of the transform table has to be relabelled `C4` by hand.
-
-## Training reward curves
-```shell
-uv run scripts/plot_run_rewards.py runs/appendix/centered_16
-uv run scripts/plot_run_rewards.py runs/appendix/centered_16_learning_lower_correct
-uv run scripts/plot_run_rewards.py runs/appendix/centered_16_ablation
-```
 
 # BlueSky-Gym
 A gymnasium style library for standardized Reinforcement Learning research in Air Traffic Management developed in Python.
